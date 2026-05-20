@@ -17,7 +17,8 @@
 
             --click-x: 50%;
             --click-y: 50%;
-            --ripple-speed: 1.4s;
+            --ripple-speed: 1.1s; /* ⏱️ 你之前修改的 1.1s */
+            --hover-shadow: rgba(0, 0, 0, 0.3);
         }
 
         [data-theme="light"] {
@@ -26,6 +27,7 @@
             --text-main: #1f2937;
             --text-muted: #6b7280;
             --border-color: #e5e7eb;
+            --hover-shadow: rgba(0, 0, 0, 0.08);
         }
 
         /* ==========================================
@@ -33,52 +35,64 @@
            ========================================== */
         ::view-transition-group(root) { animation: none; }
         ::view-transition-old(root) { animation: none; z-index: 1; }
-        ::view-transition-new(root) {
-            z-index: 9999;
-            animation: ripple-spread var(--ripple-speed) cubic-bezier(0.25, 1, 0.3, 1) both;
-        }
+        ::view-transition-new(root) { z-index: 9999; animation: ripple-spread var(--ripple-speed) cubic-bezier(0.25, 1, 0.3, 1) both; }
         @keyframes ripple-spread {
             0% { clip-path: circle(0px at var(--click-x) var(--click-y)); }
             100% { clip-path: circle(150% at var(--click-x) var(--click-y)); }
         }
 
-        body {
-            margin: 0; font-family: sans-serif; display: flex; height: 100vh;
-            background-color: var(--bg-color); color: var(--text-main);
-            transition: background-color 0.3s, color 0.3s;
-        }
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; height: 100vh; background-color: var(--bg-color); color: var(--text-main); transition: background-color 0.3s, color 0.3s; }
 
         /* ==========================================
-           3. 基础布局及侧边栏样式
+           3. 全新侧边栏布局
            ========================================== */
-        .sidebar { width: 250px; background-color: var(--sidebar-bg); transition: width 0.3s; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border-color); }
-        .sidebar.collapsed { width: 70px; }
-        .sidebar-header { padding: 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); }
-        .toggle-btn { background: none; border: none; color: var(--text-main); cursor: pointer; font-size: 20px; }
-
-        /* 导航链接基本样式 */
-        .nav-links { list-style: none; padding: 0; margin: 0; flex: 1; }
-        .nav-links li a { display: flex; align-items: center; padding: 15px 20px; color: var(--text-muted); text-decoration: none; white-space: nowrap; transition: 0.2s; }
-        .nav-links li a:hover { background-color: rgba(128, 128, 128, 0.05); color: var(--primary-color); }
-
-        /* ====== ✨ 新增：当前激活/选中的导航菜单样式 ====== */
-        .nav-links li.active a {
-            color: var(--primary-color); /* 文字直接受自定义主题色影响 */
-            background-color: rgba(128, 128, 128, 0.04);
-            font-weight: bold;
+        .sidebar {
+            width: 260px; background-color: var(--sidebar-bg); transition: width 0.3s;
+            display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border-color);
         }
-        .nav-links li.active .icon {
-            filter: drop-shadow(0 0 2px var(--primary-color)); /* 给激活的图标加一点点主题色微光 */
+        .sidebar.collapsed { width: 75px; }
+
+        /* 头部 Logo 区域 */
+        .sidebar-header {
+            padding: 25px 20px; display: flex; align-items: center; justify-content: space-between;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .logo-container { display: flex; align-items: center; gap: 10px; }
+
+        /* ====== ✨ 新增：Logo 图片样式 ====== */
+        .logo-img {
+            width: 32px;  /* 适配侧边栏的大小 */
+            height: 32px;
+            object-fit: contain; /* 保持图片比例 */
+            border-radius: 4px; /* 稍微加一点圆角，更现代 */
         }
 
-        .icon { width: 24px; text-align: center; margin-right: 15px; font-size: 18px;}
+        .logo-text { font-weight: 900; font-size: 20px; color: var(--primary-color); letter-spacing: -0.5px; }
+        .toggle-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 20px; transition: color 0.2s; }
+        .toggle-btn:hover { color: var(--primary-color); }
+
+        /* 导航菜单区域 */
+        .nav-links { list-style: none; padding: 15px 0; margin: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; }
+        .nav-links li { margin: 0 15px; }
+        .nav-links li a { display: flex; align-items: center; padding: 12px 15px; color: var(--text-muted); text-decoration: none; white-space: nowrap; border-radius: 8px; position: relative; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
+        .icon { width: 24px; text-align: center; margin-right: 12px; font-size: 18px; transition: transform 0.3s;}
+        .nav-links li a:hover { background-color: var(--bg-color); color: var(--primary-color); transform: translateY(-3px); box-shadow: 0 6px 12px var(--hover-shadow); }
+        .nav-links li a:hover .icon { transform: scale(1.1); }
+        .nav-links li.active a { color: var(--primary-color); font-weight: 600; background-color: color-mix(in srgb, var(--primary-color) 12%, transparent); transform: translateY(0); box-shadow: none; }
+        .nav-links li.active a::before { content: ''; position: absolute; left: 0; top: 15%; height: 70%; width: 4px; background-color: var(--primary-color); border-radius: 0 4px 4px 0; }
         .sidebar.collapsed .text { display: none; }
-        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
 
+        /* 底部用户信息与登出区域 */
+        .sidebar-footer { padding: 15px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 10px; }
+        .user-profile { display: flex; align-items: center; padding: 10px 15px; color: var(--text-muted); font-size: 14px; }
+        .logout-btn { display: flex; align-items: center; padding: 12px 15px; border-radius: 8px; color: #ef4444; text-decoration: none; transition: all 0.3s; }
+        .logout-btn:hover { background-color: rgba(239, 68, 68, 0.1); transform: translateY(-3px); box-shadow: 0 6px 12px rgba(239, 68, 68, 0.15); }
+
+        /* 主内容区 */
+        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
         .top-navbar { display: flex; justify-content: flex-end; align-items: center; padding-bottom: 20px; gap: 20px; }
         .theme-switch { background: var(--sidebar-bg); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 14px; transition: 0.2s; }
         .theme-switch:hover { border-color: var(--primary-color); }
-
         .color-picker-container { display: flex; gap: 10px; align-items: center; background: var(--sidebar-bg); padding: 8px 15px; border-radius: 20px; border: 1px solid var(--border-color); }
         .color-dot { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.2s; }
         .color-dot:hover { transform: scale(1.2); }
@@ -88,18 +102,30 @@
 
     <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <span class="text" style="font-weight: 800; font-size: 18px; color: var(--primary-color);">JellyWall</span>
+            <div class="logo-container">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="logo-img">
+                <span class="text logo-text">JellyWall</span>
+            </div>
             <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
         </div>
+
         <ul class="nav-links">
             <li><a href="{{ url_for('dashboard') }}"><span class="icon">🏠</span><span class="text">仪表板</span></a></li>
-            <li><a href="{{ url_for('watched') }}"><span class="icon">📸</span><span class="text">编年史海报墙</span></a></li>
-            <li><a href="{{ url_for('watched_list') }}"><span class="icon">📜</span><span class="text">数据大盘</span></a></li>
-            <li><a href="{{ url_for('config') }}"><span class="icon">⚙️</span><span class="text">用户配置</span></a></li>
-            <li style="margin-top: auto; border-top: 1px solid var(--border-color);">
-                <a href="{{ url_for('logout') }}"><span class="icon">🚪</span><span class="text">退出登录</span></a>
-            </li>
+            <li><a href="{{ url_for('config') }}"><span class="icon">⚙️</span><span class="text">配置管理</span></a></li>
+            <li><a href="{{ url_for('watched_list') }}"><span class="icon">📜</span><span class="text">已观看记录</span></a></li>
+            <li><a href="{{ url_for('watched') }}"><span class="icon">📸</span><span class="text">海报墙</span></a></li>
         </ul>
+
+        <div class="sidebar-footer">
+            <div class="user-profile">
+                <span class="icon">👤</span>
+                <span class="text">{{ current_user.username if current_user else '管理员' }}</span>
+            </div>
+            <a href="{{ url_for('logout') }}" class="logout-btn">
+                <span class="icon" style="color: #ef4444;">🚪</span>
+                <span class="text">登出</span>
+            </a>
+        </div>
     </div>
 
     <div class="main-content">
@@ -126,10 +152,7 @@
             document.documentElement.style.setProperty('--click-x', `${x}px`);
             document.documentElement.style.setProperty('--click-y', `${y}px`);
 
-            if (!document.startViewTransition) {
-                actionCallback();
-                return;
-            }
+            if (!document.startViewTransition) { actionCallback(); return; }
             document.startViewTransition(() => {
                 document.body.style.transition = 'none';
                 actionCallback();
@@ -137,9 +160,7 @@
 
             const speedStr = getComputedStyle(document.documentElement).getPropertyValue('--ripple-speed');
             const speedMs = parseFloat(speedStr) * 1000 || 800;
-            setTimeout(() => {
-                document.body.style.transition = 'background-color 0.3s, color 0.3s';
-            }, speedMs);
+            setTimeout(() => { document.body.style.transition = 'background-color 0.3s, color 0.3s'; }, speedMs);
         }
 
         function toggleDarkMode(event) {
@@ -166,7 +187,6 @@
         }
 
         document.addEventListener('DOMContentLoaded', function() {
-            // 恢复主题和颜色
             const savedTheme = localStorage.getItem('jellywall_theme');
             const modeBtn = document.getElementById('mode-btn');
             if (savedTheme) {
@@ -177,11 +197,8 @@
             if (savedColor) {
                 document.documentElement.style.setProperty('--primary-color', savedColor);
             }
-
-            // ====== ✨ 新增：智能检测路径并高亮左侧菜单 ======
             const currentPath = window.location.pathname;
             document.querySelectorAll('.nav-links li a').forEach(link => {
-                // 判断当前浏览器的 URL 路径是否包含或等于菜单的 href
                 if (link.getAttribute('href') === currentPath) {
                     link.parentElement.classList.add('active');
                 }

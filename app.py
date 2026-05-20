@@ -44,34 +44,76 @@ def index():
     return redirect(url_for('dashboard'))
 
 
+from werkzeug.security import check_password_hash
+from flask_login import login_user
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # 如果已经登录过，直接跳到仪表板
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+
     if request.method == 'POST':
-        action = request.form.get('action')
-        username = request.form.get('username').strip()
+        username = request.form.get('username')
         password = request.form.get('password')
 
-        if action == 'register':
-            if User.query.filter_by(username=username).first():
-                flash('用户名已存在，请直接登录或更换用户名')
-            else:
-                hashed_pw = generate_password_hash(password, method='scrypt')
-                new_user = User(username=username, password=hashed_pw)
-                db.session.add(new_user)
-                db.session.commit()
-                login_user(new_user)
-                return redirect(url_for('index'))
+        # 1. 在数据库中寻找这个用户
+        user = User.query.filter_by(username=username).first()
 
-        elif action == 'login':
-            user = User.query.filter_by(username=username).first()
-            if user and check_password_hash(user.password, password):
-                login_user(user)
-                return redirect(url_for('index'))
-            else:
-                flash('用户名或密码错误')
+        # 2. 验证用户存在，并且密码正确
+        if user and check_password_hash(user.password, password):
+            # 3. 记录登录状态
+            login_user(user)
 
+            # 👇 这里就是登录成功后跳转的页面！通常是 dashboard（仪表板）
+            return redirect(url_for('dashboard'))
+
+        else:
+            # 如果账号或密码错误，发送提示信息
+            flash('用户名或密码错误，请重试。')
+
+    # 如果是 GET 请求，或者密码验证失败，就重新渲染并停留在登录页
     return render_template('login.html')
 
+
+from werkzeug.security import generate_password_hash  # 确保顶部引入了加密库
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    # 如果用户已经登录，直接跳回主页
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        jellyfin_url = request.form.get('jellyfin_url')  # 如果你注册时需要填这个
+        jellyfin_api_key = request.form.get('jellyfin_api_key')  # 同上
+
+        # 检查用户名是否已存在
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            flash('该用户名已被注册，请换一个重试。')
+            return redirect(url_for('register'))
+
+        # 创建新用户并哈希密码 (根据你的 User 模型实际字段调整)
+        new_user = User(
+            username=username,
+            password=generate_password_hash(password),
+            # 如果你的数据库现在不需要绑 Jellyfin，这两行可以删掉，放到配置页再去绑
+            jellyfin_url=jellyfin_url,
+            jellyfin_api_key=jellyfin_api_key
+        )
+
+        db.session.add(new_user)
+        db.session.commit()
+
+        flash('注册成功！请登录。')
+        return redirect(url_for('login'))
+
+    return render_template('register.html')
 
 @app.route('/onboarding', methods=['GET', 'POST'])
 @login_required

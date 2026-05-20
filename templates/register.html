@@ -3,11 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录 - JellyWall</title>
+    <title>注册 - JellyWall</title>
     <style>
-        /* ==========================================
-           1. 全局 CSS 变量定义
-           ========================================== */
+        /* 这里的 CSS 与 login.html 完全一致，保持极简设计 */
         :root {
             --bg-color: #121212;
             --sidebar-bg: #1e1e1e;
@@ -15,7 +13,6 @@
             --text-muted: #aaaaaa;
             --border-color: #333333;
             --primary-color: #00a4dc;
-
             --click-x: 50%;
             --click-y: 50%;
             --ripple-speed: 1.1s;
@@ -29,9 +26,6 @@
             --border-color: #e5e7eb;
         }
 
-        /* ==========================================
-           2. View Transitions API 涟漪动画
-           ========================================== */
         ::view-transition-group(root) { animation: none; }
         ::view-transition-old(root) { animation: none; z-index: 1; }
         ::view-transition-new(root) { z-index: 9999; animation: ripple-spread var(--ripple-speed) cubic-bezier(0.25, 1, 0.3, 1) both; }
@@ -40,22 +34,14 @@
             100% { clip-path: circle(150% at var(--click-x) var(--click-y)); }
         }
 
-        /* ==========================================
-           3. 登录页专属居中布局
-           ========================================== */
         body {
             margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             display: flex; justify-content: center; align-items: center; min-height: 100vh;
             background-color: var(--bg-color); color: var(--text-main);
-            transition: background-color 0.3s, color 0.3s;
-            position: relative;
+            transition: background-color 0.3s, color 0.3s; position: relative;
         }
 
-        .top-navbar {
-            position: absolute; top: 20px; right: 20px;
-            display: flex; align-items: center; gap: 20px;
-            z-index: 100;
-        }
+        .top-navbar { position: absolute; top: 20px; right: 20px; display: flex; align-items: center; gap: 20px; z-index: 100; }
         .theme-switch { background: var(--sidebar-bg); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 14px; transition: 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05);}
         .theme-switch:hover { border-color: var(--primary-color); }
         .color-picker-container { display: flex; gap: 10px; align-items: center; background: var(--sidebar-bg); padding: 8px 15px; border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05);}
@@ -63,77 +49,35 @@
         .color-dot:hover { transform: scale(1.2); }
 
         .login-card {
-            background-color: var(--sidebar-bg);
-            padding: 40px;
-            border-radius: 16px;
-            width: 100%;
-            max-width: 400px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            border: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            background-color: var(--sidebar-bg); padding: 40px; border-radius: 16px; width: 100%;
+            max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); border: 1px solid var(--border-color);
+            display: flex; flex-direction: column; align-items: center;
         }
 
-        .logo-img {
-            width: 72px;
-            height: 72px;
-            object-fit: contain;
-            border-radius: 12px;
-            margin-bottom: 15px;
-        }
-
+        .logo-img { width: 72px; height: 72px; object-fit: contain; border-radius: 12px; margin-bottom: 15px; }
         .login-title { font-size: 24px; font-weight: 800; color: var(--text-main); margin: 0 0 5px 0; letter-spacing: -0.5px; }
         .login-subtitle { color: var(--primary-color); font-size: 14px; margin-bottom: 30px; font-weight: 600; }
 
         .login-form { width: 100%; }
-
-        .input-group { margin-bottom: 20px; width: 100%; }
+        .input-group { margin-bottom: 15px; width: 100%; }
         .input-group label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-muted); font-weight: 500; }
         .input-group input {
-            width: 100%; padding: 12px 15px; border-radius: 8px;
-            background-color: var(--bg-color); color: var(--text-main);
-            border: 1px solid var(--border-color); font-size: 15px;
-            transition: all 0.2s; box-sizing: border-box; outline: none;
+            width: 100%; padding: 12px 15px; border-radius: 8px; background-color: var(--bg-color); color: var(--text-main);
+            border: 1px solid var(--border-color); font-size: 15px; transition: all 0.2s; box-sizing: border-box; outline: none;
         }
-        .input-group input:focus {
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 20%, transparent);
-        }
+        .input-group input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 20%, transparent); }
 
         .submit-btn {
-            width: 100%; padding: 14px; border-radius: 8px;
-            background-color: var(--primary-color); color: #fff;
-            border: none; font-size: 16px; font-weight: 600; cursor: pointer;
-            transition: transform 0.2s, filter 0.2s;
-            margin-top: 10px;
+            width: 100%; padding: 14px; border-radius: 8px; background-color: var(--primary-color); color: #fff;
+            border: none; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.2s, filter 0.2s; margin-top: 15px;
         }
         .submit-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
 
-        /* ====== ✨ 新增：注册链接样式 ====== */
-        .register-link {
-            margin-top: 25px;
-            font-size: 14px;
-            color: var(--text-muted);
-            text-align: center;
-            width: 100%;
-        }
-        .register-link a {
-            color: var(--primary-color);
-            text-decoration: none;
-            font-weight: 600;
-            transition: filter 0.2s;
-        }
-        .register-link a:hover {
-            filter: brightness(1.2);
-            text-decoration: underline;
-        }
+        .register-link { margin-top: 25px; font-size: 14px; color: var(--text-muted); text-align: center; width: 100%; }
+        .register-link a { color: var(--primary-color); text-decoration: none; font-weight: 600; transition: filter 0.2s; }
+        .register-link a:hover { filter: brightness(1.2); text-decoration: underline; }
 
-        .flash {
-            width: 100%; padding: 10px; border-radius: 8px; margin-bottom: 20px;
-            background-color: rgba(239, 68, 68, 0.1); color: #ef4444;
-            border: 1px solid rgba(239, 68, 68, 0.2); font-size: 14px; text-align: center;
-        }
+        .flash { width: 100%; padding: 10px; border-radius: 8px; margin-bottom: 20px; background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); font-size: 14px; text-align: center; }
     </style>
 </head>
 <body>
@@ -151,8 +95,8 @@
 
     <div class="login-card">
         <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="logo-img">
-        <h1 class="login-title">JellyWall</h1>
-        <div class="login-subtitle">登入你的观影控制台</div>
+        <h1 class="login-title">加入 JellyWall</h1>
+        <div class="login-subtitle">创建你的专属账号</div>
 
         {% with messages = get_flashed_messages() %}
             {% if messages %}
@@ -162,20 +106,20 @@
             {% endif %}
         {% endwith %}
 
-        <form class="login-form" method="POST" action="{{ url_for('login') }}">
+        <form class="login-form" method="POST" action="{{ url_for('register') }}">
             <div class="input-group">
                 <label for="username">用户名</label>
-                <input type="text" id="username" name="username" required placeholder="请输入用户名">
+                <input type="text" id="username" name="username" required placeholder="设置用户名">
             </div>
             <div class="input-group">
                 <label for="password">密码</label>
-                <input type="password" id="password" name="password" required placeholder="请输入密码">
+                <input type="password" id="password" name="password" required placeholder="设置密码">
             </div>
-            <button type="submit" class="submit-btn">立即登录</button>
+            <button type="submit" class="submit-btn">立即注册</button>
         </form>
 
         <div class="register-link">
-            还没有账号？ <a href="{{ url_for('register') }}">立即注册</a>
+            已有账号？ <a href="{{ url_for('login') }}">返回登录</a>
         </div>
     </div>
 

@@ -1,0 +1,207 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+<style>
+    /* 导出控件区域 */
+    .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 25px;
+        background-color: #1e1e1e;
+        padding: 15px 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+
+    .timeline-info {
+        color: #aaa;
+        font-size: 14px;
+        letter-spacing: 1px;
+    }
+
+    .export-btn {
+        padding: 10px 24px;
+        font-size: 15px;
+        font-weight: 600;
+        background: linear-gradient(135deg, #00a4dc, #0085b3);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .export-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 164, 220, 0.4);
+    }
+
+    /* 海报墙动态网格引擎 */
+    #poster-wall {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 20px;
+        padding: 25px;
+        background-color: #151515;
+        border-radius: 12px;
+        border: 1px solid #2a2a2a;
+    }
+
+    /* 海报卡片微交互与图层叠加 */
+    .poster-item {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 2 / 3;
+        border-radius: 8px;
+        overflow: hidden;
+        background-color: #222;
+        box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .poster-item:hover {
+        transform: scale(1.03);
+        z-index: 10;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.6);
+    }
+
+    .poster-item img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        transition: filter 0.3s;
+    }
+
+    /* 数据悬浮面板：运用玻璃拟态设计 */
+    .info-overlay {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 60%, transparent 100%);
+        backdrop-filter: blur(2px);
+        color: white;
+        padding: 20px 10px 12px 10px;
+        transform: translateY(100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .poster-item:hover .info-overlay {
+        transform: translateY(0);
+    }
+
+    /* 排版约束：防止过长的电影名破坏布局 */
+    .info-title {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.3;
+        text-align: center;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .info-meta {
+        font-size: 11px;
+        color: #00a4dc;
+        text-align: center;
+        font-family: monospace;
+        letter-spacing: 0.5px;
+    }
+
+    /* 类型徽章：常驻显示在右上角 */
+    .type-badge {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        background-color: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        padding: 4px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .flash { color: #ff4d4d; margin-bottom: 15px; }
+</style>
+
+{% with messages = get_flashed_messages() %}
+    {% if messages %}<div class="flash">{% for msg in messages %}{{ msg }}{% endfor %}</div>{% endif %}
+{% endwith %}
+
+<div class="toolbar">
+    <div class="timeline-info">
+        <span>⏱️ 时间轴排序规则：由远及近 (最早观看的记录位于最前方)</span>
+    </div>
+    <button class="export-btn" onclick="exportWall()">
+        <span id="export-icon">📸</span> <span id="export-text">生成编年史快照</span>
+    </button>
+</div>
+
+<div id="poster-wall">
+    {% for movie in movies %}
+        <div class="poster-item">
+            <div class="type-badge">{{ movie.type_icon }}</div>
+            <!-- 图片资源依然依赖后端代理路由执行跨域清洗 -->
+            <img src="/image/{{ movie.id }}" alt="{{ movie.name }}" crossorigin="anonymous" loading="lazy">
+            <div class="info-overlay">
+                <div class="info-title">{{ movie.name }}</div>
+                <div class="info-meta">{{ movie.date_formatted }}</div>
+            </div>
+        </div>
+    {% else %}
+        <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: #777;">
+            <div style="font-size: 40px; margin-bottom: 15px;">🏜️</div>
+            <p>数据库中尚未探测到任何观影记录</p>
+        </div>
+    {% endfor %}
+</div>
+
+<script>
+    function exportWall() {
+        const wall = document.getElementById('poster-wall');
+        const btn = document.querySelector('.export-btn');
+        const icon = document.getElementById('export-icon');
+        const text = document.getElementById('export-text');
+
+        // 挂载状态机防御重复点击
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+        icon.innerHTML = '⚙️';
+        text.innerHTML = '渲染引擎处理中...';
+
+        // 初始化 html2canvas 渲染实例，注入深度配置
+        html2canvas(wall, {
+            useCORS: true,                  // 强制允许跨域资源绘制
+            backgroundColor: "#151515",     // 闭合背景色溢出
+            scale: 2,                       // 倍频抗锯齿，输出 2x 高清位图
+            logging: false                  // 剥离控制台噪音
+        }).then(canvas => {
+            const link = document.createElement('a');
+            // 获取当前时间戳作为文件后缀防重名
+            const timestamp = new Date().toISOString().slice(0,10);
+            link.download = `JellyWall_Timeline_${timestamp}.png`;
+            link.href = canvas.toDataURL('image/png', 0.95);
+            link.click();
+        }).catch(err => {
+            alert('DOM 渲染管线崩溃，请检查浏览器控制台权限设置。');
+            console.error('html2canvas rendering pipeline failed:', err);
+        }).finally(() => {
+            // 卸载状态机并执行视觉复位
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            icon.innerHTML = '📸';
+            text.innerHTML = '生成编年史快照';
+        });
+    }
+</script>
+{% endblock %}

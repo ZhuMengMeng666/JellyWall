@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block content %}
+    <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px;">
+        <h3 style="color: #00a4dc;">当前绑定状态</h3>
+        <p><strong>绑定的用户名:</strong> {{ current_user.username }}</p>
+        <p><strong>Jellyfin 地址:</strong> {{ current_user.jellyfin_url }}</p>
+        <hr style="border-color: #333; margin: 20px 0;">
+        <p style="color: #aaa; font-size: 14px;">后续可以在这里增加重新绑定服务器、修改密码等功能。</p>
+    </div>
+{% endblock %}

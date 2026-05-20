@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }} - JellyWall</title>
+    <style>
+        body { margin: 0; font-family: sans-serif; display: flex; height: 100vh; background-color: #121212; color: #fff; }
+        .sidebar { width: 250px; background-color: #1e1e1e; transition: width 0.3s; display: flex; flex-direction: column; overflow: hidden; }
+        .sidebar.collapsed { width: 60px; }
+        .sidebar-header { padding: 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #333; }
+        .toggle-btn { background: none; border: none; color: white; cursor: pointer; font-size: 20px; }
+        .nav-links { list-style: none; padding: 0; margin: 0; }
+        .nav-links li a { display: flex; align-items: center; padding: 15px 20px; color: #ccc; text-decoration: none; white-space: nowrap; transition: 0.2s; }
+        .nav-links li a:hover { background-color: #333; color: #fff; }
+        .icon { width: 20px; text-align: center; margin-right: 15px; font-size: 18px;}
+        .sidebar.collapsed .text { display: none; }
+        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <span class="text" style="font-weight: bold; color: #00a4dc;">JellyWall</span>
+            <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
+        </div>
+        <ul class="nav-links">
+            <li><a href="{{ url_for('dashboard') }}"><span class="icon">🏠</span><span class="text">首页</span></a></li>
+            <li><a href="{{ url_for('watched') }}"><span class="icon">🎬</span><span class="text">已观看剧集</span></a></li>
+            <li><a href="{{ url_for('watched_list') }}"><span class="icon">📜</span><span class="text">观看记录列表</span></a></li>
+            <li><a href="{{ url_for('config') }}"><span class="icon">⚙️</span><span class="text">用户配置</span></a></li>
+            <li style="margin-top: auto;"><a href="{{ url_for('logout') }}"><span class="icon">🚪</span><span class="text">退出登录</span></a></li>
+        </ul>
+    </div>
+    <div class="main-content">
+        <h2>{{ title }}</h2>
+        {% block content %}{% endblock %}
+    </div>
+    <script>
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+    </script>
+</body>
+</html>

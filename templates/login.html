@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>登录 - JellyWall</title>
+    <style>
+        body { background-color: #121212; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; }
+        .card { background-color: #1e1e1e; padding: 40px; border-radius: 10px; width: 300px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        h2 { text-align: center; color: #00a4dc; margin-top: 0; }
+        input { width: 100%; padding: 10px; margin: 10px 0 20px; background: #2c2c2c; border: 1px solid #444; color: white; border-radius: 5px; box-sizing: border-box; }
+        .btn-group { display: flex; gap: 10px; }
+        button { flex: 1; padding: 10px; border: none; border-radius: 5px; cursor: pointer; color: white; font-weight: bold; }
+        .btn-login { background-color: #00a4dc; }
+        .btn-register { background-color: #444; }
+        .flash { color: #ff4d4d; font-size: 14px; text-align: center; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>JellyWall</h2>
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="flash">{% for msg in messages %}{{ msg }}{% endfor %}</div>
+            {% endif %}
+        {% endwith %}
+        <form method="POST">
+            <label>用户名</label>
+            <input type="text" name="username" required>
+            <label>密码</label>
+            <input type="password" name="password" required>
+            <div class="btn-group">
+                <button type="submit" name="action" value="login" class="btn-login">登录</button>
+                <button type="submit" name="action" value="register" class="btn-register">注册新用户</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

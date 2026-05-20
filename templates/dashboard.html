@@ -1,8 +1,11 @@
 {% extends 'base.html' %}
 {% block content %}
-    <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px;">
-        <h3 style="color: #00a4dc;">欢迎来到 JellyWall！</h3>
-        <p>你已经成功绑定了 Jellyfin 服务器。</p>
-        <p>点击左侧的“已观看剧集”来查看并导出你的观影墙。</p>
+    <div style="background-color: var(--sidebar-bg); padding: 30px; border-radius: 10px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+        <h3 style="color: var(--primary-color); font-size: 24px; margin-top: 0;">欢迎来到 JellyWall！</h3>
+        <p style="color: var(--text-main); font-size: 16px; line-height: 1.6;">你已经成功绑定了 Jellyfin 服务器。</p>
+        <p style="color: var(--text-muted); line-height: 1.6;">
+            点击左侧的 <strong>“编年史海报墙”</strong> 可生成精美的观影记录长图。<br>
+            点击 <strong>“数据大盘”</strong> 可拖拽管理并查看详细的追剧进度。
+        </p>
     </div>
 {% endblock %}

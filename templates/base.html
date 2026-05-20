@@ -1,42 +1,192 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <title>{{ title }} - JellyWall</title>
     <style>
-        body { margin: 0; font-family: sans-serif; display: flex; height: 100vh; background-color: #121212; color: #fff; }
-        .sidebar { width: 250px; background-color: #1e1e1e; transition: width 0.3s; display: flex; flex-direction: column; overflow: hidden; }
-        .sidebar.collapsed { width: 60px; }
-        .sidebar-header { padding: 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #333; }
-        .toggle-btn { background: none; border: none; color: white; cursor: pointer; font-size: 20px; }
-        .nav-links { list-style: none; padding: 0; margin: 0; }
-        .nav-links li a { display: flex; align-items: center; padding: 15px 20px; color: #ccc; text-decoration: none; white-space: nowrap; transition: 0.2s; }
-        .nav-links li a:hover { background-color: #333; color: #fff; }
-        .icon { width: 20px; text-align: center; margin-right: 15px; font-size: 18px;}
+        /* ==========================================
+           1. 全局 CSS 变量定义
+           ========================================== */
+        :root {
+            --bg-color: #121212;
+            --sidebar-bg: #1e1e1e;
+            --text-main: #ffffff;
+            --text-muted: #aaaaaa;
+            --border-color: #333333;
+            --primary-color: #00a4dc;
+
+            --click-x: 50%;
+            --click-y: 50%;
+            --ripple-speed: 1.4s;
+        }
+
+        [data-theme="light"] {
+            --bg-color: #f3f4f6;
+            --sidebar-bg: #ffffff;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --border-color: #e5e7eb;
+        }
+
+        /* ==========================================
+           2. View Transitions API 涟漪动画
+           ========================================== */
+        ::view-transition-group(root) { animation: none; }
+        ::view-transition-old(root) { animation: none; z-index: 1; }
+        ::view-transition-new(root) {
+            z-index: 9999;
+            animation: ripple-spread var(--ripple-speed) cubic-bezier(0.25, 1, 0.3, 1) both;
+        }
+        @keyframes ripple-spread {
+            0% { clip-path: circle(0px at var(--click-x) var(--click-y)); }
+            100% { clip-path: circle(150% at var(--click-x) var(--click-y)); }
+        }
+
+        body {
+            margin: 0; font-family: sans-serif; display: flex; height: 100vh;
+            background-color: var(--bg-color); color: var(--text-main);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* ==========================================
+           3. 基础布局及侧边栏样式
+           ========================================== */
+        .sidebar { width: 250px; background-color: var(--sidebar-bg); transition: width 0.3s; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border-color); }
+        .sidebar.collapsed { width: 70px; }
+        .sidebar-header { padding: 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); }
+        .toggle-btn { background: none; border: none; color: var(--text-main); cursor: pointer; font-size: 20px; }
+
+        /* 导航链接基本样式 */
+        .nav-links { list-style: none; padding: 0; margin: 0; flex: 1; }
+        .nav-links li a { display: flex; align-items: center; padding: 15px 20px; color: var(--text-muted); text-decoration: none; white-space: nowrap; transition: 0.2s; }
+        .nav-links li a:hover { background-color: rgba(128, 128, 128, 0.05); color: var(--primary-color); }
+
+        /* ====== ✨ 新增：当前激活/选中的导航菜单样式 ====== */
+        .nav-links li.active a {
+            color: var(--primary-color); /* 文字直接受自定义主题色影响 */
+            background-color: rgba(128, 128, 128, 0.04);
+            font-weight: bold;
+        }
+        .nav-links li.active .icon {
+            filter: drop-shadow(0 0 2px var(--primary-color)); /* 给激活的图标加一点点主题色微光 */
+        }
+
+        .icon { width: 24px; text-align: center; margin-right: 15px; font-size: 18px;}
         .sidebar.collapsed .text { display: none; }
         .main-content { flex: 1; padding: 30px; overflow-y: auto; }
+
+        .top-navbar { display: flex; justify-content: flex-end; align-items: center; padding-bottom: 20px; gap: 20px; }
+        .theme-switch { background: var(--sidebar-bg); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 14px; transition: 0.2s; }
+        .theme-switch:hover { border-color: var(--primary-color); }
+
+        .color-picker-container { display: flex; gap: 10px; align-items: center; background: var(--sidebar-bg); padding: 8px 15px; border-radius: 20px; border: 1px solid var(--border-color); }
+        .color-dot { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.2s; }
+        .color-dot:hover { transform: scale(1.2); }
     </style>
 </head>
 <body>
+
     <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <span class="text" style="font-weight: bold; color: #00a4dc;">JellyWall</span>
+            <span class="text" style="font-weight: 800; font-size: 18px; color: var(--primary-color);">JellyWall</span>
             <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
         </div>
         <ul class="nav-links">
-            <li><a href="{{ url_for('dashboard') }}"><span class="icon">🏠</span><span class="text">首页</span></a></li>
-            <li><a href="{{ url_for('watched') }}"><span class="icon">🎬</span><span class="text">已观看剧集</span></a></li>
-            <li><a href="{{ url_for('watched_list') }}"><span class="icon">📜</span><span class="text">观看记录列表</span></a></li>
+            <li><a href="{{ url_for('dashboard') }}"><span class="icon">🏠</span><span class="text">仪表板</span></a></li>
+            <li><a href="{{ url_for('watched') }}"><span class="icon">📸</span><span class="text">编年史海报墙</span></a></li>
+            <li><a href="{{ url_for('watched_list') }}"><span class="icon">📜</span><span class="text">数据大盘</span></a></li>
             <li><a href="{{ url_for('config') }}"><span class="icon">⚙️</span><span class="text">用户配置</span></a></li>
-            <li style="margin-top: auto;"><a href="{{ url_for('logout') }}"><span class="icon">🚪</span><span class="text">退出登录</span></a></li>
+            <li style="margin-top: auto; border-top: 1px solid var(--border-color);">
+                <a href="{{ url_for('logout') }}"><span class="icon">🚪</span><span class="text">退出登录</span></a>
+            </li>
         </ul>
     </div>
+
     <div class="main-content">
-        <h2>{{ title }}</h2>
+        <div class="top-navbar">
+            <button class="theme-switch" onclick="toggleDarkMode(event)" id="mode-btn">🌙 深色模式</button>
+            <div class="color-picker-container">
+                <span style="font-size: 12px; color: var(--text-muted);">主题色:</span>
+                <div class="color-dot" style="background-color: #00a4dc;" onclick="setPrimaryColor(event, '#00a4dc')"></div>
+                <div class="color-dot" style="background-color: #8b5cf6;" onclick="setPrimaryColor(event, '#8b5cf6')"></div>
+                <div class="color-dot" style="background-color: #10b981;" onclick="setPrimaryColor(event, '#10b981')"></div>
+                <div class="color-dot" style="background-color: #f43f5e;" onclick="setPrimaryColor(event, '#f43f5e')"></div>
+            </div>
+        </div>
+
         {% block content %}{% endblock %}
     </div>
+
     <script>
         function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+
+        function triggerRippleAnimation(event, actionCallback) {
+            const x = event ? event.clientX : window.innerWidth / 2;
+            const y = event ? event.clientY : window.innerHeight / 2;
+            document.documentElement.style.setProperty('--click-x', `${x}px`);
+            document.documentElement.style.setProperty('--click-y', `${y}px`);
+
+            if (!document.startViewTransition) {
+                actionCallback();
+                return;
+            }
+            document.startViewTransition(() => {
+                document.body.style.transition = 'none';
+                actionCallback();
+            });
+
+            const speedStr = getComputedStyle(document.documentElement).getPropertyValue('--ripple-speed');
+            const speedMs = parseFloat(speedStr) * 1000 || 800;
+            setTimeout(() => {
+                document.body.style.transition = 'background-color 0.3s, color 0.3s';
+            }, speedMs);
+        }
+
+        function toggleDarkMode(event) {
+            triggerRippleAnimation(event, () => {
+                const htmlTag = document.documentElement;
+                const modeBtn = document.getElementById('mode-btn');
+                if (htmlTag.getAttribute('data-theme') === 'dark') {
+                    htmlTag.setAttribute('data-theme', 'light');
+                    modeBtn.innerHTML = '☀️ 浅色模式';
+                    localStorage.setItem('jellywall_theme', 'light');
+                } else {
+                    htmlTag.setAttribute('data-theme', 'dark');
+                    modeBtn.innerHTML = '🌙 深色模式';
+                    localStorage.setItem('jellywall_theme', 'dark');
+                }
+            });
+        }
+
+        function setPrimaryColor(event, hexColor) {
+            triggerRippleAnimation(event, () => {
+                document.documentElement.style.setProperty('--primary-color', hexColor);
+                localStorage.setItem('jellywall_primary_color', hexColor);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // 恢复主题和颜色
+            const savedTheme = localStorage.getItem('jellywall_theme');
+            const modeBtn = document.getElementById('mode-btn');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                modeBtn.innerHTML = savedTheme === 'dark' ? '🌙 深色模式' : '☀️ 浅色模式';
+            }
+            const savedColor = localStorage.getItem('jellywall_primary_color');
+            if (savedColor) {
+                document.documentElement.style.setProperty('--primary-color', savedColor);
+            }
+
+            // ====== ✨ 新增：智能检测路径并高亮左侧菜单 ======
+            const currentPath = window.location.pathname;
+            document.querySelectorAll('.nav-links li a').forEach(link => {
+                // 判断当前浏览器的 URL 路径是否包含或等于菜单的 href
+                if (link.getAttribute('href') === currentPath) {
+                    link.parentElement.classList.add('active');
+                }
+            });
+        });
     </script>
 </body>
 </html>

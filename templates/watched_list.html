@@ -1,87 +1,77 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<!-- 引入 SortableJS 拖拽库 -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
 <style>
     /* ====== 一级折叠：媒体库 ====== */
     .library-details {
-        background-color: #1e1e1e; border-radius: 10px; margin-bottom: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        background-clip: padding-box;
+        background-color: var(--sidebar-bg); border-radius: 10px; margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid var(--border-color);
     }
     .library-summary {
-        padding: 20px; font-size: 20px; font-weight: bold; color: #00a4dc;
-        background-color: #222; border-radius: 10px; list-style: none; position: relative;
-        transition: background-color 0.2s;
-        /* 设置鼠标为抓取样式 */
-        cursor: grab;
-        display: flex;
-        align-items: center;
+        padding: 20px; font-size: 20px; font-weight: bold;
+        color: var(--primary-color); /* ✨ 核心改动：让媒体库大分类直接绑定自定义主题色 */
+        background-color: rgba(128, 128, 128, 0.03); border-radius: 10px; list-style: none; position: relative;
+        transition: background-color 0.2s, color 0.3s; cursor: grab; display: flex; align-items: center;
     }
-    .library-summary:active { cursor: grabbing; } /* 拖动时的鼠标样式 */
-    .library-summary:hover { background-color: #2a2a2a; }
+    .library-summary:active { cursor: grabbing; }
+    .library-summary:hover { background-color: rgba(128, 128, 128, 0.08); }
     .library-summary::-webkit-details-marker { display: none; }
 
-    /* 拖拽提示图标 */
-    .drag-handle {
-        color: #555; margin-right: 15px; font-size: 18px; cursor: grab;
-    }
+    .drag-handle { color: var(--text-muted); margin-right: 15px; font-size: 18px; cursor: grab; }
 
-    /* 展开箭头 */
     .library-summary::after {
         content: '▶'; position: absolute; right: 25px; top: 25px;
-        font-size: 16px; color: #aaa; transition: transform 0.2s;
+        font-size: 16px; color: var(--text-muted); transition: transform 0.2s;
     }
     .library-details[open] > .library-summary::after { transform: rotate(90deg); }
     .library-details[open] > .library-summary {
-        border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 2px solid #333;
+        border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 2px solid var(--border-color);
     }
     .library-content { padding: 20px; }
-
-    /* ====== 拖拽时的幽灵元素样式 ====== */
-    .sortable-ghost { opacity: 0.4; background-color: #2a2a2a; }
-    .sortable-drag { cursor: grabbing !important; }
+    .sortable-ghost { opacity: 0.4; background-color: var(--bg-color); }
 
     /* ====== 二级折叠：剧集 ====== */
-    .series-details { margin-bottom: 10px; background-color: #252525; border-radius: 5px; }
+    .series-details { margin-bottom: 10px; background-color: rgba(128, 128, 128, 0.03); border-radius: 5px; }
     .series-summary {
-        padding: 15px; cursor: pointer; font-weight: bold; color: #fff;
-        background-color: #2c2c2c; border-radius: 5px; position: relative; list-style: none;
+        padding: 15px; cursor: pointer; font-weight: bold;
+        color: var(--primary-color);
+        background-color: var(--border-color); border-radius: 5px; position: relative; list-style: none;
+        transition: color 0.3s;
     }
-    .series-summary:hover { background-color: #383838; }
+    .series-summary:hover { filter: brightness(1.1); }
     .series-summary::-webkit-details-marker { display: none; }
     .series-summary::after {
         content: '▶'; position: absolute; right: 20px; top: 18px;
-        font-size: 12px; color: #aaa; transition: transform 0.2s;
+        font-size: 12px; color: var(--text-muted); transition: transform 0.2s;
     }
     .series-details[open] > .series-summary::after { transform: rotate(90deg); }
     .series-details[open] > .series-summary {
-        border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 1px solid #444;
+        border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 1px solid var(--border-color);
     }
 
     /* ====== 三级折叠：季 ====== */
-    .season-details { margin: 10px 15px 15px 15px; background-color: #1a1a1a; border-radius: 4px;}
+    .season-details { margin: 10px 15px 15px 15px; background-color: rgba(128, 128, 128, 0.02); border-radius: 4px;}
     .season-summary {
-        background-color: #222; color: #00a4dc; padding: 10px 15px;
+        background-color: rgba(128, 128, 128, 0.08); color: var(--text-main); padding: 10px 15px;
         font-weight: normal; list-style: none; position: relative; cursor: pointer; border-radius: 4px;
     }
     .season-summary::-webkit-details-marker { display: none; }
     .season-summary::after {
         content: '▼'; position: absolute; right: 20px; top: 14px;
-        transform: rotate(-90deg); transition: transform 0.2s; color: #aaa; font-size: 12px;
+        transform: rotate(-90deg); transition: transform 0.2s; color: var(--text-muted); font-size: 12px;
     }
     .season-details[open] > .season-summary::after { transform: rotate(0deg); }
     .season-details[open] > .season-summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0;}
 
     /* ====== 普通表格样式 ====== */
     table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 10px; text-align: left; }
-    th, td { padding: 12px 15px; border-bottom: 1px solid #333; }
-    th { background-color: #2c2c2c; color: #ccc; font-weight: bold; }
-    tr:hover { background-color: #252525; }
+    th, td { padding: 12px 15px; border-bottom: 1px solid var(--border-color); transition: color 0.3s;}
+    th { background-color: var(--border-color); color: var(--text-muted); font-weight: bold; }
+    tr:hover { background-color: rgba(128, 128, 128, 0.05); }
 
-    .sub-title { color: #aaa; font-size: 16px; margin-bottom: 10px; margin-top: 15px; }
+    .sub-title { color: var(--text-muted); font-size: 16px; margin-bottom: 10px; margin-top: 15px; }
     .flash { color: #ff4d4d; margin-bottom: 15px; }
 </style>
 
@@ -89,16 +79,10 @@
     {% if messages %}<div class="flash">{% for msg in messages %}{{ msg }}{% endfor %}</div>{% endif %}
 {% endwith %}
 
-<!-- 拖拽容器 -->
 <div id="library-container">
     {% for lib_name, data in library_data.items() %}
-        <!-- 给每个分类增加 data-id 属性，用于记忆排序 -->
         <details class="library-details" data-id="{{ lib_name }}">
-            <!-- 加上了抓手图标 -->
-            <summary class="library-summary">
-                <span class="drag-handle">☰</span> 📂 {{ lib_name }}
-            </summary>
-
+            <summary class="library-summary"><span class="drag-handle">☰</span> 📂 {{ lib_name }}</summary>
             <div class="library-content">
                 {% if data.episodes_tree %}
                     <div class="sub-title">📺 包含剧集</div>
@@ -108,18 +92,13 @@
                             {% for season_name, episodes in seasons.items() %}
                                 <details class="season-details">
                                     <summary class="season-summary">{{ season_name }}</summary>
-                                    <table style="margin-top: 0; margin-bottom: 0; border-top: 1px solid #333;">
-                                        <thead>
-                                            <tr>
-                                                <th>单集详情</th>
-                                                <th>完成观看时间</th>
-                                            </tr>
-                                        </thead>
+                                    <table style="margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--border-color);">
+                                        <thead><tr><th>单集详情</th><th>完成观看时间</th></tr></thead>
                                         <tbody>
                                             {% for ep in episodes %}
                                             <tr>
-                                                <td>{{ ep.episode }}</td>
-                                                <td style="color: #aaa; font-size: 14px; width: 180px;">{{ ep.date }}</td>
+                                                <td style="color: var(--text-main);">{{ ep.episode }}</td>
+                                                <td style="color: var(--text-muted); font-size: 14px; width: 180px;">{{ ep.date }}</td>
                                             </tr>
                                             {% endfor %}
                                         </tbody>
@@ -131,23 +110,18 @@
                 {% endif %}
 
                 {% if data.episodes_tree and data.movies %}
-                    <hr style="border-color: #333; margin: 25px 0;">
+                    <hr style="border-color: var(--border-color); margin: 25px 0;">
                 {% endif %}
 
                 {% if data.movies %}
                     <div class="sub-title">🎬 包含电影</div>
                     <table>
-                        <thead>
-                            <tr>
-                                <th>电影名称</th>
-                                <th>完成观看时间</th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>电影名称</th><th>完成观看时间</th></tr></thead>
                         <tbody>
                             {% for mv in data.movies %}
                             <tr>
-                                <td style="font-weight: bold; color: #fff;">{{ mv.name }}</td>
-                                <td style="color: #aaa; font-size: 14px; width: 180px;">{{ mv.date }}</td>
+                                <td style="font-weight: bold; color: var(--primary-color);">{{ mv.name }}</td>
+                                <td style="color: var(--text-muted); font-size: 14px; width: 180px;">{{ mv.date }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -156,7 +130,7 @@
             </div>
         </details>
     {% else %}
-        <div style="text-align: center; color: #aaa; padding: 40px; background-color: #1e1e1e; border-radius: 10px;">
+        <div style="text-align: center; color: var(--text-muted); padding: 40px; background-color: var(--sidebar-bg); border-radius: 10px; border: 1px solid var(--border-color);">
             <p>暂无任何媒体库的观看记录。</p>
         </div>
     {% endfor %}
@@ -165,26 +139,16 @@
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const container = document.getElementById('library-container');
-
-        // 1. 页面加载时，从 localStorage 读取历史保存的顺序
         const savedOrder = JSON.parse(localStorage.getItem('jellywall_library_order'));
         if (savedOrder) {
-            // 根据保存的顺序，重新排列 DOM 元素
             savedOrder.forEach(function (id) {
                 const item = container.querySelector(`[data-id="${id}"]`);
-                if (item) {
-                    container.appendChild(item);
-                }
+                if (item) container.appendChild(item);
             });
         }
-
-        // 2. 初始化 SortableJS 拖拽功能
         Sortable.create(container, {
-            animation: 150,               // 拖拽时的平滑过渡时间 (毫秒)
-            handle: '.library-summary',   // 只能通过顶部标题栏触发拖拽，防止误触
-            ghostClass: 'sortable-ghost', // 拖拽时的占位样式
+            animation: 150, handle: '.library-summary', ghostClass: 'sortable-ghost',
             onEnd: function () {
-                // 3. 拖拽松手后，获取当前最新的顺序，并保存到 localStorage
                 const currentOrder = Array.from(container.children).map(el => el.getAttribute('data-id'));
                 localStorage.setItem('jellywall_library_order', JSON.stringify(currentOrder));
             }

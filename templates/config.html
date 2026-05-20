@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
 {% block content %}
-    <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px;">
-        <h3 style="color: #00a4dc;">当前绑定状态</h3>
-        <p><strong>绑定的用户名:</strong> {{ current_user.username }}</p>
-        <p><strong>Jellyfin 地址:</strong> {{ current_user.jellyfin_url }}</p>
-        <hr style="border-color: #333; margin: 20px 0;">
-        <p style="color: #aaa; font-size: 14px;">后续可以在这里增加重新绑定服务器、修改密码等功能。</p>
+    <div style="background-color: var(--sidebar-bg); padding: 30px; border-radius: 10px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+        <h3 style="color: var(--primary-color); margin-top: 0; font-size: 20px;">当前绑定状态</h3>
+        <p style="color: var(--text-main);"><strong>本地账户名:</strong> {{ current_user.username }}</p>
+        <p style="color: var(--text-main);"><strong>Jellyfin 地址:</strong> {{ current_user.jellyfin_url }}</p>
+        <hr style="border-color: var(--border-color); margin: 20px 0;">
+        <p style="color: var(--text-muted); font-size: 14px;">后续可以在这里增加重新绑定服务器、清除本地缓存等功能。</p>
     </div>
 {% endblock %}

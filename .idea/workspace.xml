@@ -4,22 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="f701a4ed-4bfc-4516-86ad-09f9b8366bae" name="更改" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/JellyWall.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/templates/base.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/templates/config.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/templates/dashboard.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/templates/login.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/templates/onboarding.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/templates/watched.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/templates/watched_list.html" afterDir="false" />
+    <list default="true" id="f701a4ed-4bfc-4516-86ad-09f9b8366bae" name="更改" comment="feat: Initial commit - JellyWall 核心功能上线&#10;&#10;- 搭建 Flask 后端与 SQLite 用户登录系统&#10;- 实现 Jellyfin 账号密码一键绑定及凭证本地化存储&#10;- 开发“观看记录列表”：支持按媒体库/剧集/季三级手风琴折叠，集成拖拽排序与记忆功能&#10;- 开发“海报编年史墙”：融合电影与剧集，实现按时间戳去重聚合排序（由远及近）&#10;- 实现后端图片反向代理，完美解决 html2canvas 跨域截屏白屏问题">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/base.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/config.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/config.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/dashboard.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/dashboard.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/watched.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/watched.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/watched_list.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/watched_list.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -37,6 +28,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "ZhuMengMeng666"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/ZhuMengMeng666/JellyWall.git",
+    "accountId": "36b677bf-11c9-4367-9539-299c9fd08430"
+  }
+}]]></component>
   <component name="ProjectColorInfo"><![CDATA[{
   "associatedIndex": 6
 }]]></component>
@@ -98,7 +101,20 @@
       <option name="presentableId" value="Default" />
       <updated>1779260112841</updated>
     </task>
+    <task id="LOCAL-00001" summary="feat: Initial commit - JellyWall 核心功能上线&#10;&#10;- 搭建 Flask 后端与 SQLite 用户登录系统&#10;- 实现 Jellyfin 账号密码一键绑定及凭证本地化存储&#10;- 开发“观看记录列表”：支持按媒体库/剧集/季三级手风琴折叠，集成拖拽排序与记忆功能&#10;- 开发“海报编年史墙”：融合电影与剧集，实现按时间戳去重聚合排序（由远及近）&#10;- 实现后端图片反向代理，完美解决 html2canvas 跨域截屏白屏问题">
+      <option name="closed" value="true" />
+      <created>1779264436145</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1779264436145</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="feat: Initial commit - JellyWall 核心功能上线&#10;&#10;- 搭建 Flask 后端与 SQLite 用户登录系统&#10;- 实现 Jellyfin 账号密码一键绑定及凭证本地化存储&#10;- 开发“观看记录列表”：支持按媒体库/剧集/季三级手风琴折叠，集成拖拽排序与记忆功能&#10;- 开发“海报编年史墙”：融合电影与剧集，实现按时间戳去重聚合排序（由远及近）&#10;- 实现后端图片反向代理，完美解决 html2canvas 跨域截屏白屏问题" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: Initial commit - JellyWall 核心功能上线&#10;&#10;- 搭建 Flask 后端与 SQLite 用户登录系统&#10;- 实现 Jellyfin 账号密码一键绑定及凭证本地化存储&#10;- 开发“观看记录列表”：支持按媒体库/剧集/季三级手风琴折叠，集成拖拽排序与记忆功能&#10;- 开发“海报编年史墙”：融合电影与剧集，实现按时间戳去重聚合排序（由远及近）&#10;- 实现后端图片反向代理，完美解决 html2canvas 跨域截屏白屏问题" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

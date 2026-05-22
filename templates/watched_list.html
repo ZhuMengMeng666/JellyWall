@@ -11,7 +11,7 @@
     }
     .library-summary {
         padding: 20px; font-size: 20px; font-weight: bold;
-        color: var(--primary-color); /* ✨ 核心改动：让媒体库大分类直接绑定自定义主题色 */
+        color: var(--primary-color);
         background-color: rgba(128, 128, 128, 0.03); border-radius: 10px; list-style: none; position: relative;
         transition: background-color 0.2s, color 0.3s; cursor: grab; display: flex; align-items: center;
     }
@@ -72,18 +72,73 @@
     tr:hover { background-color: rgba(128, 128, 128, 0.05); }
 
     .sub-title { color: var(--text-muted); font-size: 16px; margin-bottom: 10px; margin-top: 15px; }
-    .flash { color: #ff4d4d; margin-bottom: 15px; }
+
+    /* ====== ✨ 右上角悬浮弹窗 (Toast) 样式 ====== */
+    .toast-overlay {
+        position: fixed; top: 25px; right: 25px; z-index: 10000;
+        display: flex; flex-direction: column; gap: 15px; pointer-events: none;
+    }
+    .toast {
+        background-color: var(--sidebar-bg); border: 1px solid var(--primary-color);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.15); border-radius: 12px;
+        padding: 20px; width: 340px; pointer-events: auto;
+        transform: translateX(120%); transition: transform 0.4s cubic-bezier(0.25, 1, 0.3, 1);
+    }
+    .toast.show { transform: translateX(0); }
+    .toast-header {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 12px; font-weight: 800; color: var(--primary-color); font-size: 16px;
+    }
+    .toast-close { cursor: pointer; color: var(--text-muted); font-size: 16px; transition: 0.2s; }
+    .toast-close:hover { color: #ef4444; }
+    .toast-body { font-size: 14px; line-height: 1.5; color: var(--text-muted); }
+
+    /* 美化弹窗里的滚动条 */
+    .toast-body ul::-webkit-scrollbar { width: 6px; }
+    .toast-body ul::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 4px; }
 </style>
 
-{% with messages = get_flashed_messages() %}
-    {% if messages %}<div class="flash">{% for msg in messages %}{{ msg }}{% endfor %}</div>{% endif %}
-{% endwith %}
+<div class="toast-overlay" id="toast-container">
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            {% for msg in messages %}
+                <div class="toast">
+                    <div class="toast-header">
+                        <span>系统通知</span>
+                        <span class="toast-close" onclick="closeToast(this)">✖</span>
+                    </div>
+                    <div class="toast-body">{{ msg | safe }}</div>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+</div>
+
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background-color: var(--sidebar-bg); padding: 15px 20px; border-radius: 10px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+    <div style="color: var(--text-muted); font-size: 14px; line-height: 1.6;">
+        <span style="color: var(--primary-color); font-weight: bold;">💡 提示：</span> 当前列表数据直接从本地高速缓存加载。<br>
+        如在 Jellyfin 中产生了新的观影记录，请点击右侧同步按钮拉取最新数据。
+    </div>
+
+    <a href="{{ url_for('sync_history') }}" style="text-decoration: none;">
+        <button style="
+            padding: 10px 24px; font-size: 15px; font-weight: 600;
+            background-color: var(--primary-color); color: white;
+            border: none; border-radius: 8px; cursor: pointer;
+            display: inline-flex; align-items: center; gap: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.2s, filter 0.2s;">
+            <span style="font-size: 16px;">🔄</span> 同步最新记录
+        </button>
+    </a>
+</div>
 
 <div id="library-container">
     {% for lib_name, data in library_data.items() %}
         <details class="library-details" data-id="{{ lib_name }}">
             <summary class="library-summary"><span class="drag-handle">☰</span> 📂 {{ lib_name }}</summary>
             <div class="library-content">
+
                 {% if data.episodes_tree %}
                     <div class="sub-title">📺 包含剧集</div>
                     {% for series_name, seasons in data.episodes_tree.items() %}
@@ -130,29 +185,54 @@
             </div>
         </details>
     {% else %}
-        <div style="text-align: center; color: var(--text-muted); padding: 40px; background-color: var(--sidebar-bg); border-radius: 10px; border: 1px solid var(--border-color);">
-            <p>暂无任何媒体库的观看记录。</p>
+        <div style="text-align: center; color: var(--text-muted); padding: 60px 20px; background-color: var(--sidebar-bg); border-radius: 10px; border: 1px solid var(--border-color);">
+            <div style="font-size: 40px; margin-bottom: 15px;">📦</div>
+            <p>本地数据库暂无记录，请点击右上角进行初始同步。</p>
         </div>
     {% endfor %}
 </div>
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        // --- 拖拽排序逻辑 ---
         const container = document.getElementById('library-container');
         const savedOrder = JSON.parse(localStorage.getItem('jellywall_library_order'));
+
         if (savedOrder) {
             savedOrder.forEach(function (id) {
                 const item = container.querySelector(`[data-id="${id}"]`);
                 if (item) container.appendChild(item);
             });
         }
-        Sortable.create(container, {
-            animation: 150, handle: '.library-summary', ghostClass: 'sortable-ghost',
-            onEnd: function () {
-                const currentOrder = Array.from(container.children).map(el => el.getAttribute('data-id'));
-                localStorage.setItem('jellywall_library_order', JSON.stringify(currentOrder));
-            }
+
+        if (container) {
+            Sortable.create(container, {
+                animation: 150, handle: '.library-summary', ghostClass: 'sortable-ghost',
+                onEnd: function () {
+                    const currentOrder = Array.from(container.children)
+                        .map(el => el.getAttribute('data-id'))
+                        .filter(id => id);
+                    localStorage.setItem('jellywall_library_order', JSON.stringify(currentOrder));
+                }
+            });
+        }
+
+        // --- 弹窗自动滑入与消失逻辑 ---
+        const toasts = document.querySelectorAll('.toast');
+        toasts.forEach((toast, index) => {
+            setTimeout(() => { toast.classList.add('show'); }, 100 * index);
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 400);
+            }, 8000);
         });
     });
+
+    // 手动关闭弹窗
+    function closeToast(element) {
+        const toast = element.closest('.toast');
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 400);
+    }
 </script>
 {% endblock %}

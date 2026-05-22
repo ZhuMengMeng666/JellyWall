@@ -27,6 +27,48 @@ class User(UserMixin, db.Model):
     jellyfin_api_key = db.Column(db.String(255), nullable=True)
     jellyfin_user_id = db.Column(db.String(255), nullable=True)
 
+class WatchRecord(db.Model):
+    """本地观影记录表"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+    # 基础信息
+    item_id = db.Column(db.String(100), nullable=False)  # Jellyfin 里的 ID
+    item_type = db.Column(db.String(50), nullable=False)  # 'Movie' 或 'Episode'
+    library_name = db.Column(db.String(100), nullable=False)  # 媒体库名称 (如"电影", "动漫")
+
+    # 电影/剧集具体信息
+    title = db.Column(db.String(200), nullable=False)  # 电影名 或 单集名
+    series_name = db.Column(db.String(200))  # 剧集名 (仅剧集有)
+    season_name = db.Column(db.String(100))  # 季名 (仅剧集有)
+
+    # 播放时间 (存储为 datetime 对象方便排序)
+    date_played = db.Column(db.DateTime, nullable=False)
+
+    # 建立一个复合索引，加快查询速度，防止同一个用户存入重复的 item_id
+    __table_args__ = (db.UniqueConstraint('user_id', 'item_id', name='_user_item_uc'),)
+
+
+class WatchPoster(db.Model):
+    """本地海报墙聚合表（升级版：支持季海报与剧集主海报双缓存）"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+    target_id = db.Column(db.String(100), nullable=False)  # 电影itemId 或 剧集"SeriesId_S1"
+    media_type = db.Column(db.String(50), nullable=False)  # 'Movie' 或 'Series'
+    display_title = db.Column(db.String(200), nullable=False)  # 原始完整标题，如"动漫名 (第 1 季)"
+
+    # ====== ✨ 新增字段 ======
+    series_name = db.Column(db.String(200), nullable=True)  # 专门记录纯粹的【剧集名字】
+    season_num = db.Column(db.Integer, nullable=True)  # 专门记录【第几季】的数字
+
+    # ====== 🧭 海报路径重新分配 ======
+    local_image_path = db.Column(db.String(255), nullable=False)  # 💥 存储【剧集季海报】或电影海报
+    series_image_path = db.Column(db.String(255), nullable=True)  # 💥 存储【纯剧集主海报】
+
+    last_watched_date = db.Column(db.DateTime, nullable=False)
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'target_id', 'display_title', name='_user_poster_uc'),)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -166,93 +208,109 @@ def dashboard():
     return render_template('dashboard.html', title="首页")
 
 
-@app.route('/config')
+import requests
+
+
+@app.route('/config', methods=['GET', 'POST'])
 @login_required
 def config():
-    return render_template('config.html', title="用户配置")
+    if request.method == 'POST':
+        protocol = request.form.get('protocol')
+        host = request.form.get('host').strip().rstrip('/')
+        port = request.form.get('port').strip()
+        jf_username = request.form.get('jf_username')
+        jf_password = request.form.get('jf_password')
+
+        # 如果用户直接在 host 里输入了 http://，做一下容错清理
+        if host.startswith('http://') or host.startswith('https://'):
+            host = host.split('://')[-1]
+
+        # 拼接出完整的 Jellyfin 基础 URL
+        base_url = f"{protocol}://{host}:{port}"
+
+        # Jellyfin 标准的登录授权接口
+        auth_url = f"{base_url}/Users/AuthenticateByName"
+
+        # 伪装成一个合法的客户端设备
+        headers = {
+            "X-Emby-Authorization": 'MediaBrowser Client="JellyWall", Device="JellyWall Web", DeviceId="JellyWall-V1", Version="1.0.0"',
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "Username": jf_username,
+            "Pw": jf_password
+        }
+
+        try:
+            resp = requests.post(auth_url, json=payload, headers=headers, timeout=10)
+
+            if resp.status_code == 200:
+                data = resp.json()
+                # 提取换回的 Token 和 UserId
+                access_token = data.get("AccessToken")
+                user_id = data.get("User", {}).get("Id")
+
+                # 保存到本地数据库当前用户的名下
+                current_user.jellyfin_url = base_url
+                current_user.jellyfin_api_key = access_token
+                current_user.jellyfin_user_id = user_id
+                db.session.commit()
+
+                flash("🎉 Jellyfin 服务器绑定成功！现在可以去拉取数据了。")
+            else:
+                flash(f"绑定失败：Jellyfin 账号或密码错误 (错误码: {resp.status_code})")
+
+        except requests.exceptions.RequestException as e:
+            flash(f"连接失败：无法访问该地址，请检查 IP、端口或网络是否互通。")
+
+        return redirect(url_for('config'))
+
+    return render_template('config.html', title="配置管理")
 
 
 @app.route('/watched')
 @login_required
 def watched():
-    """全量海报墙：混合电影与剧集实体，时间戳聚合去重，由远及近全局排序"""
-    url = f"{current_user.jellyfin_url}/Users/{current_user.jellyfin_user_id}/Items"
-    headers = {"X-Emby-Token": current_user.jellyfin_api_key}
+    """读取本地缓存：利用新增的纯剧集主海报与名字进行全局无重复渲染"""
+    all_posters = WatchPoster.query.filter_by(user_id=current_user.id).order_by(
+        WatchPoster.last_watched_date.asc()).all()
 
-    # 策略：请求全量的 Movie 和 Episode 以获取底层最细粒度的时间戳
-    params = {
-        "Filters": "IsPlayed",
-        "IncludeItemTypes": "Movie,Episode",
-        "Recursive": "true",
-        "Fields": "UserData",
-        "Limit": 2000  # 扩大阈值，确保时间排序的全局完整性
-    }
+    aggregated_dict = {}
 
-    # 使用字典池进行 O(1) 复杂度的去重与时间戳竞争
-    poster_dict = {}
-
-    try:
-        response = requests.get(url, headers=headers, params=params, timeout=15)
-        if response.status_code == 200:
-            items = response.json().get("Items", [])
-            for item in items:
-                item_type = item.get("Type")
-                user_data = item.get("UserData", {})
-                played_date_raw = user_data.get("LastPlayedDate")
-
-                # 脏数据过滤：丢弃没有明确播放时间记录的幽灵实体
-                if not played_date_raw:
-                    continue
-
-                # 时间精度解析：剥离纳秒级精度与 UTC Z 标识
-                date_str = played_date_raw.split('.')[0]
-                try:
-                    dt = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%S")
-                    # 时区对齐：将 UTC 零时区强制平移至东八区本地时间
-                    dt_local = dt + timedelta(hours=8)
-                except Exception:
-                    continue
-
-                if item_type == "Movie":
-                    poster_dict[item["Id"]] = {
-                        "id": item["Id"],
-                        "name": item.get("Name", "未知电影"),
-                        "date_obj": dt_local,
-                        "type_icon": "🎬"
-                    }
-
-                elif item_type == "Episode":
-                    series_id = item.get("SeriesId")
-                    series_name = item.get("SeriesName", "未知剧集")
-
-                    if series_id:
-                        # 核心聚合逻辑：同一剧集只保留一张海报，且时间戳必须是最新看的那一集
-                        if series_id not in poster_dict:
-                            poster_dict[series_id] = {
-                                "id": series_id,
-                                "name": series_name,
-                                "date_obj": dt_local,
-                                "type_icon": "📺"
-                            }
-                        else:
-                            # 时间戳竞争：如果当前解析的单集时间晚于字典中已记录的时间，则覆盖更新
-                            if dt_local > poster_dict[series_id]["date_obj"]:
-                                poster_dict[series_id]["date_obj"] = dt_local
-
+    for p in all_posters:
+        if p.media_type == "Movie":
+            key = p.target_id
+            name = p.display_title
+            img_file = p.local_image_path  # 电影依然使用 local_image_path
         else:
-            flash(f"获取媒体库数据遭遇 HTTP 异常，状态码: {response.status_code}")
-    except Exception as e:
-        flash(f"Jellyfin API 握手失败，连接超时或拒绝访问: {str(e)}")
+            # 剧集：纯按剧集 ID（即 target_id 前缀）去重聚合
+            pure_series_id = p.target_id.split('_')[0]
+            key = pure_series_id
+            name = p.series_name  # 💥 直接提取新字段：纯剧集名字
+            img_file = p.series_image_path  # 💥 直接提取新字段：纯剧集主海报，彻底隔绝多季重复方块！
 
-    # 维度转换与全局排序：将去重后的字典值转化为列表
-    # sort 的 key 函数基于 datetime 对象，reverse=False 确保时间由远及近（历史的最前，最近的垫底）
-    sorted_posters = sorted(poster_dict.values(), key=lambda x: x["date_obj"], reverse=False)
+        aggregated_dict[key] = {
+            "id": p.id,
+            "name": name,
+            "type_icon": "🎬" if p.media_type == "Movie" else "📺",
+            "local_img_url": url_for('static', filename=img_file),
+            "date_actual": p.last_watched_date
+        }
 
-    # 渲染前的数据格式化：将不可序列化的 datetime 对象降维成易读的字符串格式
-    for poster in sorted_posters:
-        poster["date_formatted"] = poster["date_obj"].strftime("%Y-%m-%d")
+    final_posters = list(aggregated_dict.values())
+    final_posters.sort(key=lambda x: x["date_actual"])
 
-    return render_template('watched.html', title="观影海报编年史", movies=sorted_posters)
+    movies_data = []
+    for item in final_posters:
+        movies_data.append({
+            "id": item["id"],
+            "name": item["name"],
+            "type_icon": item["type_icon"],
+            "local_img_url": item["local_img_url"],
+            "date_formatted": item["date_actual"].strftime("%Y-%m-%d %H:%M")
+        })
+
+    return render_template('watched.html', title="海报墙", movies=movies_data)
 
 
 @app.route('/image/<item_id>')
@@ -289,87 +347,257 @@ def format_jellyfin_date(date_str):
         return date_str
 
 
+from datetime import datetime, timedelta
+
+import os
+from datetime import datetime, timedelta
+import requests
+
+import os
+from datetime import datetime, timedelta
+import requests
+
+
+# ==========================================
+# 辅助函数 1：时间解析
+# ==========================================
+def parse_jellyfin_date(date_raw):
+    """解析 Jellyfin 时间字符串为东八区 datetime 对象"""
+    if not date_raw:
+        return None
+    date_str = date_raw.split('.')[0]
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%S")
+        return dt + timedelta(hours=8)
+    except ValueError:
+        return None
+
+
+# ==========================================
+# 辅助函数 2：图片下载引擎
+# ==========================================
+def download_image(url, headers, local_path):
+    """下载图片到本地，若已存在则跳过。返回下载是否成功的结果。"""
+    if os.path.exists(local_path):
+        return True
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            with open(local_path, 'wb') as f:
+                f.write(resp.content)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+# ==========================================
+# 辅助函数 3：写入/更新【观影明细表】
+# ==========================================
+def update_watch_record(user_id, item, item_type, lib_name, dt_local):
+    """处理 WatchRecord 表逻辑，返回是否发生了变动（新增或时间更新）"""
+    item_id = item["Id"]
+    record = WatchRecord.query.filter_by(user_id=user_id, item_id=item_id).first()
+
+    if not record:
+        record = WatchRecord(
+            user_id=user_id, item_id=item_id, item_type=item_type,
+            library_name=lib_name, title=item.get("Name", "未知"), date_played=dt_local
+        )
+        if item_type == "Episode":
+            record.series_name = item.get("SeriesName", "未知剧集")
+            record.season_name = f"第 {item.get('ParentIndexNumber', '?')} 季"
+            record.title = f"第 {item.get('IndexNumber', '?')} 集 - {item.get('Name', '未知集名')}"
+        db.session.add(record)
+        return True
+    else:
+        if dt_local > record.date_played:
+            record.date_played = dt_local
+            return True
+    return False
+
+
+# ==========================================
+# 辅助函数 4：写入/更新【海报墙双缓存表】
+# ==========================================
+def update_watch_poster(user_id, item, item_type, dt_local, jf_url, headers, poster_dir, synced_names):
+    """处理 WatchPoster 表逻辑，并触发季海报与剧集主海报的下载"""
+    item_id = item["Id"]
+
+    # 提取聚合属性
+    if item_type == "Movie":
+        target_id = item_id
+        media_type = "Movie"
+        display_title = item.get("Name", "未知电影")
+        pure_series_name, season_num_int = None, None
+    else:
+        series_id = item.get("SeriesId", item_id)
+        raw_season_num = item.get("ParentIndexNumber")
+        try:
+            season_num_int = int(raw_season_num) if raw_season_num is not None else None
+        except ValueError:
+            season_num_int = None
+
+        target_id = f"{series_id}_S{season_num_int or '?'}"
+        media_type = "Series"
+        pure_series_name = item.get("SeriesName", "未知剧集")
+        display_title = f"{pure_series_name} (第 {season_num_int or '?'} 季)"
+
+    # 操作海报墙数据库
+    poster_record = WatchPoster.query.filter_by(user_id=user_id, target_id=target_id).first()
+
+    if not poster_record:
+        series_relative_path = "images/logo.png"
+        season_relative_path = "images/logo.png"
+
+        if item_type == "Movie":
+            movie_path = os.path.join(poster_dir, f"{target_id}.jpg")
+            season_relative_path = f"posters/{target_id}.jpg"
+            img_url = f"{jf_url}/Items/{item_id}/Images/Primary?maxWidth=400"
+
+            if not download_image(img_url, headers, movie_path):
+                season_relative_path = "images/logo.png"
+            synced_names.add(f"🎬《{display_title}》")
+
+        else:  # Episode
+            # 1. 下载主剧集海报
+            series_id = item.get("SeriesId")
+            series_path = os.path.join(poster_dir, f"{series_id}_main.jpg")
+            series_relative_path = f"posters/{series_id}_main.jpg"
+            s_url = f"{jf_url}/Items/{series_id}/Images/Primary?maxWidth=400"
+            if not download_image(s_url, headers, series_path):
+                series_relative_path = "images/logo.png"
+
+            # 2. 下载季海报
+            season_id = item.get("SeasonId")
+            season_path = os.path.join(poster_dir, f"{target_id}_season.jpg")
+            season_relative_path = f"posters/{target_id}_season.jpg"
+            se_url = f"{jf_url}/Items/{season_id}/Images/Primary?maxWidth=400" if season_id else None
+
+            if se_url and download_image(se_url, headers, season_path):
+                pass  # 成功下载
+            else:
+                season_relative_path = series_relative_path  # 回退为主海报
+
+            synced_names.add(f"📺《{pure_series_name}》第 {season_num_int or '?'} 季")
+
+        # 写入新记录
+        poster_record = WatchPoster(
+            user_id=user_id, target_id=target_id, media_type=media_type, display_title=display_title,
+            series_name=pure_series_name, season_num=season_num_int,
+            local_image_path=season_relative_path,
+            series_image_path=series_relative_path if media_type == "Series" else None,
+            last_watched_date=dt_local
+        )
+        db.session.add(poster_record)
+    else:
+        # 更新已存在的海报观看时间
+        if dt_local > poster_record.last_watched_date:
+            poster_record.last_watched_date = dt_local
+
+
+# ==========================================
+# 🌟 主路由：逻辑编排层 (瞬间清爽)
+# ==========================================
+@app.route('/sync_history')
+@login_required
+def sync_history():
+    """手动同步主控台：调用辅函数进行数据解析与落地"""
+    jf_url = current_user.jellyfin_url
+    headers = {"X-Emby-Token": current_user.jellyfin_api_key}
+    base_user_url = f"{jf_url}/Users/{current_user.jellyfin_user_id}"
+
+    poster_dir = os.path.join(app.root_path, 'static', 'posters')
+    os.makedirs(poster_dir, exist_ok=True)
+
+    sync_count = 0
+    synced_names = set()
+
+    try:
+        views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
+        if views_resp.status_code != 200:
+            flash("无法获取媒体库列表，同步失败。")
+            return redirect(url_for('watched_list'))
+
+        # 遍历媒体库
+        for view in views_resp.json().get("Items", []):
+            params = {
+                "ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
+                "Recursive": "true", "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber", "Limit": 2000
+            }
+            items_resp = requests.get(f"{base_user_url}/Items", headers=headers, params=params, timeout=15)
+            if items_resp.status_code != 200:
+                continue
+
+            # 遍历观看记录项目
+            for item in items_resp.json().get("Items", []):
+                dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
+                if not dt_local: continue
+
+                # 调用职能 1：处理明细
+                is_updated = update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local)
+
+                # 调用职能 2：处理海报
+                if is_updated:
+                    sync_count += 1
+                    update_watch_poster(current_user.id, item, item["Type"], dt_local, jf_url, headers, poster_dir,
+                                        synced_names)
+
+        db.session.commit()
+
+        # 弹窗提示逻辑
+        if sync_count > 0:
+            names_html = "<ul style='margin: 10px 0 0 0; padding-left: 20px; text-align: left; max-height: 150px; overflow-y: auto; color: var(--text-main);'>"
+            for name in sorted(synced_names):
+                names_html += f"<li style='margin-bottom: 6px;'>{name}</li>"
+            names_html += "</ul>"
+            flash(f"🎉 同步成功！已处理明细并缓存海报：{names_html}")
+        else:
+            flash("✨ 同步完成！本地海报及历史记录已是最新。")
+
+    except Exception as e:
+        flash(f"同步过程中发生网络异常: {str(e)}")
+
+    return redirect(url_for('watched_list'))
+
+
 @app.route('/watched_list')
 @login_required
 def watched_list():
-    """获取观影记录列表（按媒体库分类 + 剧集折叠）"""
-    headers = {"X-Emby-Token": current_user.jellyfin_api_key}
-    base_url = f"{current_user.jellyfin_url}/Users/{current_user.jellyfin_user_id}"
+    """从本地数据库读取观看记录（极速加载）"""
+    # 直接从本地 SQLite 数据库中按时间倒序拉取当前用户的所有记录
+    records = WatchRecord.query.filter_by(user_id=current_user.id).order_by(WatchRecord.date_played.desc()).all()
 
-    # 最终传递给前端的数据结构：{ "动漫库": {"movies": [], "episodes_tree": {}}, "电影库": ... }
     library_data = {}
 
-    try:
-        # 1. 先获取该用户能看到的所有媒体库 (Views)
-        views_resp = requests.get(f"{base_url}/Views", headers=headers, timeout=10)
+    # 将扁平的数据库记录重新组装成前端需要的折叠树结构
+    for r in records:
+        lib_name = r.library_name
+        date_str = r.date_played.strftime("%Y-%m-%d %H:%M")
 
-        if views_resp.status_code == 200:
-            views = views_resp.json().get("Items", [])
+        if lib_name not in library_data:
+            library_data[lib_name] = {"movies": [], "episodes_tree": {}}
 
-            # 2. 遍历每个媒体库，单独请求该库下的已观看内容
-            for view in views:
-                lib_id = view["Id"]
-                lib_name = view["Name"]
+        if r.item_type == "Movie":
+            library_data[lib_name]["movies"].append({
+                "name": r.title,
+                "date": date_str
+            })
+        elif r.item_type == "Episode":
+            series = r.series_name
+            season = r.season_name
 
-                params = {
-                    "ParentId": lib_id,  # 核心：限定只在这个媒体库中搜索
-                    "Filters": "IsPlayed",
-                    "IncludeItemTypes": "Movie,Episode",
-                    "Recursive": "true",
-                    "SortBy": "DatePlayed",
-                    "SortOrder": "Descending",
-                    "Fields": "UserData",
-                    "Limit": 500
-                }
+            if series not in library_data[lib_name]["episodes_tree"]:
+                library_data[lib_name]["episodes_tree"][series] = {}
+            if season not in library_data[lib_name]["episodes_tree"][series]:
+                library_data[lib_name]["episodes_tree"][series][season] = []
 
-                items_resp = requests.get(f"{base_url}/Items", headers=headers, params=params, timeout=10)
-                if items_resp.status_code == 200:
-                    items = items_resp.json().get("Items", [])
+            library_data[lib_name]["episodes_tree"][series][season].append({
+                "episode": r.title,
+                "date": date_str
+            })
 
-                    if not items:
-                        continue  # 如果这个媒体库里没有已观看的内容，直接跳过，前端不展示
-
-                    movies_list = []
-                    episodes_tree = {}
-
-                    # 3. 数据归类解析 (复用之前的层级折叠逻辑)
-                    for item in items:
-                        item_type = item.get("Type")
-                        played_date = format_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
-
-                        if item_type == "Movie":
-                            movies_list.append({
-                                "name": item.get("Name", "未知电影"),
-                                "date": played_date
-                            })
-
-                        elif item_type == "Episode":
-                            series_name = item.get("SeriesName", "未知剧集")
-                            season_str = f"第 {item.get('ParentIndexNumber', '?')} 季"
-                            episode_str = f"第 {item.get('IndexNumber', '?')} 集 - {item.get('Name', '未知集名')}"
-
-                            if series_name not in episodes_tree:
-                                episodes_tree[series_name] = {}
-                            if season_str not in episodes_tree[series_name]:
-                                episodes_tree[series_name][season_str] = []
-
-                            episodes_tree[series_name][season_str].append({
-                                "episode": episode_str,
-                                "date": played_date
-                            })
-
-                    # 将解析好的数据存入该媒体库名下
-                    if movies_list or episodes_tree:
-                        library_data[lib_name] = {
-                            "movies": movies_list,
-                            "episodes_tree": episodes_tree
-                        }
-        else:
-            flash(f"获取媒体库失败，状态码: {views_resp.status_code}")
-    except Exception as e:
-        flash(f"请求 Jellyfin 出错: {str(e)}")
-
-    return render_template('watched_list.html', title="观看记录列表", library_data=library_data)
+    return render_template('watched_list.html', title="同步记录", library_data=library_data)
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()

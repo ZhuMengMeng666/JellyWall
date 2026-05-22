@@ -7,37 +7,29 @@
     .toolbar {
         display: flex; justify-content: space-between; align-items: center;
         margin-bottom: 25px; padding: 15px 20px; border-radius: 10px;
-        background-color: var(--sidebar-bg);
-        border: 1px solid var(--border-color);
+        background-color: var(--sidebar-bg); border: 1px solid var(--border-color);
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
-
     .timeline-info { color: var(--text-muted); font-size: 14px; letter-spacing: 1px; }
 
     .export-btn {
         padding: 10px 24px; font-size: 15px; font-weight: 600;
-        background-color: var(--primary-color);
-        color: white; border: none; border-radius: 6px; cursor: pointer;
-        display: inline-flex; align-items: center; gap: 10px;
-        transition: transform 0.2s, filter 0.2s;
+        background-color: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 10px; transition: transform 0.2s, filter 0.2s;
     }
     .export-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
 
     #poster-wall {
         display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 20px;
-        padding: 25px; border-radius: 12px;
-        background-color: var(--sidebar-bg); /* 与卡片背景一致 */
-        border: 1px solid var(--border-color);
+        padding: 25px; border-radius: 12px; background-color: var(--sidebar-bg); border: 1px solid var(--border-color);
     }
 
     .poster-item {
         position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: 8px; overflow: hidden;
-        background-color: var(--bg-color);
-        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        background-color: var(--bg-color); box-shadow: 0 6px 12px rgba(0,0,0,0.15);
         transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .poster-item:hover { transform: scale(1.03); z-index: 10; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
-
     .poster-item img { width: 100%; height: 100%; object-fit: cover; display: block; transition: filter 0.3s; }
 
     .info-overlay {
@@ -48,29 +40,14 @@
         display: flex; flex-direction: column; gap: 4px;
     }
     .poster-item:hover .info-overlay { transform: translateY(0); }
-
-    .info-title {
-        font-size: 14px; font-weight: 600; line-height: 1.3; text-align: center;
-        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-        overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-    }
-
-    .info-meta {
-        font-size: 11px; color: var(--primary-color); text-align: center;
-        font-family: monospace; letter-spacing: 0.5px;
-    }
+    .info-title { font-size: 13px; font-weight: 600; line-height: 1.3; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; }
+    .info-meta { font-size: 11px; color: var(--primary-color); text-align: center; font-family: monospace; }
 
     .type-badge {
-        position: absolute; top: 8px; right: 8px;
-        background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px);
-        padding: 4px 6px; border-radius: 4px; font-size: 12px; border: 1px solid rgba(255,255,255,0.1);
+        position: absolute; top: 8px; right: 8px; background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px);
+        padding: 4px 6px; border-radius: 4px; font-size: 12px; border: 1px solid rgba(255,255,255,0.1); z-index: 5;
     }
-    .flash { color: #ff4d4d; margin-bottom: 15px; }
 </style>
-
-{% with messages = get_flashed_messages() %}
-    {% if messages %}<div class="flash">{% for msg in messages %}{{ msg }}{% endfor %}</div>{% endif %}
-{% endwith %}
 
 <div class="toolbar">
     <div class="timeline-info"><span>⏱️ 时间轴排序规则：由远及近</span></div>
@@ -83,7 +60,7 @@
     {% for movie in movies %}
         <div class="poster-item">
             <div class="type-badge">{{ movie.type_icon }}</div>
-            <img src="/image/{{ movie.id }}" alt="{{ movie.name }}" crossorigin="anonymous" loading="lazy">
+            <img src="{{ movie.local_img_url }}" alt="{{ movie.name }}" loading="lazy">
             <div class="info-overlay">
                 <div class="info-title">{{ movie.name }}</div>
                 <div class="info-meta">{{ movie.date_formatted }}</div>
@@ -92,7 +69,7 @@
     {% else %}
         <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted);">
             <div style="font-size: 40px; margin-bottom: 15px;">🏜️</div>
-            <p>数据库中尚未探测到任何观影记录</p>
+            <p>数据库中尚未探测到任何观影记录，请先去 [已观看记录] 页面进行同步。</p>
         </div>
     {% endfor %}
 </div>
@@ -107,12 +84,11 @@
         btn.disabled = true; btn.style.opacity = '0.7';
         icon.innerHTML = '⚙️'; text.innerHTML = '渲染引擎处理中...';
 
-        // 动态获取当前的背景色变量，供截图使用
         const currentBg = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-bg').trim() || '#1e1e1e';
 
         html2canvas(wall, {
             useCORS: true,
-            backgroundColor: currentBg, // 截图背景色自动适配黑夜/白天模式
+            backgroundColor: currentBg,
             scale: 2,
             logging: false
         }).then(canvas => {

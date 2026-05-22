@@ -4,12 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="f701a4ed-4bfc-4516-86ad-09f9b8366bae" name="更改" comment="fix: 完善登录注册闭环与基础 UI 更新&#10;&#10;- 新增注册路由及页面，修复登录跳转逻辑，打通用户鉴权全流程。&#10;- 全局引入品牌 Logo（登录页与侧边栏），并优化导航栏展示文案。">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/config.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/config.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/watched.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/watched.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/watched_list.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/watched_list.html" afterDir="false" />
+    <list default="true" id="f701a4ed-4bfc-4516-86ad-09f9b8366bae" name="更改" comment="feat: 新增剧集主海报与季海报双缓存，并优化同步代码结构">
+      <change afterPath="$PROJECT_DIR$/static/posters/.gitignore" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -130,7 +126,15 @@
       <option name="project" value="LOCAL" />
       <updated>1779269488142</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="feat: 新增剧集主海报与季海报双缓存，并优化同步代码结构">
+      <option name="closed" value="true" />
+      <created>1779440841627</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1779440841627</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -148,7 +152,8 @@
     <MESSAGE value="feat: Initial commit - JellyWall 核心功能上线&#10;&#10;- 搭建 Flask 后端与 SQLite 用户登录系统&#10;- 实现 Jellyfin 账号密码一键绑定及凭证本地化存储&#10;- 开发“观看记录列表”：支持按媒体库/剧集/季三级手风琴折叠，集成拖拽排序与记忆功能&#10;- 开发“海报编年史墙”：融合电影与剧集，实现按时间戳去重聚合排序（由远及近）&#10;- 实现后端图片反向代理，完美解决 html2canvas 跨域截屏白屏问题" />
     <MESSAGE value="feat: 全面重构现代后台 UI，引入动态主题与涟漪过渡动画&#10;&#10;- UI 架构升级：重构基础模板，采用现代化卡片式布局与 CSS 变量驱动。&#10;- 深浅模式切换：新增黑夜/白天模式一键切换功能。&#10;- 动态主题色：新增多款预设主题色（蓝、紫、绿、红），色彩全局联动至侧边栏导航高亮、媒体库大分类及影视剧名称。&#10;- 涟漪扩散动效：原生引入 View Transitions API，实现主题与颜色切换时丝滑的水波纹扩散过渡动画，且支持动画速度自定义。&#10;- 偏好持久化：利用 LocalStorage 自动记录用户的主题状态与颜色选择，刷新不丢失。" />
     <MESSAGE value="fix: 完善登录注册闭环与基础 UI 更新&#10;&#10;- 新增注册路由及页面，修复登录跳转逻辑，打通用户鉴权全流程。&#10;- 全局引入品牌 Logo（登录页与侧边栏），并优化导航栏展示文案。" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix: 完善登录注册闭环与基础 UI 更新&#10;&#10;- 新增注册路由及页面，修复登录跳转逻辑，打通用户鉴权全流程。&#10;- 全局引入品牌 Logo（登录页与侧边栏），并优化导航栏展示文案。" />
+    <MESSAGE value="feat: 新增剧集主海报与季海报双缓存，并优化同步代码结构" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: 新增剧集主海报与季海报双缓存，并优化同步代码结构" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

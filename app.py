@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -26,6 +26,11 @@ class User(UserMixin, db.Model):
     jellyfin_url = db.Column(db.String(255), nullable=True)
     jellyfin_api_key = db.Column(db.String(255), nullable=True)
     jellyfin_user_id = db.Column(db.String(255), nullable=True)
+    # 新增 HTTP 代理字段
+    proxy_url = db.Column(db.String(255), nullable=True)
+    proxy_port = db.Column(db.String(10), nullable=True)
+
+    tmdb_api_key = db.Column(db.String(255), nullable=True)
 
 class WatchRecord(db.Model):
     """本地观影记录表"""
@@ -208,13 +213,70 @@ def dashboard():
     return render_template('dashboard.html', title="首页")
 
 
-import requests
+@app.route('/test_proxy', methods=['POST'])
+@login_required
+def test_proxy():
+    data = request.json
+    proxy_url = data.get('url')
+    proxy_port = data.get('port')
 
+    if not proxy_url or not proxy_port:
+        return jsonify({"success": False, "message": "请输入完整的代理网址和端口"})
+
+    proxies = {
+        "http": f"http://{proxy_url}:{proxy_port}",
+        "https": f"http://{proxy_url}:{proxy_port}"
+    }
+
+    try:
+        # 尝试通过代理访问一个高可用的地址进行测试
+        test_resp = requests.get("http://www.google.com", proxies=proxies, timeout=5)
+        if test_resp.status_code == 200:
+            return jsonify({"success": True, "message": "✅ 测试代理成功！网络已连通。"})
+        else:
+            return jsonify({"success": False, "message": f"❌ 测试失败：代理服务器返回状态码 {test_resp.status_code}"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"❌ 连接代理失败：{str(e)}"})
+
+
+@app.route('/test_tmdb', methods=['POST'])
+@login_required
+def test_tmdb():
+    api_key = request.json.get('api_key')
+    if not api_key:
+        return jsonify({"success": False, "message": "请输入 TMDB API Key"})
+
+    try:
+        url = f"https://api.themoviedb.org/3/authentication?api_key={api_key}"
+
+        # ✨ 完美接入已有的全局代理函数
+        resp = requests.get(url, proxies=get_user_proxies(current_user), timeout=8)
+
+        if resp.status_code == 200:
+            return jsonify({"success": True, "message": "✅ 测试成功！已连通 TMDB。"})
+        else:
+            return jsonify({"success": False, "message": f"❌ 验证失败：API Key 无效 (状态码 {resp.status_code})"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"❌ 连接 TMDB 失败，请检查网络或代理设置：{str(e)}"})
 
 @app.route('/config', methods=['GET', 'POST'])
 @login_required
 def config():
     if request.method == 'POST':
+        # 判断是保存 Jellyfin 配置还是保存代理配置
+        form_type = request.form.get('form_type')
+        if form_type == 'proxy_settings':
+            current_user.proxy_url = request.form.get('proxy_url').strip()
+            current_user.proxy_port = request.form.get('proxy_port').strip()
+            db.session.commit()
+            flash("🎉 代理配置保存成功！")
+            return redirect(url_for('config'))
+        # 新增 TMDB 保存逻辑
+        if form_type == 'tmdb_settings':
+            current_user.tmdb_api_key = request.form.get('tmdb_api_key').strip()
+            db.session.commit()
+            flash("🎉 TMDB 密钥保存成功！")
+            return redirect(url_for('config'))
         protocol = request.form.get('protocol')
         host = request.form.get('host').strip().rstrip('/')
         port = request.form.get('port').strip()
@@ -268,6 +330,93 @@ def config():
     return render_template('config.html', title="配置管理")
 
 
+# ==========================================
+# 🔍 TMDB 探索检索中心 (名字层级碰撞深度对齐)
+# ==========================================
+@app.route('/explore')
+@login_required
+def explore():
+    """渲染探索搜索页面"""
+    return render_template('explore.html', title="探索发现")
+
+
+@app.route('/api/search_tmdb')
+@login_required
+def api_search_tmdb():
+    """TMDB 异步搜索接口：根据[影视中文名字]进行本地高匿碰撞比对"""
+    query = request.args.get('q')
+    if not query:
+        return jsonify({"success": False, "message": "搜索词不能为空"})
+
+    api_key = current_user.tmdb_api_key
+    if not api_key:
+        return jsonify({"success": False, "message": "请先在配置管理中绑定 TMDB API Key"})
+
+    try:
+        url = "https://api.themoviedb.org/3/search/multi"
+        params = {
+            "api_key": api_key,
+            "query": query,
+            "language": "zh-CN",
+            "page": 1,
+            "include_adult": "false"
+        }
+
+        # 完美引用用户自定义的全局 HTTP 代理进行中转请求
+        resp = requests.get(url, params=params, proxies=get_user_proxies(current_user), timeout=10)
+
+        if resp.status_code == 200:
+            data = resp.json()
+            raw_results = data.get('results', [])
+
+            if not raw_results:
+                return jsonify({"success": True, "results": []})
+
+            # ====== ✨ 核心逻辑：从本地缓存表提取该用户所有的[电影名]和[纯剧集名] ======
+            # 1. 提取已观看的电影名称集合 (对应 display_title)
+            local_movies = db.session.query(WatchPoster.display_title) \
+                .filter(WatchPoster.user_id == current_user.id, WatchPoster.media_type == 'Movie').all()
+            watched_movies_set = {r[0] for r in local_movies if r[0]}
+
+            # 2. 提取已观看的纯剧集名字集合 (对应新字段 series_name)
+            local_series = db.session.query(WatchPoster.series_name) \
+                .filter(WatchPoster.user_id == current_user.id, WatchPoster.media_type == 'Series').all()
+            watched_series_set = {r[0] for r in local_series if r[0]}
+
+            results = []
+            for item in raw_results:
+                media_type = item.get('media_type')
+                if media_type in ['movie', 'tv']:
+                    # 获取中文核心文本名字
+                    tmdb_name = item.get('title') if media_type == 'movie' else item.get('name')
+                    if not tmdb_name:
+                        continue
+
+                    date = item.get('release_date') if media_type == 'movie' else item.get('first_air_date')
+                    poster_path = item.get('poster_path')
+
+                    # 执行严格的[名字级]数据库命中判断
+                    is_watched = False
+                    if media_type == 'movie':
+                        is_watched = tmdb_name in watched_movies_set
+                    else:
+                        is_watched = tmdb_name in watched_series_set
+
+                    results.append({
+                        'id': item.get('id'),
+                        'media_type': media_type,  # 直接透传原始类型，由前端控制左上角输出
+                        'title': tmdb_name,
+                        'date': date[:4] if date else "未知年份",
+                        'poster_url': f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None,
+                        'is_watched': is_watched  # 碰撞比对成功为 True，前端直接渲染绿色对勾标章
+                    })
+
+            return jsonify({"success": True, "results": results})
+        else:
+            return jsonify({"success": False, "message": f"TMDB 返回异常 (状态码: {resp.status_code})"})
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"网络请求失败，请检查代理配置: {str(e)}"})
 @app.route('/watched')
 @login_required
 def watched():
@@ -598,6 +747,15 @@ def watched_list():
             })
 
     return render_template('watched_list.html', title="同步记录", library_data=library_data)
+
+def get_user_proxies(user):
+    if user.proxy_url and user.proxy_port:
+        proxy_addr = f"http://{user.proxy_url}:{user.proxy_port}"
+        return {"http": proxy_addr, "https": proxy_addr}
+    return None
+
+# 在请求时这样使用：
+# requests.get(url, headers=headers, proxies=get_user_proxies(current_user))
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()

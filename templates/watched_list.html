@@ -5,63 +5,37 @@
 
 <style>
     /* ====== 一级折叠：媒体库 ====== */
-    .library-details {
-        background-color: var(--sidebar-bg); border-radius: 10px; margin-bottom: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid var(--border-color);
+    #library-container {
+        display: flex;
+        flex-direction: column;
     }
-    .library-summary {
-        padding: 20px; font-size: 20px; font-weight: bold;
-        color: var(--primary-color);
-        background-color: rgba(128, 128, 128, 0.03); border-radius: 10px; list-style: none; position: relative;
-        transition: background-color 0.2s, color 0.3s; cursor: grab; display: flex; align-items: center;
-    }
+
+    .library-details { background-color: var(--sidebar-bg); border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid var(--border-color); }
+    .library-summary { padding: 20px; font-size: 20px; font-weight: bold; color: var(--primary-color); background-color: rgba(128, 128, 128, 0.03); border-radius: 10px; list-style: none; position: relative; transition: background-color 0.2s, color 0.3s; cursor: grab; display: flex; align-items: center; }
     .library-summary:active { cursor: grabbing; }
     .library-summary:hover { background-color: rgba(128, 128, 128, 0.08); }
     .library-summary::-webkit-details-marker { display: none; }
-
     .drag-handle { color: var(--text-muted); margin-right: 15px; font-size: 18px; cursor: grab; }
-
-    .library-summary::after {
-        content: '▶'; position: absolute; right: 25px; top: 25px;
-        font-size: 16px; color: var(--text-muted); transition: transform 0.2s;
-    }
+    .library-summary::after { content: '▶'; position: absolute; right: 25px; top: 25px; font-size: 16px; color: var(--text-muted); transition: transform 0.2s; }
     .library-details[open] > .library-summary::after { transform: rotate(90deg); }
-    .library-details[open] > .library-summary {
-        border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 2px solid var(--border-color);
-    }
+    .library-details[open] > .library-summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 2px solid var(--border-color); }
     .library-content { padding: 20px; }
     .sortable-ghost { opacity: 0.4; background-color: var(--bg-color); }
 
     /* ====== 二级折叠：剧集 ====== */
     .series-details { margin-bottom: 10px; background-color: rgba(128, 128, 128, 0.03); border-radius: 5px; }
-    .series-summary {
-        padding: 15px; cursor: pointer; font-weight: bold;
-        color: var(--primary-color);
-        background-color: var(--border-color); border-radius: 5px; position: relative; list-style: none;
-        transition: color 0.3s;
-    }
+    .series-summary { padding: 15px; cursor: pointer; font-weight: bold; color: var(--primary-color); background-color: var(--border-color); border-radius: 5px; position: relative; list-style: none; transition: color 0.3s; }
     .series-summary:hover { filter: brightness(1.1); }
     .series-summary::-webkit-details-marker { display: none; }
-    .series-summary::after {
-        content: '▶'; position: absolute; right: 20px; top: 18px;
-        font-size: 12px; color: var(--text-muted); transition: transform 0.2s;
-    }
+    .series-summary::after { content: '▶'; position: absolute; right: 20px; top: 18px; font-size: 12px; color: var(--text-muted); transition: transform 0.2s; }
     .series-details[open] > .series-summary::after { transform: rotate(90deg); }
-    .series-details[open] > .series-summary {
-        border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 1px solid var(--border-color);
-    }
+    .series-details[open] > .series-summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 1px solid var(--border-color); }
 
     /* ====== 三级折叠：季 ====== */
     .season-details { margin: 10px 15px 15px 15px; background-color: rgba(128, 128, 128, 0.02); border-radius: 4px;}
-    .season-summary {
-        background-color: rgba(128, 128, 128, 0.08); color: var(--text-main); padding: 10px 15px;
-        font-weight: normal; list-style: none; position: relative; cursor: pointer; border-radius: 4px;
-    }
+    .season-summary { background-color: rgba(128, 128, 128, 0.08); color: var(--text-main); padding: 10px 15px; font-weight: normal; list-style: none; position: relative; cursor: pointer; border-radius: 4px; }
     .season-summary::-webkit-details-marker { display: none; }
-    .season-summary::after {
-        content: '▼'; position: absolute; right: 20px; top: 14px;
-        transform: rotate(-90deg); transition: transform 0.2s; color: var(--text-muted); font-size: 12px;
-    }
+    .season-summary::after { content: '▼'; position: absolute; right: 20px; top: 14px; transform: rotate(-90deg); transition: transform 0.2s; color: var(--text-muted); font-size: 12px; }
     .season-details[open] > .season-summary::after { transform: rotate(0deg); }
     .season-details[open] > .season-summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0;}
 
@@ -70,49 +44,26 @@
     th, td { padding: 12px 15px; border-bottom: 1px solid var(--border-color); transition: color 0.3s;}
     th { background-color: var(--border-color); color: var(--text-muted); font-weight: bold; }
     tr:hover { background-color: rgba(128, 128, 128, 0.05); }
-
     .sub-title { color: var(--text-muted); font-size: 16px; margin-bottom: 10px; margin-top: 15px; }
-
-    /* ====== ✨ 右上角悬浮弹窗 (Toast) 样式 ====== */
-    .toast-overlay {
-        position: fixed; top: 25px; right: 25px; z-index: 10000;
-        display: flex; flex-direction: column; gap: 15px; pointer-events: none;
-    }
-    .toast {
-        background-color: var(--sidebar-bg); border: 1px solid var(--primary-color);
-        box-shadow: 0 10px 25px rgba(0,0,0,0.15); border-radius: 12px;
-        padding: 20px; width: 340px; pointer-events: auto;
-        transform: translateX(120%); transition: transform 0.4s cubic-bezier(0.25, 1, 0.3, 1);
-    }
-    .toast.show { transform: translateX(0); }
-    .toast-header {
-        display: flex; justify-content: space-between; align-items: center;
-        margin-bottom: 12px; font-weight: 800; color: var(--primary-color); font-size: 16px;
-    }
-    .toast-close { cursor: pointer; color: var(--text-muted); font-size: 16px; transition: 0.2s; }
-    .toast-close:hover { color: #ef4444; }
-    .toast-body { font-size: 14px; line-height: 1.5; color: var(--text-muted); }
-
-    /* 美化弹窗里的滚动条 */
-    .toast-body ul::-webkit-scrollbar { width: 6px; }
-    .toast-body ul::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 4px; }
 </style>
 
-<div class="toast-overlay" id="toast-container">
-    {% with messages = get_flashed_messages() %}
-        {% if messages %}
-            {% for msg in messages %}
-                <div class="toast">
-                    <div class="toast-header">
-                        <span>系统通知</span>
-                        <span class="toast-close" onclick="closeToast(this)">✖</span>
-                    </div>
-                    <div class="toast-body">{{ msg | safe }}</div>
-                </div>
-            {% endfor %}
-        {% endif %}
-    {% endwith %}
-</div>
+<script>
+    (function() {
+        const savedOrder = JSON.parse(localStorage.getItem('jellywall_library_order'));
+        if (savedOrder && Array.isArray(savedOrder)) {
+            let cssString = '';
+            savedOrder.forEach((id, index) => {
+                const safeId = CSS.escape(id);
+                cssString += `.library-details[data-id="${safeId}"] { order: ${index}; }\n`;
+            });
+            cssString += `.library-details { order: 9999; }`;
+
+            const style = document.createElement('style');
+            style.textContent = cssString;
+            document.head.appendChild(style);
+        }
+    })();
+</script>
 
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background-color: var(--sidebar-bg); padding: 15px 20px; border-radius: 10px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
     <div style="color: var(--text-muted); font-size: 14px; line-height: 1.6;">
@@ -120,15 +71,16 @@
         如在 Jellyfin 中产生了新的观影记录，请点击右侧同步按钮拉取最新数据。
     </div>
 
-    <a href="{{ url_for('sync_history') }}" style="text-decoration: none;">
-        <button style="
+    <a href="{{ url_for('sync_history') }}" style="text-decoration: none;" onclick="handleSyncClick(this, event)">
+        <button id="sync-btn" style="
             padding: 10px 24px; font-size: 15px; font-weight: 600;
             background-color: var(--primary-color); color: white;
             border: none; border-radius: 8px; cursor: pointer;
             display: inline-flex; align-items: center; gap: 8px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             transition: transform 0.2s, filter 0.2s;">
-            <span style="font-size: 16px;">🔄</span> 同步最新记录
+            <span id="sync-icon" style="font-size: 16px;">🔄</span>
+            <span id="sync-text">同步最新记录</span>
         </button>
     </a>
 </div>
@@ -194,45 +146,49 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        // --- 拖拽排序逻辑 ---
         const container = document.getElementById('library-container');
-        const savedOrder = JSON.parse(localStorage.getItem('jellywall_library_order'));
-
-        if (savedOrder) {
-            savedOrder.forEach(function (id) {
-                const item = container.querySelector(`[data-id="${id}"]`);
-                if (item) container.appendChild(item);
-            });
-        }
 
         if (container) {
             Sortable.create(container, {
-                animation: 150, handle: '.library-summary', ghostClass: 'sortable-ghost',
+                animation: 150,
+                handle: '.library-summary',
+                ghostClass: 'sortable-ghost',
                 onEnd: function () {
                     const currentOrder = Array.from(container.children)
                         .map(el => el.getAttribute('data-id'))
                         .filter(id => id);
+
                     localStorage.setItem('jellywall_library_order', JSON.stringify(currentOrder));
                 }
             });
         }
-
-        // --- 弹窗自动滑入与消失逻辑 ---
-        const toasts = document.querySelectorAll('.toast');
-        toasts.forEach((toast, index) => {
-            setTimeout(() => { toast.classList.add('show'); }, 100 * index);
-            setTimeout(() => {
-                toast.classList.remove('show');
-                setTimeout(() => toast.remove(), 400);
-            }, 8000);
-        });
     });
 
-    // 手动关闭弹窗
-    function closeToast(element) {
-        const toast = element.closest('.toast');
-        toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 400);
-    }
+    // ====== ✨ 核心修改：同步按钮拦截函数 ======
+    window.handleSyncClick = function(linkElement, event) {
+        // 1. 阻断 href 的默认立即跳转
+        event.preventDefault();
+
+        const btn = document.getElementById('sync-btn');
+        const icon = document.getElementById('sync-icon');
+        const text = document.getElementById('sync-text');
+
+        // 2. 变灰并禁用按钮，防止连击
+        btn.style.opacity = '0.7';
+        btn.style.cursor = 'not-allowed';
+        linkElement.style.pointerEvents = 'none';
+
+        // 3. 改变按钮文字给予即时反馈
+        icon.innerHTML = '⏳';
+        text.innerHTML = '正在请求与下载...';
+
+        // 4. 调用 base.html 里的全局函数，呼出提示
+        window.showToast("⏳ 正在与 Jellyfin 通信并比对最新数据。<br><br>若有新记录，将自动下载高清海报。这可能需要几十秒时间，请耐心等待...");
+
+        // 5. 延迟 300 毫秒执行真正的跳转，给浏览器足够的时间渲染上述弹窗
+        setTimeout(() => {
+            window.location.href = linkElement.href;
+        }, 300);
+    };
 </script>
 {% endblock %}

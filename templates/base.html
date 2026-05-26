@@ -17,7 +17,7 @@
 
             --click-x: 50%;
             --click-y: 50%;
-            --ripple-speed: 1.1s; /* ⏱️ 你之前修改的 1.1s */
+            --ripple-speed: 1.1s;
             --hover-shadow: rgba(0, 0, 0, 0.3);
         }
 
@@ -52,26 +52,16 @@
         }
         .sidebar.collapsed { width: 75px; }
 
-        /* 头部 Logo 区域 */
         .sidebar-header {
             padding: 25px 20px; display: flex; align-items: center; justify-content: space-between;
             border-bottom: 1px solid var(--border-color);
         }
         .logo-container { display: flex; align-items: center; gap: 10px; }
-
-        /* ====== ✨ 新增：Logo 图片样式 ====== */
-        .logo-img {
-            width: 32px;  /* 适配侧边栏的大小 */
-            height: 32px;
-            object-fit: contain; /* 保持图片比例 */
-            border-radius: 4px; /* 稍微加一点圆角，更现代 */
-        }
-
+        .logo-img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; }
         .logo-text { font-weight: 900; font-size: 20px; color: var(--primary-color); letter-spacing: -0.5px; }
         .toggle-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 20px; transition: color 0.2s; }
         .toggle-btn:hover { color: var(--primary-color); }
 
-        /* 导航菜单区域 */
         .nav-links { list-style: none; padding: 15px 0; margin: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; }
         .nav-links li { margin: 0 15px; }
         .nav-links li a { display: flex; align-items: center; padding: 12px 15px; color: var(--text-muted); text-decoration: none; white-space: nowrap; border-radius: 8px; position: relative; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
@@ -82,23 +72,81 @@
         .nav-links li.active a::before { content: ''; position: absolute; left: 0; top: 15%; height: 70%; width: 4px; background-color: var(--primary-color); border-radius: 0 4px 4px 0; }
         .sidebar.collapsed .text { display: none; }
 
-        /* 底部用户信息与登出区域 */
         .sidebar-footer { padding: 15px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 10px; }
         .user-profile { display: flex; align-items: center; padding: 10px 15px; color: var(--text-muted); font-size: 14px; }
         .logout-btn { display: flex; align-items: center; padding: 12px 15px; border-radius: 8px; color: #ef4444; text-decoration: none; transition: all 0.3s; }
         .logout-btn:hover { background-color: rgba(239, 68, 68, 0.1); transform: translateY(-3px); box-shadow: 0 6px 12px rgba(239, 68, 68, 0.15); }
 
-        /* 主内容区 */
-        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
+        .main-content { flex: 1; padding: 30px; overflow-y: auto; position: relative; }
+
+        /* 顶部导航与主题切换器 */
         .top-navbar { display: flex; justify-content: flex-end; align-items: center; padding-bottom: 20px; gap: 20px; }
         .theme-switch { background: var(--sidebar-bg); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 14px; transition: 0.2s; }
         .theme-switch:hover { border-color: var(--primary-color); }
+
+        /* ====== ✨ 新增：利用 CSS 伪元素自动控制按钮文字，彻底告别 JS 闪烁 ====== */
+        html[data-theme="dark"] #mode-btn::after { content: '🌙 深色模式'; }
+        html[data-theme="light"] #mode-btn::after { content: '☀️ 浅色模式'; }
+
         .color-picker-container { display: flex; gap: 10px; align-items: center; background: var(--sidebar-bg); padding: 8px 15px; border-radius: 20px; border: 1px solid var(--border-color); }
         .color-dot { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.2s; }
         .color-dot:hover { transform: scale(1.2); }
+
+        /* ==========================================
+           4. 全局 Toast 悬浮弹窗系统 (CSS)
+           ========================================== */
+        .toast-overlay {
+            position: fixed; top: 25px; right: 25px; z-index: 10000;
+            display: flex; flex-direction: column; gap: 15px; pointer-events: none;
+        }
+        .toast {
+            background-color: var(--sidebar-bg); border: 1px solid var(--primary-color);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15); border-radius: 12px;
+            padding: 20px; width: 340px; pointer-events: auto;
+            transform: translateX(120%); transition: transform 0.4s cubic-bezier(0.25, 1, 0.3, 1);
+        }
+        .toast.show { transform: translateX(0); }
+        .toast-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 12px; font-weight: 800; color: var(--primary-color); font-size: 16px;
+        }
+        .toast-close { cursor: pointer; color: var(--text-muted); font-size: 16px; transition: 0.2s; }
+        .toast-close:hover { color: #ef4444; }
+        .toast-body { font-size: 14px; line-height: 1.5; color: var(--text-muted); }
+        .toast-body ul::-webkit-scrollbar { width: 6px; }
+        .toast-body ul::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 4px; }
     </style>
+
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('jellywall_theme');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            }
+            const savedColor = localStorage.getItem('jellywall_primary_color');
+            if (savedColor) {
+                document.documentElement.style.setProperty('--primary-color', savedColor);
+            }
+        })();
+    </script>
 </head>
 <body>
+
+    <div class="toast-overlay" id="toast-container">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for msg in messages %}
+                    <div class="toast">
+                        <div class="toast-header">
+                            <span>系统通知</span>
+                            <span class="toast-close" onclick="closeToast(this)">✖</span>
+                        </div>
+                        <div class="toast-body">{{ msg | safe }}</div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
 
     <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
@@ -111,6 +159,7 @@
 
         <ul class="nav-links">
             <li><a href="{{ url_for('dashboard') }}"><span class="icon">🏠</span><span class="text">仪表板</span></a></li>
+            <li><a href="{{ url_for('explore') }}"><span class="icon">🔍</span><span class="text">探索发现</span></a></li>
             <li><a href="{{ url_for('config') }}"><span class="icon">⚙️</span><span class="text">配置管理</span></a></li>
             <li><a href="{{ url_for('watched_list') }}"><span class="icon">📜</span><span class="text">已观看记录</span></a></li>
             <li><a href="{{ url_for('watched') }}"><span class="icon">📸</span><span class="text">海报墙</span></a></li>
@@ -130,7 +179,7 @@
 
     <div class="main-content">
         <div class="top-navbar">
-            <button class="theme-switch" onclick="toggleDarkMode(event)" id="mode-btn">🌙 深色模式</button>
+            <button class="theme-switch" onclick="toggleDarkMode(event)" id="mode-btn"></button>
             <div class="color-picker-container">
                 <span style="font-size: 12px; color: var(--text-muted);">主题色:</span>
                 <div class="color-dot" style="background-color: #00a4dc;" onclick="setPrimaryColor(event, '#00a4dc')"></div>
@@ -166,14 +215,12 @@
         function toggleDarkMode(event) {
             triggerRippleAnimation(event, () => {
                 const htmlTag = document.documentElement;
-                const modeBtn = document.getElementById('mode-btn');
+                // ====== ✨ 删除 JS 修改文本逻辑，仅修改 data-theme 属性 ======
                 if (htmlTag.getAttribute('data-theme') === 'dark') {
                     htmlTag.setAttribute('data-theme', 'light');
-                    modeBtn.innerHTML = '☀️ 浅色模式';
                     localStorage.setItem('jellywall_theme', 'light');
                 } else {
                     htmlTag.setAttribute('data-theme', 'dark');
-                    modeBtn.innerHTML = '🌙 深色模式';
                     localStorage.setItem('jellywall_theme', 'dark');
                 }
             });
@@ -186,22 +233,54 @@
             });
         }
 
+        // ==========================================
+        // 全局 Toast 弹窗控制系统 (JS)
+        // ==========================================
+
+        window.showToast = function(message) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = `
+                <div class="toast-header">
+                    <span>系统通知</span>
+                    <span class="toast-close" onclick="closeToast(this)">✖</span>
+                </div>
+                <div class="toast-body">${message}</div>
+            `;
+            container.appendChild(toast);
+
+            setTimeout(() => toast.classList.add('show'), 10);
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 400);
+            }, 5000);
+        };
+
+        window.closeToast = function(element) {
+            const toast = element.closest('.toast');
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 400);
+        };
+
         document.addEventListener('DOMContentLoaded', function() {
-            const savedTheme = localStorage.getItem('jellywall_theme');
-            const modeBtn = document.getElementById('mode-btn');
-            if (savedTheme) {
-                document.documentElement.setAttribute('data-theme', savedTheme);
-                modeBtn.innerHTML = savedTheme === 'dark' ? '🌙 深色模式' : '☀️ 浅色模式';
-            }
-            const savedColor = localStorage.getItem('jellywall_primary_color');
-            if (savedColor) {
-                document.documentElement.style.setProperty('--primary-color', savedColor);
-            }
+            // ====== 侧边栏高亮 ======
             const currentPath = window.location.pathname;
             document.querySelectorAll('.nav-links li a').forEach(link => {
                 if (link.getAttribute('href') === currentPath) {
                     link.parentElement.classList.add('active');
                 }
+            });
+
+            // ====== 自动处理后端传过来的初始 Flash 弹窗动画 ======
+            const toasts = document.querySelectorAll('.toast');
+            toasts.forEach((toast, index) => {
+                setTimeout(() => { toast.classList.add('show'); }, 100 * index);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 400);
+                }, 8000 + (100 * index));
             });
         });
     </script>

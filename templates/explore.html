@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    /* ====== 搜索栏布局样式 ====== */
+    .search-header {
+        background-color: var(--sidebar-bg); border-radius: 12px; padding: 30px;
+        border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 30px;
+        text-align: center;
+    }
+    .search-title { font-size: 24px; font-weight: 800; color: var(--primary-color); margin-bottom: 20px; }
+    .search-box { display: flex; max-width: 600px; margin: 0 auto; gap: 10px; }
+
+    .search-input {
+        flex: 1; padding: 15px 20px; border-radius: 10px; border: 1px solid var(--border-color);
+        background-color: var(--bg-color); color: var(--text-main); font-size: 16px;
+        transition: all 0.3s; outline: none;
+    }
+    .search-input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 20%, transparent); }
+
+    .search-btn {
+        padding: 0 30px; border-radius: 10px; background-color: var(--primary-color); color: white;
+        border: none; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s;
+    }
+    .search-btn:hover { filter: brightness(1.1); transform: translateY(-2px); }
+
+    /* ====== 瀑布流自适应海报网格 ====== */
+    .results-grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px;
+    }
+
+    .result-card {
+        background-color: var(--sidebar-bg); border-radius: 10px; overflow: hidden;
+        border: 1px solid var(--border-color); transition: all 0.2s; cursor: pointer;
+        display: flex; flex-direction: column; position: relative;
+    }
+    .result-card:hover {
+        transform: translateY(-5px); border-color: var(--primary-color);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+    }
+
+    .poster-container {
+        width: 100%; aspect-ratio: 2 / 3; background-color: color-mix(in srgb, var(--sidebar-bg) 80%, black);
+        position: relative;
+    }
+    .poster-image { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .no-poster {
+        position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--text-muted); font-size: 14px; text-align: center; padding: 20px;
+    }
+
+    .info-container { padding: 15px; }
+    .item-title { font-size: 15px; font-weight: bold; color: var(--text-main); margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item-meta { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); }
+
+    /* ====== ✨ 海报卡片内嵌标志样式 (精准还原参考图) ====== */
+
+    /* 左上角：紫色背景、白色字、圆角矩形类型标签 */
+    .type-badge {
+        position: absolute; top: 10px; left: 10px; z-index: 10;
+        padding: 5px 12px; border-radius: 8px; font-size: 13px; font-weight: bold;
+        background-color: #8b5cf6; color: #fff;
+        border: 1px solid rgba(139, 92, 246, 0.2); box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    /* 右上角：绿色圆形底、白色对勾已观看图标 */
+    .watched-badge {
+        position: absolute; top: 10px; right: 10px; z-index: 10;
+        display: flex; align-items: center; justify-content: center;
+        width: 28px; height: 28px; border-radius: 50%;
+        background-color: #10b981; border: 2px solid #fff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .watched-badge svg { width: 16px; height: 16px; fill: #fff; }
+
+    /* 状态占位提示 */
+    .empty-state { text-align: center; padding: 80px 20px; color: var(--text-muted); }
+    .empty-state span { font-size: 40px; display: block; margin-bottom: 15px; }
+</style>
+
+<div class="search-header">
+    <div class="search-title">探索影视宇宙</div>
+    <div class="search-box">
+        <input type="text" id="search-input" class="search-input" placeholder="输入电影或电视剧名称进行搜索..." onkeypress="handleKeyPress(event)">
+        <button class="search-btn" onclick="executeSearch()">搜索</button>
+    </div>
+</div>
+
+<div id="results-container" class="results-grid">
+    <div class="empty-state" style="grid-column: 1 / -1;">
+        <span>🛸</span>
+        这里连接着浩瀚的 TMDB 影视数据库。<br>输入关键词，寻找你想添加的佳作吧。
+    </div>
+</div>
+
+<script>
+    // 支持键盘回车触发搜索
+    function handleKeyPress(event) {
+        if (event.key === 'Enter') { executeSearch(); }
+    }
+
+    async function executeSearch() {
+        const query = document.getElementById('search-input').value.trim();
+        if (!query) { window.showToast("❌ 请先输入想搜索的影视名称"); return; }
+
+        const container = document.getElementById('results-container');
+
+        // 进入 Loading 状态
+        container.innerHTML = `
+            <div class="empty-state" style="grid-column: 1 / -1;">
+                <span style="animation: pulse 1.5s infinite;">⏳</span>
+                正在通过跨洋代理检索 TMDB 数据...
+            </div>
+        `;
+
+        try {
+            const response = await fetch(`/api/search_tmdb?q=${encodeURIComponent(query)}`);
+            const data = await response.json();
+
+            if (!data.success) {
+                window.showToast(data.message);
+                container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><span>❌</span>搜索失败，请检查配置。</div>`;
+                return;
+            }
+
+            if (data.results.length === 0) {
+                container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><span>👻</span>没有找到相关影视，换个词试试？</div>`;
+                return;
+            }
+
+            // ====== ✨ 核心逻辑 1：强制按年份从远及近（升序）重新排序 ======
+            data.results.sort((a, b) => {
+                const yearA = (a.date && a.date !== "未知年份") ? parseInt(a.date) : 9999;
+                const yearB = (b.date && b.date !== "未知年份") ? parseInt(b.date) : 9999;
+                return yearA - yearB;
+            });
+
+            // 清空加载占位，开始循环构建卡片
+            container.innerHTML = '';
+            data.results.forEach(item => {
+                // 海报图片及占位判断
+                const posterHtml = item.poster_url
+                    ? `<img src="${item.poster_url}" class="poster-image" loading="lazy">`
+                    : `<div class="no-poster">暂无海报</div>`;
+
+                // 根据 TMDB 的 media_type 智能转换中文标签
+                const typeLabel = item.media_type === 'movie' ? '电影' : '电视剧';
+
+                // ====== ✨ 核心逻辑 2：组装覆盖标章 HTML ======
+                // A. 左上角类目
+                const typeBadgeHtml = `<div class="type-badge">${typeLabel}</div>`;
+
+                // B. 右上角已观看对勾（精准还原参考图 SVG 几何构型）
+                const checkIconSvg = `
+                    <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M16.807 5.23a1 1 0 01.07 1.41l-7.25 8a1 1 0 01-1.41.07l-3.25-3.5a1 1 0 111.41-1.41l2.5 2.68 6.57-7.25a1 1 0 011.41-.07z"/>
+                    </svg>
+                `;
+                // 根据后端的名字级碰撞比对结果决定是否画绿勾
+                const watchedBadgeHtml = item.is_watched
+                    ? `<div class="watched-badge">${checkIconSvg}</div>`
+                    : '';
+
+                const card = document.createElement('div');
+                card.className = 'result-card';
+                card.onclick = () => window.showToast(`🚧 《${item.title}》的详情页正在紧锣密鼓地建设中，敬请期待！`);
+
+                // 完美的层级组装结构
+                card.innerHTML = `
+                    <div class="poster-container">
+                        ${typeBadgeHtml}
+                        ${watchedBadgeHtml}
+                        ${posterHtml}
+                    </div>
+                    <div class="info-container">
+                        <div class="item-title" title="${item.title}">${item.title}</div>
+                        <div class="item-meta">
+                            <span>${item.date}</span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+            
+        } catch (error) {
+            window.showToast("❌ 网络请求异常");
+            container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><span>❌</span>网络异常，请检查代理是否稳定运行。</div>`;
+        }
+    }
+</script>
+{% endblock %}

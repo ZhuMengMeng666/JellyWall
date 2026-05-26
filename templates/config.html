@@ -2,72 +2,38 @@
 
 {% block content %}
 <style>
-    .config-card {
-        background-color: var(--sidebar-bg); padding: 30px; border-radius: 12px;
-        border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 25px;
-    }
+    /* 基础卡片与排版样式 */
+    .config-card { background-color: var(--sidebar-bg); padding: 30px; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 25px; }
+    .config-title { color: var(--primary-color); font-size: 20px; font-weight: 800; margin-top: 0; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
 
-    .config-title {
-        color: var(--primary-color); font-size: 20px; font-weight: 800; margin-top: 0; margin-bottom: 20px;
-        display: flex; align-items: center; gap: 10px;
-    }
+    /* 状态徽章 */
+    .status-badge { display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; background-color: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
+    .status-badge.offline { background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
 
-    .status-badge {
-        display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600;
-        background-color: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2);
-    }
-    .status-badge.offline {
-        background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2);
-    }
-
-    /* 表单与输入框样式复用登录页风格 */
+    /* 表单与输入框 */
     .form-group { margin-bottom: 20px; }
     .form-group label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-muted); font-weight: 500; }
-
     .form-row { display: flex; gap: 15px; }
     .form-row .col { flex: 1; }
     .form-row .col-auto { flex: 0 0 auto; width: 120px; }
     .form-row .col-port { flex: 0 0 auto; width: 100px; }
 
-    .custom-input, .custom-select {
-        width: 100%; padding: 12px 15px; border-radius: 8px; background-color: var(--bg-color);
-        color: var(--text-main); border: 1px solid var(--border-color); font-size: 15px;
-        transition: all 0.2s; box-sizing: border-box; outline: none;
-    }
-    .custom-input:focus, .custom-select:focus {
-        border-color: var(--primary-color);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 20%, transparent);
-    }
+    .custom-input, .custom-select { width: 100%; padding: 12px 15px; border-radius: 8px; background-color: var(--bg-color); color: var(--text-main); border: 1px solid var(--border-color); font-size: 15px; transition: all 0.2s; box-sizing: border-box; outline: none; }
+    .custom-input:focus, .custom-select:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 20%, transparent); }
 
-    .submit-btn {
-        padding: 12px 24px; border-radius: 8px; background-color: var(--primary-color); color: #fff;
-        border: none; font-size: 15px; font-weight: 600; cursor: pointer;
-        transition: transform 0.2s, filter 0.2s; margin-top: 10px; display: inline-flex; align-items: center; gap: 8px;
-    }
+    /* 按钮组 */
+    .btn-group { display: flex; gap: 12px; margin-top: 10px; }
+    .submit-btn { padding: 12px 24px; border-radius: 8px; background-color: var(--primary-color); color: #fff; border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: transform 0.2s, filter 0.2s; display: inline-flex; align-items: center; gap: 8px; }
     .submit-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
-
-    .flash {
-        width: 100%; padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; box-sizing: border-box;
-        background-color: color-mix(in srgb, var(--primary-color) 10%, transparent); color: var(--primary-color);
-        border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent); font-size: 15px; font-weight: 500;
-    }
+    .test-btn { background-color: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); }
+    .test-btn:hover { background-color: color-mix(in srgb, var(--primary-color) 10%, transparent); }
 </style>
-
-{% with messages = get_flashed_messages() %}
-    {% if messages %}
-        <div class="flash">
-            {% for msg in messages %}{{ msg }}<br>{% endfor %}
-        </div>
-    {% endif %}
-{% endwith %}
 
 <div class="config-card">
     <div class="config-title"><span>📡</span> 当前绑定状态</div>
     <div style="display: flex; flex-direction: column; gap: 12px;">
         {% if current_user.jellyfin_url and current_user.jellyfin_api_key %}
-            <div>
-                <span class="status-badge">已连接</span>
-            </div>
+            <div><span class="status-badge">已连接</span></div>
             <div style="color: var(--text-main); font-size: 15px;">
                 <strong>接口地址：</strong> <span style="font-family: monospace; color: var(--primary-color);">{{ current_user.jellyfin_url }}</span>
             </div>
@@ -75,9 +41,7 @@
                 您的鉴权密钥 (Token) 与用户 ID 已安全存储在本地。
             </div>
         {% else %}
-            <div>
-                <span class="status-badge offline">未连接</span>
-            </div>
+            <div><span class="status-badge offline">未连接</span></div>
             <div style="color: var(--text-muted); font-size: 14px;">
                 尚未绑定 Jellyfin 媒体服务器，请在下方填写信息进行连接。
             </div>
@@ -87,8 +51,9 @@
 
 <div class="config-card">
     <div class="config-title"><span>🔗</span> 绑定 / 修改服务器</div>
-
     <form method="POST" action="{{ url_for('config') }}">
+        <input type="hidden" name="form_type" value="jellyfin_settings">
+
         <div class="form-row">
             <div class="form-group col-auto">
                 <label>协议</label>
@@ -97,12 +62,10 @@
                     <option value="https">HTTPS://</option>
                 </select>
             </div>
-
             <div class="form-group col">
                 <label>服务器 IP 或域名</label>
                 <input type="text" name="host" class="custom-input" placeholder="例如: 192.168.1.100 或 media.example.com" required>
             </div>
-
             <div class="form-group col-port">
                 <label>端口</label>
                 <input type="number" name="port" class="custom-input" placeholder="8096" value="8096" required>
@@ -114,17 +77,114 @@
                 <label>Jellyfin 账号</label>
                 <input type="text" name="jf_username" class="custom-input" placeholder="输入你在 Jellyfin 中的用户名" required>
             </div>
-
             <div class="form-group col">
                 <label>Jellyfin 密码</label>
                 <input type="password" name="jf_password" class="custom-input" placeholder="输入密码 (不会被保存，仅用于换取 Token)">
             </div>
         </div>
 
-        <button type="submit" class="submit-btn">
+        <button type="submit" class="submit-btn" style="margin-top: 10px;">
             <span>⚡</span> 验证并连接
         </button>
     </form>
 </div>
 
+<div class="config-card">
+    <div class="config-title"><span>🌐</span> HTTP 代理设置</div>
+    <form method="POST" action="{{ url_for('config') }}">
+        <input type="hidden" name="form_type" value="proxy_settings">
+
+        <div class="form-row">
+            <div class="form-group col">
+                <label>代理服务器网址 / IP</label>
+                <input type="text" name="proxy_url" id="proxy_url" class="custom-input"
+                       placeholder="例如: 127.0.0.1" value="{{ current_user.proxy_url or '' }}">
+            </div>
+            <div class="form-group" style="width: 120px;">
+                <label>端口</label>
+                <input type="text" name="proxy_port" id="proxy_port" class="custom-input"
+                       placeholder="7890" value="{{ current_user.proxy_port or '' }}">
+            </div>
+        </div>
+
+        <div class="btn-group">
+            <button type="button" class="submit-btn test-btn" onclick="handleTestProxy()">
+                <span>🔍</span> 测试连接
+            </button>
+            <button type="submit" class="submit-btn">
+                <span>💾</span> 保存代理
+            </button>
+        </div>
+    </form>
+</div>
+
+<div class="config-card">
+            <div class="config-title"><span>🎬</span> TMDB API 配置</div>
+            <form method="POST" action="{{ url_for('config') }}">
+                <input type="hidden" name="form_type" value="tmdb_settings">
+
+                <div class="form-group">
+                     <label>API Key (v3 auth)</label>
+                        <input type="text" name="tmdb_api_key" id="tmdb_api_key" class="custom-input"
+                   placeholder="请输入 TMDB API Key" value="{{ current_user.tmdb_api_key or '' }}">
+                </div>
+            <div class="btn-group">
+                <button type="button" class="submit-btn test-btn" onclick="handleTestTMDB()">
+                    <span>🔍</span> 测试连通性
+                </button>
+                <button type="submit" class="submit-btn">
+                    <span>💾</span> 保存配置
+                </button>
+            </div>
+            </form>
+        </div>
+
+<script>
+    // 处理测试代理逻辑 (异步 Fetch)
+    async function handleTestProxy() {
+        const url = document.getElementById('proxy_url').value.trim();
+        const port = document.getElementById('proxy_port').value.trim();
+
+        if(!url || !port) {
+            // 直接调用提取到全局 base.html 的 window.showToast
+            window.showToast("❌ 请先填写代理的网址和端口");
+            return;
+        }
+
+        window.showToast("⏳ 正在测试代理连通性...");
+
+        try {
+            const response = await fetch('/test_proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, port })
+            });
+            const result = await response.json();
+            window.showToast(result.message);
+        } catch (error) {
+            window.showToast("❌ 请求发送失败，请检查网络是否通畅。");
+        }
+    }
+
+    async function handleTestTMDB() {
+        const apiKey = document.getElementById('tmdb_api_key').value.trim();
+        if(!apiKey) {
+            window.showToast("❌ 请先填写 TMDB API Key");
+            return;
+        }
+
+        window.showToast("⏳ 正在测试 TMDB 连接...");
+        try {
+            const response = await fetch('/test_tmdb', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: apiKey })
+            });
+            const result = await response.json();
+            window.showToast(result.message);
+        } catch (error) {
+            window.showToast("❌ 请求发送失败，请检查网络。");
+        }
+    }
+</script>
 {% endblock %}

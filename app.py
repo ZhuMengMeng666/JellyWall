@@ -33,24 +33,24 @@ class User(UserMixin, db.Model):
     tmdb_api_key = db.Column(db.String(255), nullable=True)
 
 class WatchRecord(db.Model):
-    """本地观影记录表"""
+    """本地观影记录明细表"""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
-    # 基础信息
-    item_id = db.Column(db.String(100), nullable=False)  # Jellyfin 里的 ID
+    item_id = db.Column(db.String(100), nullable=False)  # Jellyfin 里的 ID 或其他平台生成的唯一ID
     item_type = db.Column(db.String(50), nullable=False)  # 'Movie' 或 'Episode'
-    library_name = db.Column(db.String(100), nullable=False)  # 媒体库名称 (如"电影", "动漫")
+    library_name = db.Column(db.String(100), nullable=False)
 
-    # 电影/剧集具体信息
-    title = db.Column(db.String(200), nullable=False)  # 电影名 或 单集名
-    series_name = db.Column(db.String(200))  # 剧集名 (仅剧集有)
-    season_name = db.Column(db.String(100))  # 季名 (仅剧集有)
+    title = db.Column(db.String(200), nullable=False)
+    series_name = db.Column(db.String(200))
+    season_name = db.Column(db.String(100))
 
-    # 播放时间 (存储为 datetime 对象方便排序)
+    # ====== ✨ 新增字段 ======
+    episode_num = db.Column(db.Integer, nullable=True)  # 💥 专门记录具体是第几集的数字，方便后续排序和统计
+    source = db.Column(db.String(50), nullable=False, default='Jellyfin') # 💥 记录历史来源：Jellyfin, tmdb, watcharr
+
     date_played = db.Column(db.DateTime, nullable=False)
 
-    # 建立一个复合索引，加快查询速度，防止同一个用户存入重复的 item_id
     __table_args__ = (db.UniqueConstraint('user_id', 'item_id', name='_user_item_uc'),)
 
 
@@ -74,6 +74,71 @@ class WatchPoster(db.Model):
     last_watched_date = db.Column(db.DateTime, nullable=False)
 
     __table_args__ = (db.UniqueConstraint('user_id', 'target_id', 'display_title', name='_user_poster_uc'),)
+
+
+class EpisodeDetail(db.Model):
+    """单集元数据与剧照缓存表"""
+    id = db.Column(db.Integer, primary_key=True)
+
+    item_id = db.Column(db.String(100), unique=True, nullable=False)  # Jellyfin/TMDB 的单集ID
+
+    series_name = db.Column(db.String(200))  # 所属剧集名
+    season_num = db.Column(db.Integer)  # 第几季
+    episode_num = db.Column(db.Integer)  # 第几集
+
+    episode_name = db.Column(db.String(200))  # 单集专属名称
+    overview = db.Column(db.Text)  # 剧情内容介绍
+
+    still_image_path = db.Column(db.String(255))  # 本地单集剧照路径
+
+
+# ==========================================
+# 辅助函数 5：写入/更新【单集详细元数据表】
+# ==========================================
+def update_episode_detail(item, jf_url, headers, still_dir):
+    """处理单集元数据，提取简介并下载本集剧照"""
+    item_id = item["Id"]
+
+    # 如果数据库已经有这一集的详细信息，直接跳过，避免重复处理
+    existing_detail = EpisodeDetail.query.filter_by(item_id=item_id).first()
+    if existing_detail:
+        return
+
+    # 提取信息
+    series_name = item.get("SeriesName", "未知剧集")
+    episode_name = item.get("Name", "未知集名")
+    overview = item.get("Overview", "暂无剧情简介。")
+
+    # 提取季号和集号
+    try:
+        season_num = int(item.get("ParentIndexNumber")) if item.get("ParentIndexNumber") is not None else None
+        episode_num = int(item.get("IndexNumber")) if item.get("IndexNumber") is not None else None
+    except ValueError:
+        season_num, episode_num = None, None
+
+    # ====== 下载本集专属剧照 ======
+    still_filename = f"still_{item_id}.jpg"
+    still_path = os.path.join(still_dir, still_filename)
+    still_relative_path = f"stills/{still_filename}"
+
+    # Jellyfin 通常将单集的截图也放在 Primary 图像类型中
+    img_url = f"{jf_url}/Items/{item_id}/Images/Primary?maxWidth=600"
+
+    if not download_image(img_url, headers, still_path):
+        still_relative_path = "images/logo.png"  # 如果没获取到剧照，优雅回退到默认占位图
+
+    # ====== 写入数据库 ======
+    new_detail = EpisodeDetail(
+        item_id=item_id,
+        series_name=series_name,
+        season_num=season_num,
+        episode_num=episode_num,
+        episode_name=episode_name,
+        overview=overview,
+        still_image_path=still_relative_path
+    )
+    db.session.add(new_detail)
+
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -540,9 +605,6 @@ def download_image(url, headers, local_path):
     return False
 
 
-# ==========================================
-# 辅助函数 3：写入/更新【观影明细表】
-# ==========================================
 def update_watch_record(user_id, item, item_type, lib_name, dt_local):
     """处理 WatchRecord 表逻辑，返回是否发生了变动（新增或时间更新）"""
     item_id = item["Id"]
@@ -550,19 +612,36 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local):
 
     if not record:
         record = WatchRecord(
-            user_id=user_id, item_id=item_id, item_type=item_type,
-            library_name=lib_name, title=item.get("Name", "未知"), date_played=dt_local
+            user_id=user_id,
+            item_id=item_id,
+            item_type=item_type,
+            library_name=lib_name,
+            title=item.get("Name", "未知"),
+            date_played=dt_local,
+            source="Jellyfin"  # ✨ 明确打上来源标签
         )
         if item_type == "Episode":
             record.series_name = item.get("SeriesName", "未知剧集")
             record.season_name = f"第 {item.get('ParentIndexNumber', '?')} 季"
-            record.title = f"第 {item.get('IndexNumber', '?')} 集 - {item.get('Name', '未知集名')}"
+
+            # 提取 Jellyfin 数据里的集数
+            ep_index = item.get('IndexNumber')
+            record.title = f"第 {ep_index or '?'} 集 - {item.get('Name', '未知集名')}"
+
+            # ✨ 尝试将集数转化为纯数字保存
+            try:
+                record.episode_num = int(ep_index) if ep_index is not None else None
+            except ValueError:
+                record.episode_num = None
+
         db.session.add(record)
         return True
     else:
+        # 如果记录已存在，仅更新最新观看时间
         if dt_local > record.date_played:
             record.date_played = dt_local
             return True
+
     return False
 
 
@@ -656,8 +735,11 @@ def sync_history():
     headers = {"X-Emby-Token": current_user.jellyfin_api_key}
     base_user_url = f"{jf_url}/Users/{current_user.jellyfin_user_id}"
 
+    # 初始化海报和剧照的存放目录
     poster_dir = os.path.join(app.root_path, 'static', 'posters')
+    still_dir = os.path.join(app.root_path, 'static', 'stills')  # ✨ 1. 定义剧照存放目录
     os.makedirs(poster_dir, exist_ok=True)
+    os.makedirs(still_dir, exist_ok=True)  # ✨ 2. 确保剧照目录存在
 
     sync_count = 0
     synced_names = set()
@@ -670,9 +752,14 @@ def sync_history():
 
         # 遍历媒体库
         for view in views_resp.json().get("Items", []):
+            # ✨ 3. 在 Fields 中加入 Overview，告诉 Jellyfin 把剧情简介也发过来
             params = {
-                "ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
-                "Recursive": "true", "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber", "Limit": 2000
+                "ParentId": view["Id"],
+                "Filters": "IsPlayed",
+                "IncludeItemTypes": "Movie,Episode",
+                "Recursive": "true",
+                "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview",
+                "Limit": 2000
             }
             items_resp = requests.get(f"{base_user_url}/Items", headers=headers, params=params, timeout=15)
             if items_resp.status_code != 200:
@@ -681,17 +768,23 @@ def sync_history():
             # 遍历观看记录项目
             for item in items_resp.json().get("Items", []):
                 dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
-                if not dt_local: continue
+                if not dt_local:
+                    continue
 
-                # 调用职能 1：处理明细
+                # 调用职能 1：处理观影明细 (内部已包含来源和集数逻辑)
                 is_updated = update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local)
 
-                # 调用职能 2：处理海报
+                # 调用职能 2：处理海报大盘
                 if is_updated:
                     sync_count += 1
                     update_watch_poster(current_user.id, item, item["Type"], dt_local, jf_url, headers, poster_dir,
                                         synced_names)
 
+                # ✨ 4. 新增职能 3：如果是剧集，单独提取并缓存它的单集剧照和简介
+                if item["Type"] == "Episode":
+                    update_episode_detail(item, jf_url, headers, still_dir)
+
+        # 将所有的变更统一提交到数据库
         db.session.commit()
 
         # 弹窗提示逻辑
@@ -700,7 +793,7 @@ def sync_history():
             for name in sorted(synced_names):
                 names_html += f"<li style='margin-bottom: 6px;'>{name}</li>"
             names_html += "</ul>"
-            flash(f"🎉 同步成功！已处理明细并缓存海报：{names_html}")
+            flash(f"🎉 同步成功！已处理明细并缓存海报/剧照：{names_html}")
         else:
             flash("✨ 同步完成！本地海报及历史记录已是最新。")
 

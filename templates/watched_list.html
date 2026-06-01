@@ -171,25 +171,25 @@
 
                     {% if data.episodes_tree %}
                         {% for series_name, seasons in data.episodes_tree.items() %}
-                            <div class="poster-item">
+                            <a href="{{ url_for('media_detail', media_type='series', title=series_name) }}" class="poster-item" style="text-decoration: none;">
                                 <img src="{{ url_for('static', filename=data.series_posters.get(series_name, 'images/logo.png')) }}" loading="lazy">
                                 <div class="poster-info">
                                     <div class="poster-title">{{ series_name }}</div>
                                     <div class="poster-time">剧集</div>
                                 </div>
-                            </div>
+                            </a>
                         {% endfor %}
                     {% endif %}
 
                     {% if data.movies %}
                         {% for mv in data.movies %}
-                            <div class="poster-item">
+                            <a href="{{ url_for('media_detail', media_type='movie', title=mv.name) }}" class="poster-item" style="text-decoration: none;">
                                 <img src="{{ url_for('static', filename=mv.get('poster_path', 'images/logo.png')) }}" loading="lazy">
                                 <div class="poster-info">
                                     <div class="poster-title">{{ mv.name }}</div>
                                     <div class="poster-time">{{ mv.date }}</div>
                                 </div>
-                            </div>
+                            </a>
                         {% endfor %}
                     {% endif %}
 

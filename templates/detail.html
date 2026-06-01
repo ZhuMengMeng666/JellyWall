@@ -1,0 +1,198 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    /* ==========================================
+       🌟 全局动画定义 (影院级缓动曲线)
+       ========================================== */
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(30px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes slideInRight {
+        from { opacity: 0; transform: translateX(20px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* 进场动画控制类 */
+    .animate-up { opacity: 0; animation: fadeInUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+    .delay-1 { animation-delay: 0.1s; }
+    .delay-2 { animation-delay: 0.2s; }
+    .delay-3 { animation-delay: 0.3s; }
+    .delay-4 { animation-delay: 0.4s; }
+
+    /* ====== 1. 顶部剧集头部 ====== */
+    .detail-header {
+        position: relative;
+        display: flex; gap: 40px; padding: 45px; border-radius: 16px;
+
+        /* ✨ 将 background 属性移除，通过下方的内联样式动态注入，并使用全局变量自适应深浅模式 */
+
+        background-color: var(--sidebar-bg);
+        border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+        margin-bottom: 40px; overflow: hidden;
+    }
+
+    .detail-poster {
+        width: 280px; aspect-ratio: 2/3; border-radius: 12px;
+        object-fit: cover; box-shadow: 0 15px 40px rgba(0,0,0,0.6); z-index: 2;
+        transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.5s;
+    }
+    .detail-poster:hover {
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 25px 50px rgba(0,0,0,0.8);
+    }
+
+    .detail-info { flex: 1; display: flex; flex-direction: column; justify-content: center; z-index: 2; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+    .detail-title { font-size: 42px; font-weight: 900; margin: 0 0 12px 0; letter-spacing: 1px; }
+    .detail-title span { font-weight: 400; color: rgba(255,255,255,0.6); }
+
+    .detail-meta { font-size: 15px; margin-bottom: 25px; color: #ddd; display: flex; gap: 15px; align-items: center;}
+    .detail-tag {
+        background-color: rgba(255,255,255,0.15); padding: 5px 12px; border-radius: 8px;
+        backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1);
+        transition: background-color 0.3s, transform 0.3s; cursor: default;
+    }
+    .detail-tag:hover { background-color: rgba(255,255,255,0.3); transform: translateY(-2px); }
+
+    .overview-title { font-size: 20px; font-weight: 800; margin-bottom: 12px; color: #fff; }
+    .overview-content { font-size: 16px; line-height: 1.7; color: rgba(255,255,255,0.85); max-width: 850px; }
+
+    /* ====== 2. 季列表区域 ====== */
+    .section-title { font-size: 26px; font-weight: 900; color: var(--text-main); margin-bottom: 25px; padding-left: 5px;}
+
+    .season-card {
+        background-color: var(--sidebar-bg); border-radius: 14px; border: 1px solid var(--border-color);
+        margin-bottom: 20px; overflow: hidden; box-shadow: 0 6px 12px rgba(0,0,0,0.05);
+        transition: border-color 0.4s, box-shadow 0.4s, transform 0.4s;
+    }
+    .season-card:hover {
+        border-color: color-mix(in srgb, var(--primary-color) 50%, var(--border-color));
+        box-shadow: 0 12px 24px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+    }
+
+    .season-header { display: flex; padding: 20px; cursor: pointer; transition: background-color 0.3s; position: relative; }
+    .season-header:hover { background-color: rgba(255,255,255,0.03); }
+    .season-poster { width: 140px; aspect-ratio: 2/3; border-radius: 10px; object-fit: cover; margin-right: 30px; box-shadow: 0 6px 15px rgba(0,0,0,0.2); background-color: #333;}
+    .season-info { flex: 1; display: flex; flex-direction: column; justify-content: center; padding-right: 50px;}
+    .season-title { font-size: 24px; font-weight: 900; color: var(--text-main); margin: 0 0 12px 0; }
+    .season-overview { font-size: 15px; color: var(--text-muted); line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+    .expand-icon { position: absolute; right: 35px; top: 50%; transform: translateY(-50%); font-size: 20px; color: var(--text-muted); transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s; }
+    .season-card.open .expand-icon { transform: translateY(-50%) rotate(180deg); color: var(--primary-color); }
+
+    /* ====== 3. 单集剧照列表 ====== */
+    .episodes-container {
+        display: none; padding: 10px 30px 20px 30px; border-top: 1px solid var(--border-color);
+        background-color: color-mix(in srgb, var(--sidebar-bg) 70%, var(--bg-color));
+    }
+
+    .episode-item { display: flex; gap: 30px; padding: 30px 0; border-bottom: 1px solid rgba(255,255,255,0.05); opacity: 0; }
+    .episode-item:last-child { border-bottom: none; }
+
+    .episode-still-wrapper { position: relative; width: 240px; height: 135px; flex-shrink: 0; border-radius: 8px; overflow: hidden; box-shadow: 0 6px 15px rgba(0,0,0,0.2); }
+    .episode-still { width: 100%; height: 100%; object-fit: cover; background-color: #222; transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); }
+    .episode-item:hover .episode-still { transform: scale(1.08); }
+
+    .episode-number-badge {
+        position: absolute; bottom: 10px; left: 10px; background-color: rgba(0,0,0,0.8); backdrop-filter: blur(5px);
+        color: #fff; font-size: 12px; font-weight: 900; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
+    }
+
+    .episode-info { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; }
+    .episode-title { font-size: 18px; font-weight: 800; color: var(--text-main); margin: 0 0 12px 0; transition: color 0.3s;}
+    .episode-item:hover .episode-title { color: var(--primary-color); }
+    .episode-overview { font-size: 15px; color: var(--text-muted); line-height: 1.6; }
+</style>
+
+{% set final_bg_path = poster.background_image_path or poster.backdrop_image_path or 'images/logo.png' %}
+{% set main_poster_path = poster.series_image_path or poster.local_image_path or 'images/logo.png' %}
+
+<div class="detail-header" style="background: linear-gradient(to right, var(--sidebar-bg) 20%, var(--sidebar-bg) 55%, transparent 100%), url('{{ url_for('static', filename=final_bg_path) }}') center/cover no-repeat;">
+    <img src="{{ url_for('static', filename=main_poster_path) }}" alt="主海报" class="detail-poster animate-up delay-1">
+
+    <div class="detail-info">
+        <h1 class="detail-title animate-up delay-1">{{ title }}</h1>
+
+        <div class="detail-meta animate-up delay-2">
+            <span class="detail-tag">{{ '📺 剧集' if media_type == 'series' else '🎬 电影' }}</span>
+            <span class="detail-tag">我的足迹</span>
+            {% if media_type == 'movie' and movie_record %}
+                <span>完成时间：{{ movie_record.date_played.strftime('%Y-%m-%d %H:%M') }}</span>
+            {% endif %}
+        </div>
+
+        <div class="overview-title animate-up delay-3">剧情简介</div>
+        <p class="overview-content animate-up delay-4">
+            {{ poster.overview | default('这是来自本地缓存的媒体库详情页。通过与 Jellyfin 高速同步，为您呈现本地的观看足迹与影视元数据。') }}
+        </p>
+    </div>
+</div>
+
+{% if media_type == 'series' %}
+<div class="section-title animate-up delay-4">剧集列表</div>
+
+{% for season_num, episodes in seasons.items() %}
+<div class="season-card animate-up delay-4">
+    <div class="season-header" onclick="toggleEpisodes(this)">
+        <img src="{{ url_for('static', filename=season_poster_map.get(season_num, main_poster_path)) }}" class="season-poster" alt="第 {{ season_num }} 季" loading="lazy">
+        <div class="season-info">
+            <h2 class="season-title">第 {{ season_num }} 季</h2>
+            <p class="season-overview">本季共记录了 {{ episodes|length }} 次观看足迹。</p>
+        </div>
+        <div class="expand-icon">▼</div>
+    </div>
+
+    <div class="episodes-container">
+        {% for ep in episodes %}
+        <div class="episode-item">
+            <div class="episode-still-wrapper">
+                <img src="{{ url_for('static', filename=ep.still_path|default('images/logo.png')) }}" class="episode-still" loading="lazy">
+                <span class="episode-number-badge">S{{ "%02d"|format(season_num|int) }} E{{ "%02d"|format(loop.index) }}</span>
+            </div>
+            <div class="episode-info">
+                <h3 class="episode-title">{{ ep.title }}</h3>
+                <p class="episode-overview">
+                    {% if ep.overview %}{{ ep.overview }}<br>{% endif %}
+                    ✅ 完成时间：{{ ep.date_played.strftime('%Y-%m-%d %H:%M:%S') }}
+                </p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<script>
+    function toggleEpisodes(element) {
+        const card = element.closest('.season-card');
+        const container = card.querySelector('.episodes-container');
+        const episodes = container.querySelectorAll('.episode-item');
+
+        if (!card.classList.contains('open')) {
+            card.classList.add('open');
+            container.style.display = 'block';
+
+            // 容器整体淡入
+            container.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'forwards' });
+
+            // 单集列表进行级联滑入动画
+            episodes.forEach((ep, index) => {
+                ep.style.animation = `slideInRight 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards ${index * 0.15}s`;
+            });
+
+        } else {
+            card.classList.remove('open');
+            // 瞬间收起前清除单集的动画属性，以便下次打开重新执行
+            episodes.forEach(ep => {
+                ep.style.animation = 'none';
+                ep.style.opacity = '0';
+            });
+            container.style.display = 'none';
+        }
+    }
+</script>
+{% endblock %}

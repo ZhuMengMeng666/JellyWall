@@ -48,7 +48,7 @@ class WatchRecord(db.Model):
     # ====== ✨ 新增字段 ======
     episode_num = db.Column(db.Integer, nullable=True)  # 💥 专门记录具体是第几集的数字，方便后续排序和统计
     source = db.Column(db.String(50), nullable=False, default='Jellyfin') # 💥 记录历史来源：Jellyfin, tmdb, watcharr
-
+    tmdb_id = db.Column(db.String(50), nullable=True)
     date_played = db.Column(db.DateTime, nullable=False)
 
     __table_args__ = (db.UniqueConstraint('user_id', 'item_id', name='_user_item_uc'),)
@@ -66,10 +66,13 @@ class WatchPoster(db.Model):
     # ====== ✨ 新增字段 ======
     series_name = db.Column(db.String(200), nullable=True)  # 专门记录纯粹的【剧集名字】
     season_num = db.Column(db.Integer, nullable=True)  # 专门记录【第几季】的数字
-
+    tmdb_id = db.Column(db.String(50), nullable=True)
     # ====== 🧭 海报路径重新分配 ======
     local_image_path = db.Column(db.String(255), nullable=False)  # 💥 存储【剧集季海报】或电影海报
     series_image_path = db.Column(db.String(255), nullable=True)  # 💥 存储【纯剧集主海报】
+    # ====== ✨ 独立保存两张背景大图 ======
+    backdrop_image_path = db.Column(db.String(255), nullable=True)  # 对应索引 0 的图片
+    background_image_path = db.Column(db.String(255), nullable=True)  # 对应索引 1 的图片
 
     last_watched_date = db.Column(db.DateTime, nullable=False)
 
@@ -88,14 +91,14 @@ class EpisodeDetail(db.Model):
 
     episode_name = db.Column(db.String(200))  # 单集专属名称
     overview = db.Column(db.Text)  # 剧情内容介绍
-
+    series_tmdb_id = db.Column(db.String(50), nullable=True)
     still_image_path = db.Column(db.String(255))  # 本地单集剧照路径
 
 
 # ==========================================
-# 辅助函数 5：写入/更新【单集详细元数据表】
+# 辅助函数：写入/更新【单集详细元数据表】
 # ==========================================
-def update_episode_detail(item, jf_url, headers, still_dir):
+def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id):
     """处理单集元数据，提取简介并下载本集剧照"""
     item_id = item["Id"]
 
@@ -121,11 +124,10 @@ def update_episode_detail(item, jf_url, headers, still_dir):
     still_path = os.path.join(still_dir, still_filename)
     still_relative_path = f"stills/{still_filename}"
 
-    # Jellyfin 通常将单集的截图也放在 Primary 图像类型中
     img_url = f"{jf_url}/Items/{item_id}/Images/Primary?maxWidth=600"
 
     if not download_image(img_url, headers, still_path):
-        still_relative_path = "images/logo.png"  # 如果没获取到剧照，优雅回退到默认占位图
+        still_relative_path = "images/logo.png"
 
     # ====== 写入数据库 ======
     new_detail = EpisodeDetail(
@@ -135,7 +137,8 @@ def update_episode_detail(item, jf_url, headers, still_dir):
         episode_num=episode_num,
         episode_name=episode_name,
         overview=overview,
-        still_image_path=still_relative_path
+        still_image_path=still_relative_path,
+        series_tmdb_id=series_tmdb_id  # ✨ 仅存入所属剧集的 TMDB ID
     )
     db.session.add(new_detail)
 
@@ -605,7 +608,68 @@ def download_image(url, headers, local_path):
     return False
 
 
-def update_watch_record(user_id, item, item_type, lib_name, dt_local):
+# ==========================================
+# 辅助函数：智能获取 TMDB ID (带内存缓存防频控)
+# ==========================================
+def get_tmdb_id_smart(user, item, item_type, tmdb_cache):
+    """优先从 Jellyfin 提取 TMDB ID，若无则跨洋向 TMDB 搜索兜底"""
+
+    # 1. 优先尝试从 Jellyfin 的原生数据中提取
+    if item_type == "Movie":
+        tmdb_id = item.get("ProviderIds", {}).get("Tmdb")
+        query_title = item.get("Name")
+        search_type = "movie"
+        year = item.get("ProductionYear")
+    else:
+        # 对于剧集，Jellyfin 有时会把剧集的 ID 放在 SeriesProviderIds 里
+        tmdb_id = item.get("SeriesProviderIds", {}).get("Tmdb")
+        query_title = item.get("SeriesName")
+        search_type = "tv"
+        year = None  # 单集较难直接获取剧集首播年份
+
+    if tmdb_id:
+        return str(tmdb_id)
+
+    # 2. 如果 Jellyfin 没刮削出 TMDB ID，准备兜底搜索
+    if not query_title or not user.tmdb_api_key:
+        return None
+
+    # 检查缓存，防止对同一部未刮削的剧集疯狂重复搜索
+    cache_key = f"{search_type}_{query_title}"
+    if cache_key in tmdb_cache:
+        return tmdb_cache[cache_key]
+
+    # 3. 发起真实的 TMDB API 搜索请求
+    try:
+        url = f"https://api.themoviedb.org/3/search/{search_type}"
+        params = {
+            "api_key": user.tmdb_api_key,
+            "query": query_title,
+            "language": "zh-CN",
+            "page": 1
+        }
+        if year:
+            if search_type == 'movie':
+                params['primary_release_year'] = year
+            else:
+                params['first_air_date_year'] = year
+
+        # 完美挂载用户配置的 HTTP 代理
+        resp = requests.get(url, params=params, proxies=get_user_proxies(user), timeout=5)
+        if resp.status_code == 200:
+            results = resp.json().get('results', [])
+            if results:
+                fetched_id = str(results[0].get('id'))
+                tmdb_cache[cache_key] = fetched_id  # 存入缓存
+                return fetched_id
+    except Exception as e:
+        pass  # 搜索失败则静默放过
+
+    tmdb_cache[cache_key] = None  # 标记为找不到，避免下次循环重复搜索
+    return None
+
+
+def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
     """处理 WatchRecord 表逻辑，返回是否发生了变动（新增或时间更新）"""
     item_id = item["Id"]
     record = WatchRecord.query.filter_by(user_id=user_id, item_id=item_id).first()
@@ -618,7 +682,8 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local):
             library_name=lib_name,
             title=item.get("Name", "未知"),
             date_played=dt_local,
-            source="Jellyfin"  # ✨ 明确打上来源标签
+            source="Jellyfin", # ✨ 明确打上来源标签
+            tmdb_id = tmdb_id  # ✨ 存入 TMDB ID
         )
         if item_type == "Episode":
             record.series_name = item.get("SeriesName", "未知剧集")
@@ -646,49 +711,76 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local):
 
 
 # ==========================================
-# 辅助函数 4：写入/更新【海报墙双缓存表】
+# 辅助函数 3：写入/更新【海报墙双缓存表】(含双背景大图)
 # ==========================================
-def update_watch_poster(user_id, item, item_type, dt_local, jf_url, headers, poster_dir, synced_names):
-    """处理 WatchPoster 表逻辑，并触发季海报与剧集主海报的下载"""
-    item_id = item["Id"]
-
-    # 提取聚合属性
+def update_watch_poster(user_id, item, item_type, dt_local, jf_url, headers, poster_dir, backdrop_dir, synced_names,
+                        tmdb_id):
+    # ====== 1. 基础信息聚合 ======
     if item_type == "Movie":
-        target_id = item_id
-        media_type = "Movie"
-        display_title = item.get("Name", "未知电影")
-        pure_series_name, season_num_int = None, None
-    else:
-        series_id = item.get("SeriesId", item_id)
-        raw_season_num = item.get("ParentIndexNumber")
-        try:
-            season_num_int = int(raw_season_num) if raw_season_num is not None else None
-        except ValueError:
-            season_num_int = None
-
-        target_id = f"{series_id}_S{season_num_int or '?'}"
-        media_type = "Series"
+        target_id = item["Id"]
+        display_title = item["Name"]
+        pure_series_name = None
+        season_num_int = None
+    elif item_type == "Episode":
         pure_series_name = item.get("SeriesName", "未知剧集")
-        display_title = f"{pure_series_name} (第 {season_num_int or '?'} 季)"
+        season_name = item.get("SeasonName", "未知季")
 
-    # 操作海报墙数据库
+        try:
+            season_num_int = int(item.get("ParentIndexNumber")) if item.get("ParentIndexNumber") is not None else 1
+        except ValueError:
+            season_num_int = 1
+
+        target_id = f"{item.get('SeriesId', 'unknown')}_S{season_num_int}"
+
+        # 优化剧集标题展示，如“黑袍纠察队 (第 4 季)”
+        if season_name != "未知季" and season_name != pure_series_name:
+            display_title = f"{pure_series_name} ({season_name})"
+        else:
+            display_title = f"{pure_series_name} (第 {season_num_int} 季)"
+    else:
+        return
+
+    # ====== 2. 检查记录是否存在 ======
     poster_record = WatchPoster.query.filter_by(user_id=user_id, target_id=target_id).first()
 
     if not poster_record:
         series_relative_path = "images/logo.png"
         season_relative_path = "images/logo.png"
 
+        # ====== ✨ 3. 提取并下载背景大图 (双轨下载) ======
+        bg_source_id = item.get("SeriesId") if item_type == "Episode" else item["Id"]
+
+        # 3.1 下载 Backdrop (对应 Jellyfin 里的背景图 1，即 Index 0)
+        backdrop_filename = f"{bg_source_id}_backdrop.jpg"
+        backdrop_path = os.path.join(backdrop_dir, backdrop_filename)
+        backdrop_relative_path = f"backdrops/{backdrop_filename}"
+
+        backdrop_url = f"{jf_url}/Items/{bg_source_id}/Images/Backdrop/0?maxWidth=1920"
+
+        if not download_image(backdrop_url, headers, backdrop_path):
+            backdrop_relative_path = None
+
+        # 3.2 下载 Background (对应 Jellyfin 里的背景图 2，即 Index 1)
+        background_filename = f"{bg_source_id}_background.jpg"
+        background_path = os.path.join(backdrop_dir, background_filename)
+        background_relative_path = f"backdrops/{background_filename}"
+
+        background_url = f"{jf_url}/Items/{bg_source_id}/Images/Backdrop/1?maxWidth=1920"
+
+        if not download_image(background_url, headers, background_path):
+            background_relative_path = None
+
+        # ====== 4. 下载竖版海报 ======
         if item_type == "Movie":
-            movie_path = os.path.join(poster_dir, f"{target_id}.jpg")
-            season_relative_path = f"posters/{target_id}.jpg"
-            img_url = f"{jf_url}/Items/{item_id}/Images/Primary?maxWidth=400"
-
+            # [电影海报逻辑]
+            movie_path = os.path.join(poster_dir, f"{target_id}_main.jpg")
+            series_relative_path = f"posters/{target_id}_main.jpg"
+            img_url = f"{jf_url}/Items/{target_id}/Images/Primary?maxWidth=400"
             if not download_image(img_url, headers, movie_path):
-                season_relative_path = "images/logo.png"
-            synced_names.add(f"🎬《{display_title}》")
-
-        else:  # Episode
-            # 1. 下载主剧集海报
+                series_relative_path = "images/logo.png"
+        else:
+            # [剧集海报逻辑]
+            # 4.1 下载剧集主海报
             series_id = item.get("SeriesId")
             series_path = os.path.join(poster_dir, f"{series_id}_main.jpg")
             series_relative_path = f"posters/{series_id}_main.jpg"
@@ -696,36 +788,42 @@ def update_watch_poster(user_id, item, item_type, dt_local, jf_url, headers, pos
             if not download_image(s_url, headers, series_path):
                 series_relative_path = "images/logo.png"
 
-            # 2. 下载季海报
+            # 4.2 下载单季独立海报
             season_id = item.get("SeasonId")
             season_path = os.path.join(poster_dir, f"{target_id}_season.jpg")
             season_relative_path = f"posters/{target_id}_season.jpg"
             se_url = f"{jf_url}/Items/{season_id}/Images/Primary?maxWidth=400" if season_id else None
 
             if se_url and download_image(se_url, headers, season_path):
-                pass  # 成功下载
+                pass
             else:
-                season_relative_path = series_relative_path  # 回退为主海报
+                season_relative_path = series_relative_path
 
-            synced_names.add(f"📺《{pure_series_name}》第 {season_num_int or '?'} 季")
-
-        # 写入新记录
+                # ====== 5. 写入数据库 ======
         poster_record = WatchPoster(
-            user_id=user_id, target_id=target_id, media_type=media_type, display_title=display_title,
-            series_name=pure_series_name, season_num=season_num_int,
-            local_image_path=season_relative_path,
-            series_image_path=series_relative_path if media_type == "Series" else None,
-            last_watched_date=dt_local
+            user_id=user_id,
+            target_id=target_id,
+            media_type="Series" if item_type == "Episode" else "Movie",
+            display_title=display_title,
+            series_name=pure_series_name,
+            season_num=season_num_int,
+            local_image_path=season_relative_path if item_type == "Episode" else series_relative_path,
+            series_image_path=series_relative_path,
+            backdrop_image_path=backdrop_relative_path,  # ✨ 存入 Backdrop
+            background_image_path=background_relative_path,  # ✨ 存入 Background
+            last_watched_date=dt_local,
+            tmdb_id=tmdb_id
         )
         db.session.add(poster_record)
+        synced_names.add(display_title)
     else:
-        # 更新已存在的海报观看时间
+        # ====== 6. 仅更新时间 ======
         if dt_local > poster_record.last_watched_date:
             poster_record.last_watched_date = dt_local
 
 
 # ==========================================
-# 🌟 主路由：逻辑编排层 (瞬间清爽)
+# 🌟 主路由：逻辑编排层
 # ==========================================
 @app.route('/sync_history')
 @login_required
@@ -735,14 +833,14 @@ def sync_history():
     headers = {"X-Emby-Token": current_user.jellyfin_api_key}
     base_user_url = f"{jf_url}/Users/{current_user.jellyfin_user_id}"
 
-    # 初始化海报和剧照的存放目录
     poster_dir = os.path.join(app.root_path, 'static', 'posters')
-    still_dir = os.path.join(app.root_path, 'static', 'stills')  # ✨ 1. 定义剧照存放目录
+    still_dir = os.path.join(app.root_path, 'static', 'stills')
     os.makedirs(poster_dir, exist_ok=True)
-    os.makedirs(still_dir, exist_ok=True)  # ✨ 2. 确保剧照目录存在
+    os.makedirs(still_dir, exist_ok=True)
 
     sync_count = 0
     synced_names = set()
+    tmdb_search_cache = {}  # ✨ 初始化一个空字典，用于存储当前同步周期的 TMDB 搜索结果，极速防频控
 
     try:
         views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
@@ -750,41 +848,43 @@ def sync_history():
             flash("无法获取媒体库列表，同步失败。")
             return redirect(url_for('watched_list'))
 
-        # 遍历媒体库
         for view in views_resp.json().get("Items", []):
-            # ✨ 3. 在 Fields 中加入 Overview，告诉 Jellyfin 把剧情简介也发过来
+            # ✨ 在 Fields 中加入 ProviderIds 和 SeriesProviderIds
             params = {
                 "ParentId": view["Id"],
                 "Filters": "IsPlayed",
                 "IncludeItemTypes": "Movie,Episode",
                 "Recursive": "true",
-                "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview",
+                "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds",
                 "Limit": 2000
             }
             items_resp = requests.get(f"{base_user_url}/Items", headers=headers, params=params, timeout=15)
             if items_resp.status_code != 200:
                 continue
 
-            # 遍历观看记录项目
             for item in items_resp.json().get("Items", []):
                 dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
-                if not dt_local:
-                    continue
+                if not dt_local: continue
 
-                # 调用职能 1：处理观影明细 (内部已包含来源和集数逻辑)
-                is_updated = update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local)
+                item_type = item["Type"]
 
-                # 调用职能 2：处理海报大盘
+                # ✨ 核心：调用智能函数获取全局 TMDB ID
+                master_tmdb_id = get_tmdb_id_smart(current_user, item, item_type, tmdb_search_cache)
+
+                # 调用职能 1：处理明细
+                is_updated = update_watch_record(current_user.id, item, item_type, view["Name"], dt_local,
+                                                 master_tmdb_id)
+
+                # 调用职能 2：处理海报
                 if is_updated:
                     sync_count += 1
-                    update_watch_poster(current_user.id, item, item["Type"], dt_local, jf_url, headers, poster_dir,
-                                        synced_names)
+                    update_watch_poster(current_user.id, item, item_type, dt_local, jf_url, headers, poster_dir,
+                                        synced_names, master_tmdb_id)
 
-                # ✨ 4. 新增职能 3：如果是剧集，单独提取并缓存它的单集剧照和简介
-                if item["Type"] == "Episode":
-                    update_episode_detail(item, jf_url, headers, still_dir)
+                # 调用职能 3：如果是剧集，单独提取并缓存它的单集剧照和简介
+                if item_type == "Episode":
+                    update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
 
-        # 将所有的变更统一提交到数据库
         db.session.commit()
 
         # 弹窗提示逻辑
@@ -806,49 +906,94 @@ def sync_history():
 @app.route('/watched_list')
 @login_required
 def watched_list():
-    """从本地数据库读取观看记录（极速加载）"""
-    # 直接从本地 SQLite 数据库中按时间倒序拉取当前用户的所有记录
+    """历史记录展示路由：支持列表与海报双视图渲染"""
+
+    # ====== 1. 获取数据库记录 ======
+    # 提取当前用户的所有播放流水记录 (按时间倒序)
     records = WatchRecord.query.filter_by(user_id=current_user.id).order_by(WatchRecord.date_played.desc()).all()
 
+    # 提取当前用户所有的海报缓存数据
+    posters = WatchPoster.query.filter_by(user_id=current_user.id).all()
+
+    # ====== 2. 建立海报映射字典 (规避 N+1 查询卡顿) ======
+    movie_poster_map = {}
+    series_poster_map = {}
+    for p in posters:
+        if p.media_type == "Movie":
+            movie_poster_map[p.display_title] = p.local_image_path
+        else:
+            # 剧集墙展示整部剧的主海报即可
+            series_poster_map[p.series_name] = p.series_image_path or p.local_image_path
+
+    # ====== 3. 组装供前端渲染的复杂数据字典 ======
     library_data = {}
 
-    # 将扁平的数据库记录重新组装成前端需要的折叠树结构
-    for r in records:
-        lib_name = r.library_name
-        date_str = r.date_played.strftime("%Y-%m-%d %H:%M")
+    for record in records:
+        lib_name = record.library_name or "未分类媒体库"
+        item_type = record.item_type
+        date_played_str = record.date_played.strftime('%Y-%m-%d %H:%M')
 
+        # 初始化当前媒体库的数据结构
         if lib_name not in library_data:
-            library_data[lib_name] = {"movies": [], "episodes_tree": {}}
+            library_data[lib_name] = {
+                'episodes_tree': {},
+                'movies': [],
+                'series_posters': {}  # ✨ 用来存放这个库里所有剧集的海报映射
+            }
 
-        if r.item_type == "Movie":
-            library_data[lib_name]["movies"].append({
-                "name": r.title,
-                "date": date_str
-            })
-        elif r.item_type == "Episode":
-            series = r.series_name
-            season = r.season_name
-
-            if series not in library_data[lib_name]["episodes_tree"]:
-                library_data[lib_name]["episodes_tree"][series] = {}
-            if season not in library_data[lib_name]["episodes_tree"][series]:
-                library_data[lib_name]["episodes_tree"][series][season] = []
-
-            library_data[lib_name]["episodes_tree"][series][season].append({
-                "episode": r.title,
-                "date": date_str
+        # [分支 A：处理电影]
+        if item_type == "Movie":
+            library_data[lib_name]['movies'].append({
+                'name': record.title,
+                'date': date_played_str,
+                # ✨ 塞入电影海报路径，若无则使用 logo 兜底
+                'poster_path': movie_poster_map.get(record.title, "images/logo.png")
             })
 
-    return render_template('watched_list.html', title="同步记录", library_data=library_data)
+        # [分支 B：处理剧集]
+        else:
+            series_name = getattr(record, 'series_name', record.title)
+
+            try:
+                season_num = int(getattr(record, 'season_num', 1)) if getattr(record, 'season_num',
+                                                                              1) is not None else 1
+            except ValueError:
+                season_num = 1
+            season_name = f"第 {season_num} 季"
+            episode_name = record.title
+
+            # ✨ 顺手把该剧的海报映射存进去
+            library_data[lib_name]['series_posters'][series_name] = series_poster_map.get(series_name,
+                                                                                          "images/logo.png")
+
+            # 构建原有的剧集折叠树结构
+            if series_name not in library_data[lib_name]['episodes_tree']:
+                library_data[lib_name]['episodes_tree'][series_name] = {}
+
+            if season_name not in library_data[lib_name]['episodes_tree'][series_name]:
+                library_data[lib_name]['episodes_tree'][series_name][season_name] = []
+
+            library_data[lib_name]['episodes_tree'][series_name][season_name].append({
+                'episode': episode_name,
+                'date': date_played_str
+            })
+
+    return render_template('watched_list.html', library_data=library_data)
 
 def get_user_proxies(user):
     if user.proxy_url and user.proxy_port:
         proxy_addr = f"http://{user.proxy_url}:{user.proxy_port}"
         return {"http": proxy_addr, "https": proxy_addr}
     return None
-
 # 在请求时这样使用：
 # requests.get(url, headers=headers, proxies=get_user_proxies(current_user))
+
+@app.route('/demo')
+@login_required
+def demo_preview():
+    """纯静态体验版详情页"""
+    return render_template('demo_detail.html', title="详情页预览")
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()

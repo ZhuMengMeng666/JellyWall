@@ -5,11 +5,7 @@
 
 <style>
     /* ====== 一级折叠：媒体库 ====== */
-    #library-container {
-        display: flex;
-        flex-direction: column;
-    }
-
+    #library-container { display: flex; flex-direction: column; }
     .library-details { background-color: var(--sidebar-bg); border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid var(--border-color); }
     .library-summary { padding: 20px; font-size: 20px; font-weight: bold; color: var(--primary-color); background-color: rgba(128, 128, 128, 0.03); border-radius: 10px; list-style: none; position: relative; transition: background-color 0.2s, color 0.3s; cursor: grab; display: flex; align-items: center; }
     .library-summary:active { cursor: grabbing; }
@@ -45,6 +41,27 @@
     th { background-color: var(--border-color); color: var(--text-muted); font-weight: bold; }
     tr:hover { background-color: rgba(128, 128, 128, 0.05); }
     .sub-title { color: var(--text-muted); font-size: 16px; margin-bottom: 10px; margin-top: 15px; }
+
+    /* ====== ✨ 新增：视图切换器样式 ====== */
+    .view-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 20px; padding: 0 5px;}
+    .view-toggle-btn { display: flex; background-color: color-mix(in srgb, var(--sidebar-bg) 50%, transparent); border-radius: 10px; padding: 4px; border: 1px solid var(--border-color); }
+    .toggle-option { padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; color: var(--text-muted); transition: all 0.3s; display: flex; align-items: center; gap: 6px; }
+    .toggle-option.active { background-color: var(--sidebar-bg); color: var(--primary-color); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+
+    /* ====== ✨ 新增：双模显示/隐藏控制 ====== */
+    #library-container.view-mode-list .poster-container { display: none; }
+    #library-container.view-mode-list .list-container { display: block; }
+
+    #library-container.view-mode-poster .list-container { display: none; }
+    #library-container.view-mode-poster .poster-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; padding: 10px 0; }
+
+    /* ====== ✨ 新增：海报卡片样式 ====== */
+    .poster-item { position: relative; border-radius: 12px; overflow: hidden; aspect-ratio: 2/3; box-shadow: 0 6px 15px rgba(0,0,0,0.1); transition: transform 0.3s, box-shadow 0.3s; background-color: #222; cursor: pointer; }
+    .poster-item:hover { transform: translateY(-5px); box-shadow: 0 12px 25px rgba(0,0,0,0.2); }
+    .poster-item img { width: 100%; height: 100%; object-fit: cover; }
+    .poster-info { position: absolute; bottom: 0; left: 0; right: 0; padding: 40px 15px 15px 15px; background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 60%, transparent 100%); color: #fff; }
+    .poster-title { font-weight: bold; font-size: 14px; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .poster-time { font-size: 12px; color: #bbb; }
 </style>
 
 <script>
@@ -85,55 +102,99 @@
     </a>
 </div>
 
-<div id="library-container">
+<div class="view-controls">
+    <h2 style="font-size: 20px; font-weight: 800; color: var(--text-main); margin: 0;">媒体库记录</h2>
+    <div class="view-toggle-btn">
+        <div class="toggle-option active" onclick="switchView('list')" id="btn-list">
+            <span>📄</span> 列表
+        </div>
+        <div class="toggle-option" onclick="switchView('poster')" id="btn-poster">
+            <span>🖼️</span> 海报
+        </div>
+    </div>
+</div>
+
+<div id="library-container" class="view-mode-list">
     {% for lib_name, data in library_data.items() %}
         <details class="library-details" data-id="{{ lib_name }}">
             <summary class="library-summary"><span class="drag-handle">☰</span> 📂 {{ lib_name }}</summary>
+
             <div class="library-content">
 
-                {% if data.episodes_tree %}
-                    <div class="sub-title">📺 包含剧集</div>
-                    {% for series_name, seasons in data.episodes_tree.items() %}
-                        <details class="series-details">
-                            <summary class="series-summary">{{ series_name }}</summary>
-                            {% for season_name, episodes in seasons.items() %}
-                                <details class="season-details">
-                                    <summary class="season-summary">{{ season_name }}</summary>
-                                    <table style="margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--border-color);">
-                                        <thead><tr><th>单集详情</th><th>完成观看时间</th></tr></thead>
-                                        <tbody>
-                                            {% for ep in episodes %}
-                                            <tr>
-                                                <td style="color: var(--text-main);">{{ ep.episode }}</td>
-                                                <td style="color: var(--text-muted); font-size: 14px; width: 180px;">{{ ep.date }}</td>
-                                            </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </details>
-                            {% endfor %}
-                        </details>
-                    {% endfor %}
-                {% endif %}
+                <div class="list-container">
+                    {% if data.episodes_tree %}
+                        <div class="sub-title">📺 包含剧集</div>
+                        {% for series_name, seasons in data.episodes_tree.items() %}
+                            <details class="series-details">
+                                <summary class="series-summary">{{ series_name }}</summary>
+                                {% for season_name, episodes in seasons.items() %}
+                                    <details class="season-details">
+                                        <summary class="season-summary">{{ season_name }}</summary>
+                                        <table style="margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--border-color);">
+                                            <thead><tr><th>单集详情</th><th>完成观看时间</th></tr></thead>
+                                            <tbody>
+                                                {% for ep in episodes %}
+                                                <tr>
+                                                    <td style="color: var(--text-main);">{{ ep.episode }}</td>
+                                                    <td style="color: var(--text-muted); font-size: 14px; width: 180px;">{{ ep.date }}</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </details>
+                                {% endfor %}
+                            </details>
+                        {% endfor %}
+                    {% endif %}
 
-                {% if data.episodes_tree and data.movies %}
-                    <hr style="border-color: var(--border-color); margin: 25px 0;">
-                {% endif %}
+                    {% if data.episodes_tree and data.movies %}
+                        <hr style="border-color: var(--border-color); margin: 25px 0;">
+                    {% endif %}
 
-                {% if data.movies %}
-                    <div class="sub-title">🎬 包含电影</div>
-                    <table>
-                        <thead><tr><th>电影名称</th><th>完成观看时间</th></tr></thead>
-                        <tbody>
-                            {% for mv in data.movies %}
-                            <tr>
-                                <td style="font-weight: bold; color: var(--primary-color);">{{ mv.name }}</td>
-                                <td style="color: var(--text-muted); font-size: 14px; width: 180px;">{{ mv.date }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                {% endif %}
+                    {% if data.movies %}
+                        <div class="sub-title">🎬 包含电影</div>
+                        <table>
+                            <thead><tr><th>电影名称</th><th>完成观看时间</th></tr></thead>
+                            <tbody>
+                                {% for mv in data.movies %}
+                                <tr>
+                                    <td style="font-weight: bold; color: var(--primary-color);">{{ mv.name }}</td>
+                                    <td style="color: var(--text-muted); font-size: 14px; width: 180px;">{{ mv.date }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% endif %}
+                </div>
+
+                <div class="poster-container">
+
+                    {% if data.episodes_tree %}
+                        {% for series_name, seasons in data.episodes_tree.items() %}
+                            <div class="poster-item">
+                                <img src="{{ url_for('static', filename=data.series_posters.get(series_name, 'images/logo.png')) }}" loading="lazy">
+                                <div class="poster-info">
+                                    <div class="poster-title">{{ series_name }}</div>
+                                    <div class="poster-time">剧集</div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+
+                    {% if data.movies %}
+                        {% for mv in data.movies %}
+                            <div class="poster-item">
+                                <img src="{{ url_for('static', filename=mv.get('poster_path', 'images/logo.png')) }}" loading="lazy">
+                                <div class="poster-info">
+                                    <div class="poster-title">{{ mv.name }}</div>
+                                    <div class="poster-time">{{ mv.date }}</div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+
+                </div>
+
             </div>
         </details>
     {% else %}
@@ -148,6 +209,7 @@
     document.addEventListener('DOMContentLoaded', function () {
         const container = document.getElementById('library-container');
 
+        // 原有的排序逻辑保持不变
         if (container) {
             Sortable.create(container, {
                 animation: 150,
@@ -162,30 +224,53 @@
                 }
             });
         }
+
+        // ====== 恢复视图模式偏好 ======
+        const savedMode = localStorage.getItem('historyViewMode') || 'list';
+        switchView(savedMode);
     });
 
-    // ====== ✨ 核心修改：同步按钮拦截函数 ======
-    window.handleSyncClick = function(linkElement, event) {
-        // 1. 阻断 href 的默认立即跳转
-        event.preventDefault();
+    // ====== 双模切换逻辑 ======
+    window.switchView = function(mode) {
+        const container = document.getElementById('library-container');
+        const listBtn = document.getElementById('btn-list');
+        const posterBtn = document.getElementById('btn-poster');
 
+        if (mode === 'poster') {
+            posterBtn.classList.add('active');
+            listBtn.classList.remove('active');
+
+            container.classList.remove('view-mode-list');
+            container.classList.add('view-mode-poster');
+
+            localStorage.setItem('historyViewMode', 'poster');
+        } else {
+            listBtn.classList.add('active');
+            posterBtn.classList.remove('active');
+
+            container.classList.remove('view-mode-poster');
+            container.classList.add('view-mode-list');
+
+            localStorage.setItem('historyViewMode', 'list');
+        }
+    };
+
+    // 同步按钮逻辑
+    window.handleSyncClick = function(linkElement, event) {
+        event.preventDefault();
         const btn = document.getElementById('sync-btn');
         const icon = document.getElementById('sync-icon');
         const text = document.getElementById('sync-text');
 
-        // 2. 变灰并禁用按钮，防止连击
         btn.style.opacity = '0.7';
         btn.style.cursor = 'not-allowed';
         linkElement.style.pointerEvents = 'none';
 
-        // 3. 改变按钮文字给予即时反馈
         icon.innerHTML = '⏳';
         text.innerHTML = '正在请求与下载...';
 
-        // 4. 调用 base.html 里的全局函数，呼出提示
         window.showToast("⏳ 正在与 Jellyfin 通信并比对最新数据。<br><br>若有新记录，将自动下载高清海报。这可能需要几十秒时间，请耐心等待...");
 
-        // 5. 延迟 300 毫秒执行真正的跳转，给浏览器足够的时间渲染上述弹窗
         setTimeout(() => {
             window.location.href = linkElement.href;
         }, 300);

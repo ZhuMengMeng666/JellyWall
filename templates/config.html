@@ -119,25 +119,48 @@
 </div>
 
 <div class="config-card">
-            <div class="config-title"><span>🎬</span> TMDB API 配置</div>
-            <form method="POST" action="{{ url_for('config') }}">
-                <input type="hidden" name="form_type" value="tmdb_settings">
+    <div class="config-title"><span>🎬</span> TMDB API 配置</div>
+    <form method="POST" action="{{ url_for('config') }}">
+        <input type="hidden" name="form_type" value="tmdb_settings">
 
-                <div class="form-group">
-                     <label>API Key (v3 auth)</label>
-                        <input type="text" name="tmdb_api_key" id="tmdb_api_key" class="custom-input"
+        <div class="form-group">
+            <label>API Key (v3 auth)</label>
+            <input type="text" name="tmdb_api_key" id="tmdb_api_key" class="custom-input"
                    placeholder="请输入 TMDB API Key" value="{{ current_user.tmdb_api_key or '' }}">
-                </div>
-            <div class="btn-group">
-                <button type="button" class="submit-btn test-btn" onclick="handleTestTMDB()">
-                    <span>🔍</span> 测试连通性
-                </button>
-                <button type="submit" class="submit-btn">
-                    <span>💾</span> 保存配置
-                </button>
-            </div>
-            </form>
         </div>
+        <div class="btn-group">
+            <button type="button" class="submit-btn test-btn" onclick="handleTestTMDB()">
+                <span>🔍</span> 测试连通性
+            </button>
+            <button type="submit" class="submit-btn">
+                <span>💾</span> 保存配置
+            </button>
+        </div>
+    </form>
+</div>
+
+<div class="config-card">
+    <div class="config-title"><span>🔌</span> 网页访问端口配置</div>
+    <form method="POST" action="{{ url_for('config') }}">
+        <input type="hidden" name="form_type" value="web_settings">
+
+        <div class="form-group">
+            <label>JellyWall 运行端口</label>
+            <input type="number" name="web_port" id="web_port" class="custom-input"
+                   placeholder="例如: 5000" value="{{ current_user.web_port or '' }}" required>
+        </div>
+
+        <div style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px;">
+            ⚠️ 提示：修改此端口后，需重启后端服务方可生效。
+        </div>
+
+        <div class="btn-group">
+            <button type="submit" class="submit-btn">
+                <span>💾</span> 保存端口配置
+            </button>
+        </div>
+    </form>
+</div>
 
 <script>
     // 处理测试代理逻辑 (异步 Fetch)

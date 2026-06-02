@@ -1,14 +1,19 @@
-from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
-import requests
-import uuid
 import os
 from datetime import datetime, timedelta
 import requests
 from werkzeug.security import generate_password_hash  # 确保顶部引入了加密库
+import threading
+import json
+import uuid  # 确保文件顶部有引入此模块，用于生成用户的独立 ID
+from werkzeug.security import check_password_hash
+from flask_login import login_user
+
+
+# ====== ✨ 新增：全局数据库锁，防止多线程把 SQLite 写死机 ======
+db_lock = threading.Lock()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'jellywall_super_secret_key_2026'
@@ -19,28 +24,59 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
+# ====== ✨ 修改点：将 JSON 路径指向 config 文件夹 ======
+CONFIG_DIR = os.path.join(app.root_path, 'config')
+# 自动检测并创建 config 文件夹（如果不存在的话）
+os.makedirs(CONFIG_DIR, exist_ok=True)
 
-# ================= 数据库模型 =================
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(150), unique=True, nullable=False)
-    password = db.Column(db.String(150), nullable=False)
+# 指定 user.json 的完整路径
+USERS_FILE = os.path.join(CONFIG_DIR, 'users.json')
 
-    # 绑定的 Jellyfin 信息
-    jellyfin_url = db.Column(db.String(255), nullable=True)
-    jellyfin_api_key = db.Column(db.String(255), nullable=True)
-    jellyfin_user_id = db.Column(db.String(255), nullable=True)
-    # 新增 HTTP 代理字段
-    proxy_url = db.Column(db.String(255), nullable=True)
-    proxy_port = db.Column(db.String(10), nullable=True)
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        return {}
+    with open(USERS_FILE, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
-    tmdb_api_key = db.Column(db.String(255), nullable=True)
+def save_users(users):
+    with open(USERS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(users, f, ensure_ascii=False, indent=4)
+
+# ====== ✨ 重写：纯 Python 类的 User 模型 ======
+class User(UserMixin):
+    def __init__(self, id, username, password, jellyfin_url=None, jellyfin_api_key=None, jellyfin_user_id=None, proxy_url=None, proxy_port=None, tmdb_api_key=None, web_port=None):
+        self.id = str(id)  # JSON 的 key 必须是字符串
+        self.username = username
+        self.password = password
+        self.jellyfin_url = jellyfin_url
+        self.jellyfin_api_key = jellyfin_api_key
+        self.jellyfin_user_id = jellyfin_user_id
+        self.proxy_url = proxy_url
+        self.proxy_port = proxy_port
+        self.tmdb_api_key = tmdb_api_key
+        self.web_port = web_port  # ✨ 赋值给对象属性
+
+    # 将对象转为字典，方便存入 JSON
+    def to_dict(self):
+        return {
+            "id": self.id, "username": self.username, "password": self.password,
+            "jellyfin_url": self.jellyfin_url, "jellyfin_api_key": self.jellyfin_api_key,
+            "jellyfin_user_id": self.jellyfin_user_id, "proxy_url": self.proxy_url,
+            "proxy_port": self.proxy_port,
+            "tmdb_api_key": self.tmdb_api_key,
+            "web_port": self.web_port  # ✨ 保存到 JSON 时带上这个字段
+        }
+
+    # 自带的保存方法，随时更新自己的信息到 JSON
+    def save(self):
+        users = load_users()
+        users[self.id] = self.to_dict()
+        save_users(users)
 
 class WatchRecord(db.Model):
     """本地观影记录明细表"""
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-
+    user_id = db.Column(db.String(50), nullable=False)
     item_id = db.Column(db.String(100), nullable=False)  # Jellyfin 里的 ID 或其他平台生成的唯一ID
     item_type = db.Column(db.String(50), nullable=False)  # 'Movie' 或 'Episode'
     library_name = db.Column(db.String(100), nullable=False)
@@ -54,13 +90,15 @@ class WatchRecord(db.Model):
     source = db.Column(db.String(50), nullable=False, default='Jellyfin') # 💥 记录历史来源：Jellyfin, tmdb, watcharr
     tmdb_id = db.Column(db.String(50), nullable=True)
     date_played = db.Column(db.DateTime, nullable=False)
+    # ====== ✨ 新增：软删除标记 ======
+    is_deleted = db.Column(db.Boolean, default=False)
 
     __table_args__ = (db.UniqueConstraint('user_id', 'item_id', name='_user_item_uc'),)
 
 
 class WatchPoster(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user_id = db.Column(db.String(50), nullable=False)
     target_id = db.Column(db.String(100), nullable=False)
     media_type = db.Column(db.String(50), nullable=False)
     display_title = db.Column(db.String(200), nullable=False)
@@ -77,6 +115,8 @@ class WatchPoster(db.Model):
     season_overview = db.Column(db.Text, nullable=True)
 
     last_watched_date = db.Column(db.DateTime, nullable=False)
+    # ====== ✨ 新增：软删除标记 ======
+    is_deleted = db.Column(db.Boolean, default=False)
     __table_args__ = (db.UniqueConstraint('user_id', 'target_id', 'display_title', name='_user_poster_uc'),)
 
 
@@ -128,10 +168,12 @@ def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id):
     )
     db.session.add(new_detail)
 
-
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    users = load_users()
+    if str(user_id) in users:
+        return User(**users[str(user_id)])
+    return None
 
 
 # ================= 路由逻辑 =================
@@ -145,8 +187,8 @@ def index():
     return redirect(url_for('dashboard'))
 
 
-from werkzeug.security import check_password_hash
-from flask_login import login_user
+
+
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -159,13 +201,14 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
 
-        # 1. 在数据库中寻找这个用户
-        user = User.query.filter_by(username=username).first()
+        # 1. 在本地 JSON 中寻找这个用户
+        users = load_users()
+        user_data = next((u for u in users.values() if u.get('username') == username), None)
 
         # 2. 验证用户存在，并且密码正确
-        if user and check_password_hash(user.password, password):
-            # 3. 记录登录状态
-            login_user(user)
+        if user_data and check_password_hash(user_data['password'], password):
+            # 3. 记录登录状态 (将读取到的字典转换为 User 对象)
+            login_user(User(**user_data))
 
             # 👇 这里就是登录成功后跳转的页面！通常是 dashboard（仪表板）
             return redirect(url_for('dashboard'))
@@ -176,8 +219,6 @@ def login():
 
     # 如果是 GET 请求，或者密码验证失败，就重新渲染并停留在登录页
     return render_template('login.html')
-
-
 
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -192,14 +233,16 @@ def register():
         jellyfin_url = request.form.get('jellyfin_url')  # 如果你注册时需要填这个
         jellyfin_api_key = request.form.get('jellyfin_api_key')  # 同上
 
-        # 检查用户名是否已存在
-        existing_user = User.query.filter_by(username=username).first()
-        if existing_user:
+        # 读取 JSON 数据检查用户名是否已存在
+        users = load_users()
+        if any(u.get('username') == username for u in users.values()):
             flash('该用户名已被注册，请换一个重试。')
             return redirect(url_for('register'))
 
-        # 创建新用户并哈希密码 (根据你的 User 模型实际字段调整)
+        # 创建新用户并哈希密码，分配全新生成的唯一 ID
+        new_id = str(uuid.uuid4().hex)
         new_user = User(
+            id=new_id,
             username=username,
             password=generate_password_hash(password),
             # 如果你的数据库现在不需要绑 Jellyfin，这两行可以删掉，放到配置页再去绑
@@ -207,13 +250,14 @@ def register():
             jellyfin_api_key=jellyfin_api_key
         )
 
-        db.session.add(new_user)
-        db.session.commit()
+        # 直接保存至 JSON 文件
+        new_user.save()
 
         flash('注册成功！请登录。')
         return redirect(url_for('login'))
 
     return render_template('register.html')
+
 
 @app.route('/onboarding', methods=['GET', 'POST'])
 @login_required
@@ -248,7 +292,10 @@ def onboarding():
                 current_user.jellyfin_url = jellyfin_url
                 current_user.jellyfin_api_key = data.get('AccessToken')
                 current_user.jellyfin_user_id = data.get('User').get('Id')
-                db.session.commit()
+
+                # 触发自身的存入 JSON 方法
+                current_user.save()
+
                 return redirect(url_for('dashboard'))
             elif resp.status_code == 401:
                 flash('绑定失败：Jellyfin 用户名或密码错误。')
@@ -312,6 +359,7 @@ def test_tmdb():
     except Exception as e:
         return jsonify({"success": False, "message": f"❌ 连接 TMDB 失败，请检查网络或代理设置：{str(e)}"})
 
+
 @app.route('/config', methods=['GET', 'POST'])
 @login_required
 def config():
@@ -321,15 +369,26 @@ def config():
         if form_type == 'proxy_settings':
             current_user.proxy_url = request.form.get('proxy_url').strip()
             current_user.proxy_port = request.form.get('proxy_port').strip()
-            db.session.commit()
+            # 写入 JSON
+            current_user.save()
             flash("🎉 代理配置保存成功！")
             return redirect(url_for('config'))
+
         # 新增 TMDB 保存逻辑
         if form_type == 'tmdb_settings':
             current_user.tmdb_api_key = request.form.get('tmdb_api_key').strip()
-            db.session.commit()
+            # 写入 JSON
+            current_user.save()
             flash("🎉 TMDB 密钥保存成功！")
             return redirect(url_for('config'))
+
+        # ====== ✨ 新增：处理网页端口保存请求 ======
+        if form_type == 'web_settings':
+           current_user.web_port = request.form.get('web_port').strip()
+           current_user.save()  # 自动写入 config/users.json
+           flash("🎉 网页项目访问端口保存成功！")
+           return redirect(url_for('config'))
+
         protocol = request.form.get('protocol')
         host = request.form.get('host').strip().rstrip('/')
         port = request.form.get('port').strip()
@@ -365,11 +424,13 @@ def config():
                 access_token = data.get("AccessToken")
                 user_id = data.get("User", {}).get("Id")
 
-                # 保存到本地数据库当前用户的名下
+                # 保存到当前用户的名下
                 current_user.jellyfin_url = base_url
                 current_user.jellyfin_api_key = access_token
                 current_user.jellyfin_user_id = user_id
-                db.session.commit()
+
+                # 更新至 JSON 文件
+                current_user.save()
 
                 flash("🎉 Jellyfin 服务器绑定成功！现在可以去拉取数据了。")
             else:
@@ -474,7 +535,7 @@ def api_search_tmdb():
 @login_required
 def watched():
     """读取本地缓存：利用新增的纯剧集主海报与名字进行全局无重复渲染"""
-    all_posters = WatchPoster.query.filter_by(user_id=current_user.id).order_by(
+    all_posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
         WatchPoster.last_watched_date.asc()).all()
 
     aggregated_dict = {}
@@ -646,30 +707,21 @@ def get_tmdb_id_smart(user, item, item_type, tmdb_cache):
 
 
 def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
-    """处理 WatchRecord 表逻辑，返回是否发生了变动（新增或时间更新）"""
     item_id = item["Id"]
+
+    # ====== ✨ 修复 1：去掉 is_deleted=False 的过滤，将被软删除的记录也捞出来 ======
     record = WatchRecord.query.filter_by(user_id=user_id, item_id=item_id).first()
 
     if not record:
         record = WatchRecord(
-            user_id=user_id,
-            item_id=item_id,
-            item_type=item_type,
-            library_name=lib_name,
-            title=item.get("Name", "未知"),
-            date_played=dt_local,
-            source="Jellyfin", # ✨ 明确打上来源标签
-            tmdb_id = tmdb_id  # ✨ 存入 TMDB ID
+            user_id=user_id, item_id=item_id, item_type=item_type, library_name=lib_name,
+            title=item.get("Name", "未知"), date_played=dt_local, source="Jellyfin", tmdb_id=tmdb_id
         )
         if item_type == "Episode":
             record.series_name = item.get("SeriesName", "未知剧集")
             record.season_name = f"第 {item.get('ParentIndexNumber', '?')} 季"
-
-            # 提取 Jellyfin 数据里的集数
             ep_index = item.get('IndexNumber')
             record.title = f"第 {ep_index or '?'} 集 - {item.get('Name', '未知集名')}"
-
-            # ✨ 尝试将集数转化为纯数字保存
             try:
                 record.episode_num = int(ep_index) if ep_index is not None else None
             except ValueError:
@@ -678,12 +730,20 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
         db.session.add(record)
         return True
     else:
-        # 如果记录已存在，仅更新最新观看时间
-        if dt_local > record.date_played:
-            record.date_played = dt_local
-            return True
+        updated = False
 
-    return False
+        # ====== ✨ 修复 2：如果记录存在但已被软删除，则将其“复活”并更新时间 ======
+        if getattr(record, 'is_deleted', False):
+            record.is_deleted = False
+            record.date_played = dt_local
+            updated = True
+
+        # ====== 如果没被删，且 Jellyfin 那边传来的时间比本地新，则只更新时间 ======
+        elif dt_local > record.date_played:
+            record.date_played = dt_local
+            updated = True
+
+        return updated
 
 
 # ==========================================
@@ -712,13 +772,14 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
     else:
         return
 
+    # ====== ✨ 修复 1：去掉 is_deleted=False 的过滤，将被软删除的海报记录也捞出来 ======
     poster_record = WatchPoster.query.filter_by(user_id=user_id, target_id=target_id).first()
 
     if not poster_record:
         series_relative_path = "images/logo.png"
         season_relative_path = "images/logo.png"
 
-        # ====== ✨ 彻底修复：隔离单集简介，并使用正确的 Jellyfin UUID 抓取 ======
+        # ====== 彻底修复：隔离单集简介，并使用正确的 Jellyfin UUID 抓取 ======
         if item_type == "Movie":
             overview = item.get("Overview") or ""
             season_overview = ""
@@ -729,7 +790,6 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
             series_id = item.get("SeriesId")
             if series_id:
                 try:
-                    # 使用真正的 jf_user_id 替换原本错误的本地 user_id
                     s_resp = requests.get(f"{jf_url}/Users/{jf_user_id}/Items/{series_id}?Fields=Overview",
                                           headers=headers, timeout=5)
                     if s_resp.status_code == 200:
@@ -796,32 +856,42 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
         db.session.add(poster_record)
         synced_names.add(display_title)
     else:
-        if dt_local > poster_record.last_watched_date: poster_record.last_watched_date = dt_local
+        # ====== ✨ 修复 2：如果海报记录已被软删除，将其“复活”并更新时间 ======
+        if getattr(poster_record, 'is_deleted', False):
+            poster_record.is_deleted = False
+            poster_record.last_watched_date = dt_local
+            synced_names.add(display_title)  # 复活的记录也加到提示列表里
 
+        # ====== 如果没被删，且 Jellyfin 那边有更新的观看时间，则只更新时间 ======
+        elif dt_local > poster_record.last_watched_date:
+            poster_record.last_watched_date = dt_local
 
 @app.route('/sync_history')
 @login_required
 def sync_history():
     jf_url, headers = current_user.jellyfin_url, {"X-Emby-Token": current_user.jellyfin_api_key}
     base_user_url = f"{jf_url}/Users/{current_user.jellyfin_user_id}"
-    poster_dir, still_dir, backdrop_dir = os.path.join(app.root_path, 'static', 'posters'), os.path.join(app.root_path,
-                                                                                                         'static',
-                                                                                                         'stills'), os.path.join(
-        app.root_path, 'static', 'backdrops')
-    for d in [poster_dir, still_dir, backdrop_dir]: os.makedirs(d, exist_ok=True)
+    poster_dir = os.path.join(app.root_path, 'static', 'posters')
+    still_dir = os.path.join(app.root_path, 'static', 'stills')
+    backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
+    for d in [poster_dir, still_dir, backdrop_dir]:
+        os.makedirs(d, exist_ok=True)
 
     sync_count, synced_names, tmdb_search_cache = 0, set(), {}
     try:
         views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
-        if views_resp.status_code != 200: flash("无法获取媒体库列表，同步失败。"); return redirect(
-            url_for('watched_list'))
+        if views_resp.status_code != 200:
+            flash("无法获取媒体库列表，同步失败。")
+            return redirect(url_for('watched_list'))
 
         for view in views_resp.json().get("Items", []):
-            items_resp = requests.get(f"{base_user_url}/Items", headers=headers,
-                                      params={"ParentId": view["Id"], "Filters": "IsPlayed",
-                                              "IncludeItemTypes": "Movie,Episode", "Recursive": "true", "Limit": 2000,
-                                              "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds"},
-                                      timeout=15)
+            items_resp = requests.get(
+                f"{base_user_url}/Items", headers=headers,
+                params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
+                        "Recursive": "true", "Limit": 2000,
+                        "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds"},
+                timeout=15
+            )
             if items_resp.status_code != 200: continue
 
             for item in items_resp.json().get("Items", []):
@@ -832,23 +902,26 @@ def sync_history():
                 if update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
                     sync_count += 1
 
-                    # ====== ✨ 修复：追加传入了 current_user.jellyfin_user_id ======
                     update_watch_poster(current_user.id, current_user.jellyfin_user_id, item, item["Type"], dt_local,
                                         jf_url, headers, poster_dir, backdrop_dir, synced_names, master_tmdb_id)
 
-                if item["Type"] == "Episode": update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
+                if item["Type"] == "Episode":
+                    update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
 
+        # ✨ 单线程排队处理完后，最后统一提交到数据库
         db.session.commit()
+
         if sync_count > 0:
             names_html = "<ul style='margin: 10px 0 0 0; padding-left: 20px; text-align: left; max-height: 150px; overflow-y: auto; color: var(--text-main);'>" + "".join(
                 [f"<li style='margin-bottom: 6px;'>{n}</li>" for n in sorted(synced_names)]) + "</ul>"
             flash(f"🎉 同步成功！已处理明细并缓存海报/剧照/背景图：{names_html}")
         else:
             flash("✨ 同步完成！本地海报及历史记录已是最新。")
+
     except Exception as e:
         flash(f"同步过程中发生网络异常: {str(e)}")
-    return redirect(url_for('watched_list'))
 
+    return redirect(url_for('watched_list'))
 
 @app.route('/watched_list')
 @login_required
@@ -857,10 +930,10 @@ def watched_list():
 
     # ====== 1. 获取数据库记录 ======
     # 提取当前用户的所有播放流水记录 (按时间倒序)
-    records = WatchRecord.query.filter_by(user_id=current_user.id).order_by(WatchRecord.date_played.desc()).all()
+    records = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(WatchRecord.date_played.desc()).all()
 
     # 提取当前用户所有的海报缓存数据
-    posters = WatchPoster.query.filter_by(user_id=current_user.id).all()
+    posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).all()
 
     # ====== 2. 建立海报映射字典 (规避 N+1 查询卡顿) ======
     movie_poster_map = {}
@@ -885,15 +958,16 @@ def watched_list():
             library_data[lib_name] = {
                 'episodes_tree': {},
                 'movies': [],
-                'series_posters': {}  # ✨ 用来存放这个库里所有剧集的海报映射
+                'series_posters': {}  # 用来存放这个库里所有剧集的海报映射
             }
 
         # [分支 A：处理电影]
         if item_type == "Movie":
             library_data[lib_name]['movies'].append({
+                'id': record.id,  # ✨ 新增：传入电影足迹在数据库中的真实 ID
                 'name': record.title,
                 'date': date_played_str,
-                # ✨ 塞入电影海报路径，若无则使用 logo 兜底
+                # 塞入电影海报路径，若无则使用 logo 兜底
                 'poster_path': movie_poster_map.get(record.title, "images/logo.png")
             })
 
@@ -902,16 +976,14 @@ def watched_list():
             series_name = getattr(record, 'series_name', record.title)
 
             try:
-                season_num = int(getattr(record, 'season_num', 1)) if getattr(record, 'season_num',
-                                                                              1) is not None else 1
+                season_num = int(getattr(record, 'season_num', 1)) if getattr(record, 'season_num', 1) is not None else 1
             except ValueError:
                 season_num = 1
             season_name = f"第 {season_num} 季"
             episode_name = record.title
 
-            # ✨ 顺手把该剧的海报映射存进去
-            library_data[lib_name]['series_posters'][series_name] = series_poster_map.get(series_name,
-                                                                                          "images/logo.png")
+            # 顺手把该剧的海报映射存进去
+            library_data[lib_name]['series_posters'][series_name] = series_poster_map.get(series_name, "images/logo.png")
 
             # 构建原有的剧集折叠树结构
             if series_name not in library_data[lib_name]['episodes_tree']:
@@ -921,6 +993,7 @@ def watched_list():
                 library_data[lib_name]['episodes_tree'][series_name][season_name] = []
 
             library_data[lib_name]['episodes_tree'][series_name][season_name].append({
+                'id': record.id,  # ✨ 新增：传入剧集单集在数据库中的真实 ID
                 'episode': episode_name,
                 'date': date_played_str
             })
@@ -937,20 +1010,20 @@ def media_detail(media_type, title):
     season_poster_map, season_overview_map = {}, {}
 
     if media_type == 'series':
-        poster_info = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=title).first()
-        for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=title).all():
+        poster_info = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=title, is_deleted=False).first()
+        for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=title, is_deleted=False).all():
             if p.season_num:
                 season_poster_map[p.season_num] = p.local_image_path
                 season_overview_map[p.season_num] = p.season_overview or ""
     else:
-        poster_info = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Movie', display_title=title).first()
+        poster_info = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Movie', display_title=title, is_deleted=False).first()
 
     if not poster_info: poster_info = WatchPoster()
 
     seasons, movie_record = {}, None
 
     if media_type == 'series':
-        for ep in [r for r in WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode').all() if getattr(r, 'series_name', r.title) == title]:
+        for ep in [r for r in WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode', is_deleted=False).all() if getattr(r, 'series_name', r.title) == title]:
             ep_detail = EpisodeDetail.query.filter_by(item_id=ep.item_id).first()
             real_season_num = 1
             if ep_detail:
@@ -971,7 +1044,7 @@ def media_detail(media_type, title):
             # 按数据库里的真实集数 (episode_num) 从小到大排序。如果没拿到集数，就排到最后(9999)
             seasons[s].sort(key=lambda x: x.episode_num if x.episode_num is not None else 9999)
     else:
-        movie_record = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', title=title).first()
+        movie_record = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', title=title, is_deleted=False).first()
 
     return render_template('detail.html', media_type=media_type, title=title, poster=poster_info, seasons=seasons, movie_record=movie_record, season_poster_map=season_poster_map, season_overview_map=season_overview_map)
 
@@ -983,13 +1056,61 @@ def get_user_proxies(user):
 # 在请求时这样使用：
 # requests.get(url, headers=headers, proxies=get_user_proxies(current_user))
 
+@app.route('/api/delete_history', methods=['POST'])
+@login_required
+def delete_history():
+    data = request.json
+    record_ids = data.get('record_ids', [])
+    if not record_ids:
+        return jsonify({'success': False, 'message': '未选择任何记录'})
+
+    try:
+        # 将选中的记录标记为已删除
+        records = WatchRecord.query.filter(WatchRecord.id.in_(record_ids), WatchRecord.user_id == current_user.id).all()
+        for r in records:
+            r.is_deleted = True
+
+        # 顺便处理海报墙：如果一部剧的所有记录都被删了，把它的海报也隐藏掉
+        # （这里简化处理，直接让用户在海报模式下也能无缝体验软删除）
+        db.session.commit()
+        return jsonify({'success': True, 'message': f'成功移除了 {len(records)} 条足迹'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'删除失败: {str(e)}'})
+
 @app.route('/demo')
 @login_required
 def demo_preview():
     """纯静态体验版详情页"""
     return render_template('demo_detail.html', title="详情页预览")
 
+
 if __name__ == '__main__':
+    # 1. 保持你原有的数据库表结构自动创建逻辑
     with app.app_context():
         db.create_all()
-    app.run(debug=True, port=5000)
+
+    # 2. 设置一个保底的默认端口
+    run_port = 5000
+
+    # 3. 在项目启动前，主动去扒一遍 config/users.json，找出你配置的自定义端口
+    try:
+        import json
+        import os
+
+        config_path = os.path.join(app.root_path, 'config', 'users.json')
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                users_data = json.load(f)
+                # 遍历找到第一个设置了 web_port 的配置
+                for u in users_data.values():
+                    if u.get('web_port'):
+                        run_port = int(u['web_port'])
+                        break
+    except Exception as e:
+        print(f"⚠️ 读取自定义端口失败，将使用默认端口 5000。原因: {e}")
+
+    # 4. 把读出来的端口喂给 Flask，让它监听所有 IP (0.0.0.0)
+    print(f"🚀 JellyWall 即将启动，运行端口: {run_port}")
+    app.run(host='0.0.0.0', port=run_port, debug=True)
+
+

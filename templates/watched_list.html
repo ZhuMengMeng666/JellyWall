@@ -20,7 +20,7 @@
 
     /* ====== 二级折叠：剧集 ====== */
     .series-details { margin-bottom: 10px; background-color: rgba(128, 128, 128, 0.03); border-radius: 5px; }
-    .series-summary { padding: 15px; cursor: pointer; font-weight: bold; color: var(--primary-color); background-color: var(--border-color); border-radius: 5px; position: relative; list-style: none; transition: color 0.3s; }
+    .series-summary { padding: 15px; cursor: pointer; font-weight: bold; color: var(--primary-color); background-color: var(--border-color); border-radius: 5px; position: relative; list-style: none; transition: color 0.3s; display: flex; align-items: center;}
     .series-summary:hover { filter: brightness(1.1); }
     .series-summary::-webkit-details-marker { display: none; }
     .series-summary::after { content: '▶'; position: absolute; right: 20px; top: 18px; font-size: 12px; color: var(--text-muted); transition: transform 0.2s; }
@@ -29,7 +29,7 @@
 
     /* ====== 三级折叠：季 ====== */
     .season-details { margin: 10px 15px 15px 15px; background-color: rgba(128, 128, 128, 0.02); border-radius: 4px;}
-    .season-summary { background-color: rgba(128, 128, 128, 0.08); color: var(--text-main); padding: 10px 15px; font-weight: normal; list-style: none; position: relative; cursor: pointer; border-radius: 4px; }
+    .season-summary { background-color: rgba(128, 128, 128, 0.08); color: var(--text-main); padding: 10px 15px; font-weight: normal; list-style: none; position: relative; cursor: pointer; border-radius: 4px; display: flex; align-items: center;}
     .season-summary::-webkit-details-marker { display: none; }
     .season-summary::after { content: '▼'; position: absolute; right: 20px; top: 14px; transform: rotate(-90deg); transition: transform 0.2s; color: var(--text-muted); font-size: 12px; }
     .season-details[open] > .season-summary::after { transform: rotate(0deg); }
@@ -42,26 +42,46 @@
     tr:hover { background-color: rgba(128, 128, 128, 0.05); }
     .sub-title { color: var(--text-muted); font-size: 16px; margin-bottom: 10px; margin-top: 15px; }
 
-    /* ====== ✨ 新增：视图切换器样式 ====== */
+    /* ====== 视图切换器样式 ====== */
     .view-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 20px; padding: 0 5px;}
     .view-toggle-btn { display: flex; background-color: color-mix(in srgb, var(--sidebar-bg) 50%, transparent); border-radius: 10px; padding: 4px; border: 1px solid var(--border-color); }
     .toggle-option { padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; color: var(--text-muted); transition: all 0.3s; display: flex; align-items: center; gap: 6px; }
     .toggle-option.active { background-color: var(--sidebar-bg); color: var(--primary-color); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
 
-    /* ====== ✨ 新增：双模显示/隐藏控制 ====== */
+    /* ====== 双模显示/隐藏控制 ====== */
     #library-container.view-mode-list .poster-container { display: none; }
     #library-container.view-mode-list .list-container { display: block; }
-
     #library-container.view-mode-poster .list-container { display: none; }
     #library-container.view-mode-poster .poster-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; padding: 10px 0; }
 
-    /* ====== ✨ 新增：海报卡片样式 ====== */
+    /* ====== 海报卡片样式 ====== */
     .poster-item { position: relative; border-radius: 12px; overflow: hidden; aspect-ratio: 2/3; box-shadow: 0 6px 15px rgba(0,0,0,0.1); transition: transform 0.3s, box-shadow 0.3s; background-color: #222; cursor: pointer; }
     .poster-item:hover { transform: translateY(-5px); box-shadow: 0 12px 25px rgba(0,0,0,0.2); }
     .poster-item img { width: 100%; height: 100%; object-fit: cover; }
     .poster-info { position: absolute; bottom: 0; left: 0; right: 0; padding: 40px 15px 15px 15px; background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 60%, transparent 100%); color: #fff; }
     .poster-title { font-weight: bold; font-size: 14px; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .poster-time { font-size: 12px; color: #bbb; }
+
+    /* ====== ✨ 新增：编辑模式与悬浮动作栏样式 ====== */
+    .history-checkbox { display: none; width: 16px; height: 16px; cursor: pointer; margin-right: 12px; accent-color: var(--primary-color); flex-shrink: 0; }
+    .edit-mode .history-checkbox { display: inline-block; }
+
+    .edit-btn { background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); padding: 6px 14px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
+    .edit-btn:hover { background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+
+    .floating-action-bar {
+        position: fixed; bottom: -100px; left: 50%; transform: translateX(-50%);
+        background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1);
+        padding: 12px 24px; border-radius: 50px; box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+        display: flex; align-items: center; gap: 20px; z-index: 1000;
+        transition: bottom 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .floating-action-bar.show { bottom: 40px; }
+
+    .btn-danger { background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s;}
+    .btn-danger:hover { background: #dc2626; }
+    .btn-cancel { background: transparent; color: #bbb; border: 1px solid #bbb; padding: 10px 24px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: all 0.2s;}
+    .btn-cancel:hover { background: rgba(255,255,255,0.1); color: #fff; }
 </style>
 
 <script>
@@ -103,7 +123,12 @@
 </div>
 
 <div class="view-controls">
-    <h2 style="font-size: 20px; font-weight: 800; color: var(--text-main); margin: 0;">媒体库记录</h2>
+    <div style="display: flex; align-items: center; gap: 15px;">
+        <h2 style="font-size: 20px; font-weight: 800; color: var(--text-main); margin: 0;">媒体库记录</h2>
+        <button class="edit-btn" id="edit-btn" onclick="toggleEditMode()">
+            <span>✏️</span> 进入编辑
+        </button>
+    </div>
     <div class="view-toggle-btn">
         <div class="toggle-option active" onclick="switchView('list')" id="btn-list">
             <span>📄</span> 列表
@@ -126,16 +151,27 @@
                         <div class="sub-title">📺 包含剧集</div>
                         {% for series_name, seasons in data.episodes_tree.items() %}
                             <details class="series-details">
-                                <summary class="series-summary">{{ series_name }}</summary>
+                                <summary class="series-summary">
+                                    <input type="checkbox" class="history-checkbox chk-series" data-series-id="{{ series_name }}" onclick="event.stopPropagation();">
+                                    {{ series_name }}
+                                </summary>
+
                                 {% for season_name, episodes in seasons.items() %}
                                     <details class="season-details">
-                                        <summary class="season-summary">{{ season_name }}</summary>
+                                        <summary class="season-summary">
+                                            <input type="checkbox" class="history-checkbox chk-season" data-series-parent="{{ series_name }}" data-season-id="{{ season_name }}" onclick="event.stopPropagation();">
+                                            {{ season_name }}
+                                        </summary>
+
                                         <table style="margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--border-color);">
                                             <thead><tr><th>单集详情</th><th>完成观看时间</th></tr></thead>
                                             <tbody>
                                                 {% for ep in episodes %}
                                                 <tr>
-                                                    <td style="color: var(--text-main);">{{ ep.episode }}</td>
+                                                    <td style="color: var(--text-main); display: flex; align-items: center;">
+                                                        <input type="checkbox" class="history-checkbox chk-episode" data-series-parent="{{ series_name }}" data-season-parent="{{ season_name }}" value="{{ ep.id }}">
+                                                        {{ ep.episode }}
+                                                    </td>
                                                     <td style="color: var(--text-muted); font-size: 14px; width: 180px;">{{ ep.date }}</td>
                                                 </tr>
                                                 {% endfor %}
@@ -158,7 +194,10 @@
                             <tbody>
                                 {% for mv in data.movies %}
                                 <tr>
-                                    <td style="font-weight: bold; color: var(--primary-color);">{{ mv.name }}</td>
+                                    <td style="font-weight: bold; color: var(--primary-color); display: flex; align-items: center;">
+                                        <input type="checkbox" class="history-checkbox chk-episode" value="{{ mv.id }}">
+                                        {{ mv.name }}
+                                    </td>
                                     <td style="color: var(--text-muted); font-size: 14px; width: 180px;">{{ mv.date }}</td>
                                 </tr>
                                 {% endfor %}
@@ -168,7 +207,6 @@
                 </div>
 
                 <div class="poster-container">
-
                     {% if data.episodes_tree %}
                         {% for series_name, seasons in data.episodes_tree.items() %}
                             <a href="{{ url_for('media_detail', media_type='series', title=series_name) }}" class="poster-item" style="text-decoration: none;">
@@ -192,7 +230,6 @@
                             </a>
                         {% endfor %}
                     {% endif %}
-
                 </div>
 
             </div>
@@ -205,93 +242,168 @@
     {% endfor %}
 </div>
 
+<div class="floating-action-bar" id="delete-bar">
+    <span style="color: #fff; font-size: 15px;">已选择 <b id="sel-count" style="color: var(--primary-color); font-size: 18px; margin: 0 4px;">0</b> 项记录</span>
+    <button class="btn-cancel" onclick="toggleEditMode()">取消</button>
+    <button class="btn-danger" onclick="confirmDelete()">🗑️ 移除选中记录</button>
+</div>
+
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const container = document.getElementById('library-container');
 
-        // 原有的排序逻辑保持不变
         if (container) {
             Sortable.create(container, {
                 animation: 150,
                 handle: '.library-summary',
                 ghostClass: 'sortable-ghost',
                 onEnd: function () {
-                    const currentOrder = Array.from(container.children)
-                        .map(el => el.getAttribute('data-id'))
-                        .filter(id => id);
-
+                    const currentOrder = Array.from(container.children).map(el => el.getAttribute('data-id')).filter(id => id);
                     localStorage.setItem('jellywall_library_order', JSON.stringify(currentOrder));
                 }
             });
         }
 
-        // ====== 恢复视图模式偏好 ======
         const savedMode = localStorage.getItem('historyViewMode') || 'list';
         switchView(savedMode);
 
-        // ====== ✨ 新增：折叠面板状态记忆 ======
         const allDetails = document.querySelectorAll('details');
         allDetails.forEach(detail => {
-            // 获取每个折叠面板的标题作为它的“唯一身份证号”
             const summaryText = detail.querySelector('summary').textContent.trim();
             const stateKey = 'jellywall_open_state_' + summaryText;
-
-            // 1. 刚进页面时：如果记忆里它是打开的，就强行把它展开
-            if (sessionStorage.getItem(stateKey) === 'true') {
-                detail.open = true;
-            }
-
-            // 2. 当你点击展开/收起时：实时把状态写进浏览器的短期记忆里
-            detail.addEventListener('toggle', () => {
-                sessionStorage.setItem(stateKey, detail.open);
-            });
+            if (sessionStorage.getItem(stateKey) === 'true') detail.open = true;
+            detail.addEventListener('toggle', () => { sessionStorage.setItem(stateKey, detail.open); });
         });
     });
 
-    // ====== 双模切换逻辑 ======
     window.switchView = function(mode) {
         const container = document.getElementById('library-container');
         const listBtn = document.getElementById('btn-list');
         const posterBtn = document.getElementById('btn-poster');
 
         if (mode === 'poster') {
-            posterBtn.classList.add('active');
-            listBtn.classList.remove('active');
-
-            container.classList.remove('view-mode-list');
-            container.classList.add('view-mode-poster');
-
+            posterBtn.classList.add('active'); listBtn.classList.remove('active');
+            container.classList.remove('view-mode-list'); container.classList.add('view-mode-poster');
             localStorage.setItem('historyViewMode', 'poster');
         } else {
-            listBtn.classList.add('active');
-            posterBtn.classList.remove('active');
-
-            container.classList.remove('view-mode-poster');
-            container.classList.add('view-mode-list');
-
+            listBtn.classList.add('active'); posterBtn.classList.remove('active');
+            container.classList.remove('view-mode-poster'); container.classList.add('view-mode-list');
             localStorage.setItem('historyViewMode', 'list');
         }
     };
 
-    // 同步按钮逻辑
     window.handleSyncClick = function(linkElement, event) {
         event.preventDefault();
         const btn = document.getElementById('sync-btn');
         const icon = document.getElementById('sync-icon');
         const text = document.getElementById('sync-text');
 
-        btn.style.opacity = '0.7';
-        btn.style.cursor = 'not-allowed';
-        linkElement.style.pointerEvents = 'none';
-
-        icon.innerHTML = '⏳';
-        text.innerHTML = '正在请求与下载...';
+        btn.style.opacity = '0.7'; btn.style.cursor = 'not-allowed'; linkElement.style.pointerEvents = 'none';
+        icon.innerHTML = '⏳'; text.innerHTML = '正在请求与下载...';
 
         window.showToast("⏳ 正在与 Jellyfin 通信并比对最新数据。<br><br>若有新记录，将自动下载高清海报。这可能需要几十秒时间，请耐心等待...");
+        setTimeout(() => { window.location.href = linkElement.href; }, 300);
+    };
 
-        setTimeout(() => {
-            window.location.href = linkElement.href;
-        }, 300);
+    // ====== ✨ 新增：编辑、级联勾选与软删除核心逻辑 ======
+    let isEditMode = false;
+
+    window.toggleEditMode = function() {
+        isEditMode = !isEditMode;
+        const container = document.getElementById('library-container');
+        const editBtn = document.getElementById('edit-btn');
+        const deleteBar = document.getElementById('delete-bar');
+
+        if (isEditMode) {
+            container.classList.add('edit-mode');
+            editBtn.innerHTML = '<span>❌</span> 退出编辑';
+            deleteBar.classList.add('show');
+
+            // 自动强制切回列表视图，因为只有列表模式能看到具体集数进行勾选
+            if (!document.getElementById('btn-list').classList.contains('active')) {
+                switchView('list');
+            }
+        } else {
+            container.classList.remove('edit-mode');
+            editBtn.innerHTML = '<span>✏️</span> 进入编辑';
+            deleteBar.classList.remove('show');
+
+            // 退出时清空所有已勾选的框
+            document.querySelectorAll('.history-checkbox').forEach(chk => chk.checked = false);
+            updateSelectedCount();
+        }
+    };
+
+    // 利用事件代理监听整个文档的勾选事件（性能最优）
+    document.addEventListener('change', function(e) {
+        if (!e.target.classList.contains('history-checkbox')) return;
+
+        const isChecked = e.target.checked;
+
+        // 1. 如果点的是“剧集”，则全选/反选下面所有的集
+        if (e.target.classList.contains('chk-series')) {
+            const seriesId = e.target.dataset.seriesId;
+            document.querySelectorAll(`.history-checkbox[data-series-parent="${seriesId}"]`).forEach(chk => {
+                chk.checked = isChecked;
+            });
+        }
+        // 2. 如果点的是“季”，则全选/反选当前季的集
+        else if (e.target.classList.contains('chk-season')) {
+            const seasonId = e.target.dataset.seasonId;
+            const seriesId = e.target.dataset.seriesParent;
+            document.querySelectorAll(`.chk-episode[data-season-parent="${seasonId}"][data-series-parent="${seriesId}"]`).forEach(chk => {
+                chk.checked = isChecked;
+            });
+        }
+
+        updateSelectedCount();
+    });
+
+    window.updateSelectedCount = function() {
+        const count = document.querySelectorAll('.chk-episode:checked').length;
+        document.getElementById('sel-count').innerText = count;
+    };
+
+    window.confirmDelete = async function() {
+        const selected = document.querySelectorAll('.chk-episode:checked');
+        if (selected.length === 0) {
+            window.showToast("⚠️ 请先勾选要移除的媒体记录");
+            return;
+        }
+
+        if (!confirm(`确定要从历史记录中移除这 ${selected.length} 项吗？\n\n（注意：这仅会在本地历史中隐藏，绝对不会删除您媒体服务器上的真实文件）`)) {
+            return;
+        }
+
+        // 收集绑在 checkbox 上的真实数据库 ID
+        const recordIds = Array.from(selected)
+            .map(chk => parseInt(chk.value))
+            .filter(id => !isNaN(id));
+
+        if (recordIds.length === 0) {
+            window.showToast("⚠️ 错误：未抓取到记录的有效 ID，请检查后端是否正确返回。");
+            return;
+        }
+
+        try {
+            window.showToast("⏳ 正在清理足迹...");
+            const response = await fetch('/api/delete_history', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ record_ids: recordIds })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                window.showToast("✅ " + result.message);
+                // 1秒后刷新页面，展示删除后的清爽列表
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                window.showToast("❌ 删除失败: " + result.message);
+            }
+        } catch (error) {
+            window.showToast("❌ 网络请求异常");
+        }
     };
 </script>
 {% endblock %}

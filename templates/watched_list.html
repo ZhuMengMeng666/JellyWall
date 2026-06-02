@@ -228,6 +228,24 @@
         // ====== 恢复视图模式偏好 ======
         const savedMode = localStorage.getItem('historyViewMode') || 'list';
         switchView(savedMode);
+
+        // ====== ✨ 新增：折叠面板状态记忆 ======
+        const allDetails = document.querySelectorAll('details');
+        allDetails.forEach(detail => {
+            // 获取每个折叠面板的标题作为它的“唯一身份证号”
+            const summaryText = detail.querySelector('summary').textContent.trim();
+            const stateKey = 'jellywall_open_state_' + summaryText;
+
+            // 1. 刚进页面时：如果记忆里它是打开的，就强行把它展开
+            if (sessionStorage.getItem(stateKey) === 'true') {
+                detail.open = true;
+            }
+
+            // 2. 当你点击展开/收起时：实时把状态写进浏览器的短期记忆里
+            detail.addEventListener('toggle', () => {
+                sessionStorage.setItem(stateKey, detail.open);
+            });
+        });
     });
 
     // ====== 双模切换逻辑 ======

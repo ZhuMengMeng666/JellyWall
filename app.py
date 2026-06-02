@@ -686,8 +686,11 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
     return False
 
 
-def update_watch_poster(user_id, item, item_type, dt_local, jf_url, headers, poster_dir, backdrop_dir, synced_names,
-                        tmdb_id):
+# ==========================================
+# 辅助函数 3：写入/更新【海报墙双缓存表】
+# ==========================================
+def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, headers, poster_dir, backdrop_dir,
+                        synced_names, tmdb_id):
     if item_type == "Movie":
         target_id = item["Id"]
         display_title = item["Name"]
@@ -715,30 +718,34 @@ def update_watch_poster(user_id, item, item_type, dt_local, jf_url, headers, pos
         series_relative_path = "images/logo.png"
         season_relative_path = "images/logo.png"
 
-        # ====== ✨ 强制加入 ?Fields=Overview 捞取真实简介，并处理 None ======
-        overview = item.get("Overview") or ""
-        season_overview = ""
+        # ====== ✨ 彻底修复：隔离单集简介，并使用正确的 Jellyfin UUID 抓取 ======
+        if item_type == "Movie":
+            overview = item.get("Overview") or ""
+            season_overview = ""
+        else:
+            overview = ""
+            season_overview = ""
 
-        if item_type == "Episode":
-            try:
-                series_id = item.get("SeriesId")
-                if series_id:
-                    s_resp = requests.get(f"{jf_url}/Users/{user_id}/Items/{series_id}?Fields=Overview",
+            series_id = item.get("SeriesId")
+            if series_id:
+                try:
+                    # 使用真正的 jf_user_id 替换原本错误的本地 user_id
+                    s_resp = requests.get(f"{jf_url}/Users/{jf_user_id}/Items/{series_id}?Fields=Overview",
                                           headers=headers, timeout=5)
                     if s_resp.status_code == 200:
-                        overview = s_resp.json().get("Overview") or overview
-            except Exception:
-                pass
+                        overview = s_resp.json().get("Overview") or ""
+                except Exception:
+                    pass
 
-            try:
-                season_id = item.get("SeasonId")
-                if season_id:
-                    se_resp = requests.get(f"{jf_url}/Users/{user_id}/Items/{season_id}?Fields=Overview",
+            season_id = item.get("SeasonId")
+            if season_id:
+                try:
+                    se_resp = requests.get(f"{jf_url}/Users/{jf_user_id}/Items/{season_id}?Fields=Overview",
                                            headers=headers, timeout=5)
                     if se_resp.status_code == 200:
                         season_overview = se_resp.json().get("Overview") or ""
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
         bg_source_id = item.get("SeriesId") if item_type == "Episode" else item["Id"]
 
@@ -792,90 +799,54 @@ def update_watch_poster(user_id, item, item_type, dt_local, jf_url, headers, pos
         if dt_local > poster_record.last_watched_date: poster_record.last_watched_date = dt_local
 
 
-# ==========================================
-# 🌟 主路由：逻辑编排层
-# ==========================================
 @app.route('/sync_history')
 @login_required
 def sync_history():
-    """手动同步主控台：调用辅函数进行数据解析与落地"""
-    jf_url = current_user.jellyfin_url
-    headers = {"X-Emby-Token": current_user.jellyfin_api_key}
+    jf_url, headers = current_user.jellyfin_url, {"X-Emby-Token": current_user.jellyfin_api_key}
     base_user_url = f"{jf_url}/Users/{current_user.jellyfin_user_id}"
+    poster_dir, still_dir, backdrop_dir = os.path.join(app.root_path, 'static', 'posters'), os.path.join(app.root_path,
+                                                                                                         'static',
+                                                                                                         'stills'), os.path.join(
+        app.root_path, 'static', 'backdrops')
+    for d in [poster_dir, still_dir, backdrop_dir]: os.makedirs(d, exist_ok=True)
 
-    poster_dir = os.path.join(app.root_path, 'static', 'posters')
-    still_dir = os.path.join(app.root_path, 'static', 'stills')
-    # ✨ 修复 1：增加背景图缓存目录的初始化
-    backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
-
-    os.makedirs(poster_dir, exist_ok=True)
-    os.makedirs(still_dir, exist_ok=True)
-    os.makedirs(backdrop_dir, exist_ok=True)  # ✨ 确保目录存在
-
-    sync_count = 0
-    synced_names = set()
-    tmdb_search_cache = {}  # ✨ 初始化一个空字典，用于存储当前同步周期的 TMDB 搜索结果，极速防频控
-
+    sync_count, synced_names, tmdb_search_cache = 0, set(), {}
     try:
         views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
-        if views_resp.status_code != 200:
-            flash("无法获取媒体库列表，同步失败。")
-            return redirect(url_for('watched_list'))
+        if views_resp.status_code != 200: flash("无法获取媒体库列表，同步失败。"); return redirect(
+            url_for('watched_list'))
 
         for view in views_resp.json().get("Items", []):
-            # ✨ 在 Fields 中加入 ProviderIds 和 SeriesProviderIds
-            params = {
-                "ParentId": view["Id"],
-                "Filters": "IsPlayed",
-                "IncludeItemTypes": "Movie,Episode",
-                "Recursive": "true",
-                "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds",
-                "Limit": 2000
-            }
-            items_resp = requests.get(f"{base_user_url}/Items", headers=headers, params=params, timeout=15)
-            if items_resp.status_code != 200:
-                continue
+            items_resp = requests.get(f"{base_user_url}/Items", headers=headers,
+                                      params={"ParentId": view["Id"], "Filters": "IsPlayed",
+                                              "IncludeItemTypes": "Movie,Episode", "Recursive": "true", "Limit": 2000,
+                                              "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds"},
+                                      timeout=15)
+            if items_resp.status_code != 200: continue
 
             for item in items_resp.json().get("Items", []):
                 dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
                 if not dt_local: continue
 
-                item_type = item["Type"]
-
-                # ✨ 核心：调用智能函数获取全局 TMDB ID
-                master_tmdb_id = get_tmdb_id_smart(current_user, item, item_type, tmdb_search_cache)
-
-                # 调用职能 1：处理明细
-                is_updated = update_watch_record(current_user.id, item, item_type, view["Name"], dt_local,
-                                                 master_tmdb_id)
-
-                # 调用职能 2：处理海报
-                if is_updated:
+                master_tmdb_id = get_tmdb_id_smart(current_user, item, item["Type"], tmdb_search_cache)
+                if update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
                     sync_count += 1
-                    # ✨ 修复 2：把 backdrop_dir 传进去（在 poster_dir 后面，synced_names 前面）
-                    update_watch_poster(current_user.id, item, item_type, dt_local, jf_url, headers, poster_dir,
-                                        backdrop_dir,
-                                        synced_names, master_tmdb_id)
 
-                # 调用职能 3：如果是剧集，单独提取并缓存它的单集剧照和简介
-                if item_type == "Episode":
-                    update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
+                    # ====== ✨ 修复：追加传入了 current_user.jellyfin_user_id ======
+                    update_watch_poster(current_user.id, current_user.jellyfin_user_id, item, item["Type"], dt_local,
+                                        jf_url, headers, poster_dir, backdrop_dir, synced_names, master_tmdb_id)
+
+                if item["Type"] == "Episode": update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
 
         db.session.commit()
-
-        # 弹窗提示逻辑
         if sync_count > 0:
-            names_html = "<ul style='margin: 10px 0 0 0; padding-left: 20px; text-align: left; max-height: 150px; overflow-y: auto; color: var(--text-main);'>"
-            for name in sorted(synced_names):
-                names_html += f"<li style='margin-bottom: 6px;'>{name}</li>"
-            names_html += "</ul>"
+            names_html = "<ul style='margin: 10px 0 0 0; padding-left: 20px; text-align: left; max-height: 150px; overflow-y: auto; color: var(--text-main);'>" + "".join(
+                [f"<li style='margin-bottom: 6px;'>{n}</li>" for n in sorted(synced_names)]) + "</ul>"
             flash(f"🎉 同步成功！已处理明细并缓存海报/剧照/背景图：{names_html}")
         else:
             flash("✨ 同步完成！本地海报及历史记录已是最新。")
-
     except Exception as e:
         flash(f"同步过程中发生网络异常: {str(e)}")
-
     return redirect(url_for('watched_list'))
 
 
@@ -996,6 +967,9 @@ def media_detail(media_type, title):
             if real_season_num not in seasons: seasons[real_season_num] = []
             seasons[real_season_num].append(ep)
         seasons = dict(sorted(seasons.items()))
+        for s in seasons:
+            # 按数据库里的真实集数 (episode_num) 从小到大排序。如果没拿到集数，就排到最后(9999)
+            seasons[s].sort(key=lambda x: x.episode_num if x.episode_num is not None else 9999)
     else:
         movie_record = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', title=title).first()
 

@@ -22,6 +22,33 @@
     .delay-3 { animation-delay: 0.3s; }
     .delay-4 { animation-delay: 0.4s; }
 
+    /* ====== 🌟 返回按钮样式 ====== */
+    .back-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        margin-bottom: 20px;
+        background-color: var(--sidebar-bg);
+        color: var(--text-muted);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        text-decoration: none;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    }
+
+    .back-btn:hover {
+        color: var(--primary-color);
+        border-color: var(--primary-color);
+        /* 鼠标悬浮时向左微移，暗示“返回”的动作 */
+        transform: translateX(-5px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+    }
+
     /* ====== 1. 顶部剧集头部 ====== */
     .detail-header {
         position: relative;
@@ -32,6 +59,21 @@
         background-color: var(--sidebar-bg);
         border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 15px 35px rgba(0,0,0,0.3);
         margin-bottom: 40px; overflow: hidden;
+    }
+    /* ====== ✨ 终极方案：弃用 backdrop-filter，改用真实图层模糊 ====== */
+    .detail-header::before {
+        content: '';
+        position: absolute;
+        /* 向四周大幅延展，彻底把边缘可能产生的瑕疵推出可视区之外 */
+        top: -30px; left: -30px; right: -30px; bottom: -30px;
+
+        /* 接收 HTML 传过来的变量，渲染真实的背景图 */
+        background: var(--bg-img) center/cover no-repeat;
+        background-color: var(--sidebar-bg); /* 兜底底色 */
+
+        /* 直接对图片本身进行模糊和暗化，100% 杜绝漏光 */
+        filter: blur(8px) brightness(0.4);
+        z-index: 0; /* 置于底层，但在父容器底色之上 */
     }
 
     .detail-poster {
@@ -110,9 +152,12 @@
 {% set final_bg_path = poster.background_image_path or poster.backdrop_image_path or 'images/logo.png' %}
 {% set main_poster_path = poster.series_image_path or poster.local_image_path or 'images/logo.png' %}
 
-<div class="detail-header" style="background: linear-gradient(to right, var(--sidebar-bg) 20%, var(--sidebar-bg) 55%, transparent 100%), url('{{ url_for('static', filename=final_bg_path) }}') center/cover no-repeat;">
-    <img src="{{ url_for('static', filename=main_poster_path) }}" alt="主海报" class="detail-poster animate-up delay-1">
 
+<a href="javascript:history.back()" class="back-btn animate-up">
+    <span>⬅️</span> 返回媒体库
+</a>
+<div class="detail-header" style="--bg-img: url('{{ url_for('static', filename=final_bg_path) }}');">
+    <img src="{{ url_for('static', filename=main_poster_path) }}" alt="主海报" class="detail-poster animate-up delay-1">
     <div class="detail-info">
         <h1 class="detail-title animate-up delay-1">{{ title }}</h1>
 
@@ -123,7 +168,6 @@
                 <span>完成时间：{{ movie_record.date_played.strftime('%Y-%m-%d %H:%M') }}</span>
             {% endif %}
         </div>
-
         <div class="overview-title animate-up delay-3">剧情简介</div>
         <p class="overview-content animate-up delay-4">
             {{ poster.overview | default('这是来自本地缓存的媒体库详情页。通过与 Jellyfin 高速同步，为您呈现本地的观看足迹与影视元数据。') }}
@@ -140,7 +184,13 @@
         <img src="{{ url_for('static', filename=season_poster_map.get(season_num, main_poster_path)) }}" class="season-poster" alt="第 {{ season_num }} 季" loading="lazy">
         <div class="season-info">
             <h2 class="season-title">第 {{ season_num }} 季</h2>
-            <p class="season-overview">本季共记录了 {{ episodes|length }} 次观看足迹。</p>
+            <p class="season-overview">
+                {% if season_overview_map and season_overview_map.get(season_num) and season_overview_map.get(season_num)|trim != '' %}
+                    {{ season_overview_map.get(season_num) }}
+                {% else %}
+                    本季共记录了 {{ episodes|length }} 次观看足迹。
+                {% endif %}
+            </p>
         </div>
         <div class="expand-icon">▼</div>
     </div>
@@ -150,8 +200,7 @@
         <div class="episode-item">
             <div class="episode-still-wrapper">
                 <img src="{{ url_for('static', filename=ep.still_path|default('images/logo.png')) }}" class="episode-still" loading="lazy">
-                <span class="episode-number-badge">S{{ "%02d"|format(season_num|int) }} E{{ "%02d"|format(loop.index) }}</span>
-            </div>
+                <span class="episode-number-badge">S{{ "%02d"|format(season_num|int) }} {% if ep.episode_num %}E{{ "%02d"|format(ep.episode_num|int) }}{% else %}E{{ "%02d"|format(loop.index) }}{% endif %}</span>            </div>
             <div class="episode-info">
                 <h3 class="episode-title">{{ ep.title }}</h3>
                 <p class="episode-overview">

@@ -74,6 +74,16 @@
     }
     .watched-badge svg { width: 16px; height: 16px; fill: #fff; }
 
+    /* ✨ 新增：右上角橘黄色追剧中图标 */
+    .watching-badge {
+        position: absolute; top: 10px; right: 10px; z-index: 10;
+        display: flex; align-items: center; justify-content: center;
+        width: 28px; height: 28px; border-radius: 50%;
+        background-color: #f59e0b; border: 2px solid #fff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        font-size: 14px;
+    }
+
     /* 状态占位提示 */
     .empty-state { text-align: center; padding: 80px 20px; color: var(--text-muted); }
     .empty-state span { font-size: 40px; display: block; margin-bottom: 15px; }
@@ -100,9 +110,41 @@
         if (event.key === 'Enter') { executeSearch(); }
     }
 
-    async function executeSearch() {
+    // ====== ✨ 核心升级 1：页面加载时，双重嗅探搜索词 ======
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        let savedQuery = urlParams.get('q');
+
+        // 如果 URL 里没带搜索词（比如从侧边栏刚切过来），那就去“短期记忆”里找
+        if (!savedQuery) {
+            savedQuery = sessionStorage.getItem('jellywall_last_explore');
+            if (savedQuery) {
+                // 找到了就把它悄悄挂回地址栏上，假装无事发生
+                const newUrl = new URL(window.location);
+                newUrl.searchParams.set('q', savedQuery);
+                window.history.replaceState(null, '', newUrl);
+            }
+        }
+
+        if (savedQuery) {
+            // 如果拿到了词，自动填进输入框并静默拉取数据
+            document.getElementById('search-input').value = savedQuery;
+            executeSearch(true); // 传 true 代表这是恢复状态，不需要再改网址
+        }
+    });
+
+    async function executeSearch(isInitialLoad = false) {
         const query = document.getElementById('search-input').value.trim();
         if (!query) { window.showToast("❌ 请先输入想搜索的影视名称"); return; }
+
+        // ====== ✨ 核心升级 2：每次搜索，都把词刻进“短期记忆” ======
+        sessionStorage.setItem('jellywall_last_explore', query);
+
+        if (!isInitialLoad) {
+            const newUrl = new URL(window.location);
+            newUrl.searchParams.set('q', query);
+            window.history.replaceState(null, '', newUrl);
+        }
 
         const container = document.getElementById('results-container');
 
@@ -129,7 +171,7 @@
                 return;
             }
 
-            // ====== ✨ 核心逻辑 1：强制按年份从远及近（升序）重新排序 ======
+            // 强制按年份从远及近（升序）重新排序
             data.results.sort((a, b) => {
                 const yearA = (a.date && a.date !== "未知年份") ? parseInt(a.date) : 9999;
                 const yearB = (b.date && b.date !== "未知年份") ? parseInt(b.date) : 9999;
@@ -139,34 +181,40 @@
             // 清空加载占位，开始循环构建卡片
             container.innerHTML = '';
             data.results.forEach(item => {
-                // 海报图片及占位判断
                 const posterHtml = item.poster_url
                     ? `<img src="${item.poster_url}" class="poster-image" loading="lazy">`
                     : `<div class="no-poster">暂无海报</div>`;
 
-                // 根据 TMDB 的 media_type 智能转换中文标签
                 const typeLabel = item.media_type === 'movie' ? '电影' : '电视剧';
-
-                // ====== ✨ 核心逻辑 2：组装覆盖标章 HTML ======
-                // A. 左上角类目
                 const typeBadgeHtml = `<div class="type-badge">${typeLabel}</div>`;
 
-                // B. 右上角已观看对勾（精准还原参考图 SVG 几何构型）
-                const checkIconSvg = `
-                    <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M16.807 5.23a1 1 0 01.07 1.41l-7.25 8a1 1 0 01-1.41.07l-3.25-3.5a1 1 0 111.41-1.41l2.5 2.68 6.57-7.25a1 1 0 011.41-.07z"/>
-                    </svg>
-                `;
-                // 根据后端的名字级碰撞比对结果决定是否画绿勾
-                const watchedBadgeHtml = item.is_watched
-                    ? `<div class="watched-badge">${checkIconSvg}</div>`
-                    : '';
+                // ====== ✨ 核心修改：三态徽章智能渲染 ======
+                let watchedBadgeHtml = '';
+                if (item.watch_status === 'watched') {
+                    const checkIconSvg = `
+                        <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M16.807 5.23a1 1 0 01.07 1.41l-7.25 8a1 1 0 01-1.41.07l-3.25-3.5a1 1 0 111.41-1.41l2.5 2.68 6.57-7.25a1 1 0 011.41-.07z"/>
+                        </svg>
+                    `;
+                    watchedBadgeHtml = `<div class="watched-badge" title="已看完">${checkIconSvg}</div>`;
+                } else if (item.watch_status === 'watching') {
+                    // ✨ 换成高端大气的“眼睛” SVG 矢量图标
+                    const eyeIconSvg = `
+                        <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" style="width: 16px; height: 16px; fill: #fff;">
+                            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                            <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/>
+                        </svg>
+                    `;
+                    watchedBadgeHtml = `<div class="watching-badge" title="追剧中">${eyeIconSvg}</div>`;
+                }
 
                 const card = document.createElement('div');
                 card.className = 'result-card';
-                card.onclick = () => window.showToast(`🚧 《${item.title}》的详情页正在紧锣密鼓地建设中，敬请期待！`);
 
-                // 完美的层级组装结构
+                card.onclick = () => {
+                    window.location.href = `/explore_detail/${item.media_type}/${item.id}`;
+                };
+
                 card.innerHTML = `
                     <div class="poster-container">
                         ${typeBadgeHtml}

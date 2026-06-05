@@ -1,0 +1,246 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    /* ==========================================
+       🌟 全局动画定义 (影院级缓动曲线)
+       ========================================== */
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideInRight { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+    .animate-up { opacity: 0; animation: fadeInUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+    .delay-1 { animation-delay: 0.1s; } .delay-2 { animation-delay: 0.2s; } .delay-3 { animation-delay: 0.3s; } .delay-4 { animation-delay: 0.4s; }
+
+    /* ====== 🌟 悬浮顶部返回按钮样式 ====== */
+    .back-btn {
+        position: absolute;           /* ✨ 核心：脱离文档流，悬浮定位 */
+        top: 30px;                    /* ✨ 完美对齐外层盒子的 padding */
+        left: 30px;                   /* ✨ 占据左侧空缺的坑位 */
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 16px;            /* ✨ 与右上角主题按钮的内边距严格一致 */
+        background-color: var(--sidebar-bg);
+        color: var(--text-main);
+        border: 1px solid var(--border-color);
+        border-radius: 20px;          /* ✨ 变成药丸形状，与主题切换按钮呼应 */
+        text-decoration: none; font-size: 14px; font-weight: 600;
+        cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        z-index: 50;                  /* 确保不会被海报遮挡 */
+    }
+
+    .back-btn:hover {
+        color: var(--primary-color);
+        border-color: var(--primary-color);
+        transform: translateX(-3px);  /* 悬停时微微向左滑动，暗示返回 */
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    /* ====== 🌟 详情页主容器 ====== */
+    .detail-header {
+        position: relative; display: flex; gap: 40px; padding: 45px; border-radius: 16px;
+        background-color: var(--sidebar-bg); border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+        margin-bottom: 40px; overflow: hidden;
+    }
+    .detail-header::before {
+        content: ''; position: absolute; top: -30px; left: -30px; right: -30px; bottom: -30px;
+        background: var(--bg-img) center/cover no-repeat; background-color: var(--sidebar-bg);
+        filter: blur(8px) brightness(0.4); z-index: 0;
+    }
+    .detail-poster {
+        width: 280px;
+        aspect-ratio: 2/3;
+        border-radius: 12px;
+        object-fit: cover;
+        box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+        z-index: 2;
+        transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.5s;
+
+        /* ====== ✨ 垂直居中对齐 ====== */
+        flex-shrink: 0;
+        align-self: center;   /* 垂直居中悬浮，拒绝被拉伸 */
+    }
+    .detail-poster:hover { transform: translateY(-8px) scale(1.02); box-shadow: 0 25px 50px rgba(0,0,0,0.8); }
+
+    .detail-info { flex: 1; display: flex; flex-direction: column; justify-content: center; z-index: 2; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+
+    /* ✨ 更新了标题的排版，让年份和标题在一行，并调整了年份颜色和字号 */
+    .detail-title { font-size: 42px; font-weight: 900; margin: 0 0 12px 0; letter-spacing: 1px; display: flex; align-items: baseline; gap: 12px; }
+    .detail-title .year { font-weight: 400; color: rgba(255, 255, 255, 0.6); font-size: 32px; }
+
+    /* ✨ 更新了元数据区域：增加线框评级盒子的样式，去掉原来的 tag 背景块 */
+    .detail-meta { font-size: 16px; margin-bottom: 25px; color: #fff; display: flex; gap: 12px; align-items: center; font-weight: 500;}
+    .rating-box { border: 1px solid rgba(255, 255, 255, 0.5); padding: 2px 6px; border-radius: 4px; font-size: 14px; color: rgba(255, 255, 255, 0.8); letter-spacing: 0.5px; }
+
+    .overview-title { font-size: 20px; font-weight: 800; margin-bottom: 12px; color: #fff; }
+    .overview-content { font-size: 16px; line-height: 1.7; color: rgba(255,255,255,0.85); max-width: 850px; }
+
+    /* ====== 🌟 季列表区域 (与观看历史保持一致) ====== */
+    .section-title { font-size: 26px; font-weight: 900; color: var(--text-main); margin-bottom: 25px; padding-left: 5px;}
+    .season-card {
+        background-color: var(--sidebar-bg); border-radius: 14px; border: 1px solid var(--border-color);
+        margin-bottom: 20px; overflow: hidden; box-shadow: 0 6px 12px rgba(0,0,0,0.05); transition: border-color 0.4s, box-shadow 0.4s, transform 0.4s;
+    }
+    .season-card:hover { border-color: color-mix(in srgb, var(--primary-color) 50%, var(--border-color)); box-shadow: 0 12px 24px rgba(0,0,0,0.1); transform: translateY(-2px); }
+
+    .season-header { display: flex; padding: 20px; cursor: pointer; transition: background-color 0.3s; position: relative; }
+    .season-header:hover { background-color: rgba(255,255,255,0.03); }
+    .season-poster { width: 140px; aspect-ratio: 2/3; border-radius: 10px; object-fit: cover; margin-right: 30px; box-shadow: 0 6px 15px rgba(0,0,0,0.2); background-color: #333;}
+    .season-info { flex: 1; display: flex; flex-direction: column; justify-content: center; padding-right: 50px;}
+    .season-title { font-size: 24px; font-weight: 900; color: var(--text-main); margin: 0 0 12px 0; }
+    .season-overview { font-size: 15px; color: var(--text-muted); line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+    .expand-icon { position: absolute; right: 35px; top: 50%; transform: translateY(-50%); font-size: 20px; color: var(--text-muted); transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s; }
+    .season-card.open .expand-icon { transform: translateY(-50%) rotate(180deg); color: var(--primary-color); }
+
+    /* ====== 🌟 单集剧照列表 ====== */
+    .episodes-container { display: none; padding: 10px 30px 20px 30px; border-top: 1px solid var(--border-color); background-color: color-mix(in srgb, var(--sidebar-bg) 70%, var(--bg-color)); }
+    .episode-item { display: flex; gap: 30px; padding: 30px 0; border-bottom: 1px solid rgba(255,255,255,0.05); opacity: 0; }
+    .episode-item:last-child { border-bottom: none; }
+
+    .episode-still-wrapper { position: relative; width: 240px; height: 135px; flex-shrink: 0; border-radius: 8px; overflow: hidden; box-shadow: 0 6px 15px rgba(0,0,0,0.2); }
+    .episode-still { width: 100%; height: 100%; object-fit: cover; background-color: #222; transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); }
+    .episode-item:hover .episode-still { transform: scale(1.08); }
+
+    .episode-number-badge { position: absolute; bottom: 10px; left: 10px; background-color: rgba(0,0,0,0.8); backdrop-filter: blur(5px); color: #fff; font-size: 12px; font-weight: 900; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); }
+
+    .episode-info { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; }
+    .episode-title { font-size: 18px; font-weight: 800; color: var(--text-main); margin: 0 0 12px 0; transition: color 0.3s;}
+    .episode-item:hover .episode-title { color: var(--primary-color); }
+    .episode-overview { font-size: 15px; color: var(--text-muted); line-height: 1.6; }
+</style>
+
+<a href="javascript:history.back()" class="back-btn">
+    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor;"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+    返回探索页
+</a>
+
+<div class="detail-header" style="--bg-img: url('{{ bg_url }}');">
+    <img src="{{ poster_url }}" alt="主海报" class="detail-poster animate-up delay-1">
+
+    <div class="detail-info">
+        <h1 class="detail-title animate-up delay-1">{{ title }} <span class="year">({{ year }})</span></h1>
+
+        <div class="detail-meta animate-up delay-2">
+            <span class="rating-box">{{ rating }}</span>
+            <span>{{ genres }}</span>
+
+            {% if is_movie_watched %}
+            <span style="color: #10b981; font-weight: bold; display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; background: rgba(16, 185, 129, 0.15); padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                <svg viewBox="0 0 20 20" style="width: 16px; height: 16px; fill: #10b981;"><path d="M16.807 5.23a1 1 0 01.07 1.41l-7.25 8a1 1 0 01-1.41.07l-3.25-3.5a1 1 0 111.41-1.41l2.5 2.68 6.57-7.25a1 1 0 011.41-.07z"/></svg>
+                已看完
+            </span>
+            {% elif has_watched_any %}
+            <span style="color: #f59e0b; font-weight: bold; display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; background: rgba(245, 158, 11, 0.15); padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.3);">
+                <svg viewBox="0 0 20 20" style="width: 16px; height: 16px; fill: #f59e0b;">
+                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                    <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/>
+                </svg>
+                正在追剧中
+            </span>
+            {% endif %}
+        </div>
+
+        <div class="overview-title animate-up delay-3">剧情简介</div>
+        <p class="overview-content animate-up delay-4">
+            {{ overview }}
+        </p>
+    </div>
+</div>
+
+{% if media_type == 'series' and seasons %}
+<div class="section-title animate-up delay-4">剧集列表</div>
+
+{% for season_num, episodes in seasons.items() %}
+<div class="season-card animate-up delay-4">
+    <div class="season-header" onclick="toggleEpisodes(this)">
+        <img src="{{ season_poster_map.get(season_num, poster_url) }}" class="season-poster" alt="季海报" loading="lazy">
+        <div class="season-info">
+
+            <h2 class="season-title">
+                {% if season_num == 0 %}特别篇{% else %}第 {{ season_num }} 季{% endif %}
+
+                {% if season_watch_status.get(season_num) == 'full' %}
+                <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background-color: #10b981; border-radius: 50%; margin-left: 10px; vertical-align: text-bottom; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" title="本季已全部看完">
+                    <svg viewBox="0 0 20 20" style="width: 14px; height: 14px; fill: #fff;"><path d="M16.807 5.23a1 1 0 01.07 1.41l-7.25 8a1 1 0 01-1.41.07l-3.25-3.5a1 1 0 111.41-1.41l2.5 2.68 6.57-7.25a1 1 0 011.41-.07z"/></svg>
+                </span>
+                {% elif season_watch_status.get(season_num) == 'partial' %}
+                <span style="color: #f59e0b; font-size: 13px; margin-left: 10px; font-weight: bold; background: rgba(245, 158, 11, 0.15); padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.3); vertical-align: middle; display: inline-flex; align-items: center; gap: 4px;">
+                    <svg viewBox="0 0 20 20" style="width: 14px; height: 14px; fill: #f59e0b;">
+                        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                        <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/>
+                    </svg>
+                    已看部分
+                </span>
+                {% endif %}
+            </h2>
+
+            <p class="season-overview">
+                {% if season_overview_map and season_overview_map.get(season_num) and season_overview_map.get(season_num)|trim != '' %}
+                    {{ season_overview_map.get(season_num) }}
+                {% else %}
+                    本季共收录了 {{ episodes|length }} 集精彩内容。
+                {% endif %}
+            </p>
+        </div>
+        <div class="expand-icon">▼</div>
+    </div>
+
+    <div class="episodes-container">
+        {% for ep in episodes %}
+        <div class="episode-item">
+            <div class="episode-still-wrapper">
+                <img src="{{ ep.still_path }}" class="episode-still" loading="lazy">
+                <span class="episode-number-badge">
+                    {% if season_num == 0 %}S00{% else %}S{{ "%02d"|format(season_num|int) }}{% endif %}E{{ "%02d"|format(ep.episode_num|int) }}
+                </span>
+            </div>
+            <div class="episode-info">
+                <h3 class="episode-title">
+                    {{ ep.title }}
+
+                    {% set ep_key = season_num|string ~ '_' ~ ep.episode_num|string %}
+                    {% if watched_episodes_dict and ep_key in watched_episodes_dict %}
+                        <span style="color: #10b981; font-size: 13px; margin-left: 10px; font-weight: bold; background: rgba(16, 185, 129, 0.1); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">✓ 已观看：{{ watched_episodes_dict[ep_key] }}</span>
+                    {% endif %}
+                </h3>
+                <p class="episode-overview">
+                    {% if ep.overview %}{{ ep.overview }}<br><br>{% endif %}
+                    📅 首播时间：{{ ep.air_date }}
+                </p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<script>
+    function toggleEpisodes(element) {
+        const card = element.closest('.season-card');
+        const container = card.querySelector('.episodes-container');
+        const episodes = container.querySelectorAll('.episode-item');
+
+        if (!card.classList.contains('open')) {
+            card.classList.add('open');
+            container.style.display = 'block';
+
+            // 容器整体淡入
+            container.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'forwards' });
+
+            // 单集列表进行级联滑入动画
+            episodes.forEach((ep, index) => {
+                ep.style.animation = `slideInRight 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards ${index * 0.15}s`;
+            });
+
+        } else {
+            card.classList.remove('open');
+            // 瞬间收起前清除单集的动画属性，以便下次打开重新执行
+            episodes.forEach(ep => {
+                ep.style.animation = 'none';
+                ep.style.opacity = '0';
+            });
+            container.style.display = 'none';
+        }
+    }
+</script>
+{% endblock %}

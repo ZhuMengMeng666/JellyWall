@@ -65,9 +65,12 @@
         .nav-links { list-style: none; padding: 15px 0; margin: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; }
         .nav-links li { margin: 0 15px; }
         .nav-links li a { display: flex; align-items: center; padding: 12px 15px; color: var(--text-muted); text-decoration: none; white-space: nowrap; border-radius: 8px; position: relative; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
-        .icon { width: 24px; text-align: center; margin-right: 12px; font-size: 18px; transition: transform 0.3s;}
+        .icon { width: 24px; display: inline-flex; justify-content: center; align-items: center; margin-right: 12px; transition: transform 0.3s; }
+        /* ====== ✨ 新增：专门针对 SVG 的样式，统一控制线条粗细与缩放 ====== */
+        .icon svg { width: 20px; height: 20px; stroke-width: 2.2; }
+
         .nav-links li a:hover { background-color: var(--bg-color); color: var(--primary-color); transform: translateY(-3px); box-shadow: 0 6px 12px var(--hover-shadow); }
-        .nav-links li a:hover .icon { transform: scale(1.1); }
+        .nav-links li a:hover .icon { transform: scale(1.15); }
         .nav-links li.active a { color: var(--primary-color); font-weight: 600; background-color: color-mix(in srgb, var(--primary-color) 12%, transparent); transform: translateY(0); box-shadow: none; }
         .nav-links li.active a::before { content: ''; position: absolute; left: 0; top: 15%; height: 70%; width: 4px; background-color: var(--primary-color); border-radius: 0 4px 4px 0; }
         .sidebar.collapsed .text { display: none; }
@@ -115,6 +118,12 @@
         .toast-body { font-size: 14px; line-height: 1.5; color: var(--text-muted); }
         .toast-body ul::-webkit-scrollbar { width: 6px; }
         .toast-body ul::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 4px; }
+        /* ====== ✨ 提前锁定 Lucide 图标的坑位，防止闪烁和布局抖动 ====== */
+        i[data-lucide] {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+        }
     </style>
 
     <script>
@@ -129,6 +138,7 @@
             }
         })();
     </script>
+    <script src="{{ url_for('static', filename='js/lucide.min.js') }}"></script>
 </head>
 <body>
 
@@ -158,20 +168,20 @@
         </div>
 
         <ul class="nav-links">
-            <li><a href="{{ url_for('dashboard') }}"><span class="icon">🏠</span><span class="text">仪表板</span></a></li>
-            <li><a href="{{ url_for('explore') }}"><span class="icon">🔍</span><span class="text">探索发现</span></a></li>
-            <li><a href="{{ url_for('config') }}"><span class="icon">⚙️</span><span class="text">配置管理</span></a></li>
-            <li><a href="{{ url_for('watched_list') }}"><span class="icon">📜</span><span class="text">已观看记录</span></a></li>
-            <li><a href="{{ url_for('watched') }}"><span class="icon">📸</span><span class="text">海报墙</span></a></li>
+            <li><a href="{{ url_for('dashboard') }}"><span class="icon"><i data-lucide="layout-dashboard"></i></span><span class="text">仪表板</span></a></li>
+            <li><a href="{{ url_for('explore') }}"><span class="icon"><i data-lucide="compass"></i></span><span class="text">探索发现</span></a></li>
+            <li><a href="{{ url_for('config') }}"><span class="icon"><i data-lucide="settings"></i></span><span class="text">配置管理</span></a></li>
+            <li><a href="{{ url_for('watched_list') }}"><span class="icon"><i data-lucide="history"></i></span><span class="text">已观看记录</span></a></li>
+            <li><a href="{{ url_for('watched') }}"><span class="icon"><i data-lucide="library-big"></i></span><span class="text">海报墙</span></a></li>
         </ul>
 
         <div class="sidebar-footer">
             <div class="user-profile">
-                <span class="icon">👤</span>
+                <span class="icon"><i data-lucide="circle-user-round"></i></span>
                 <span class="text">{{ current_user.username if current_user else '管理员' }}</span>
             </div>
             <a href="{{ url_for('logout') }}" class="logout-btn">
-                <span class="icon" style="color: #ef4444;">🚪</span>
+                <span class="icon" style="color: #ef4444;"><i data-lucide="log-out"></i></span>
                 <span class="text">登出</span>
             </a>
         </div>
@@ -264,15 +274,23 @@
             setTimeout(() => toast.remove(), 400);
         };
 
-        document.addEventListener('DOMContentLoaded', function() {
-            // ====== 侧边栏高亮 ======
-            const currentPath = window.location.pathname;
-            document.querySelectorAll('.nav-links li a').forEach(link => {
-                if (link.getAttribute('href') === currentPath) {
-                    link.parentElement.classList.add('active');
-                }
-            });
+        // ==========================================
+        // ✨ 性能优化：将核心渲染逻辑提炼到全局同步执行
+        // 这样可以拦截浏览器的首次绘制，彻底消除页面跳转时的闪烁
+        // ==========================================
 
+        // 1. 瞬间把 <i> 替换成 <svg>，消除图标闪烁
+        lucide.createIcons();
+
+        // 2. 瞬间计算并添加侧边栏的蓝色高亮，消除高亮块的延迟跳动
+        const currentPath = window.location.pathname;
+        document.querySelectorAll('.nav-links li a').forEach(link => {
+            if (link.getAttribute('href') === currentPath) {
+                link.parentElement.classList.add('active');
+            }
+        });
+        // 3. 需要等 DOM 完全加载完才执行的动画效果，依然留在包裹器里
+        document.addEventListener('DOMContentLoaded', function() {
             // ====== 自动处理后端传过来的初始 Flash 弹窗动画 ======
             const toasts = document.querySelectorAll('.toast');
             toasts.forEach((toast, index) => {

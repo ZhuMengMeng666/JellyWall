@@ -1,17 +1,23 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-import os
 from datetime import datetime, timedelta
 import requests
 from werkzeug.security import generate_password_hash  # 确保顶部引入了加密库
 import threading
-import json
 import uuid  # 确保文件顶部有引入此模块，用于生成用户的独立 ID
 from werkzeug.security import check_password_hash
 from flask_login import login_user
+import re
+import time
+import json
+import os
 
-
+# ====== ✨ 新增：TMDB 搜索短时缓存池 (存放格式: {query: {timestamp: float, data: list}}) ======
+TMDB_SEARCH_CACHE = {}
+TMDB_DETAIL_CACHE = {}
+TMDB_TV_EP_COUNT_CACHE = {}  # ✨ 新增：专门缓存剧集的官方总集数
+CACHE_TTL = 3600
 # ====== ✨ 新增：全局数据库锁，防止多线程把 SQLite 写死机 ======
 db_lock = threading.Lock()
 
@@ -453,11 +459,211 @@ def explore():
     """渲染探索搜索页面"""
     return render_template('explore.html', title="探索发现")
 
+@app.route('/explore_detail/<media_type>/<int:item_id>')
+@login_required
+def explore_detail(media_type, item_id):
+    """TMDB 探索结果详情页路由 (完美支持类型、年龄分级、播放进度与具体时间打标)"""
+
+    api_key = current_user.tmdb_api_key
+    if not api_key:
+        flash("⚠️ 请先在配置管理中绑定 TMDB API Key！")
+        return redirect(url_for('explore'))
+
+    if media_type not in ['movie', 'tv']:
+        flash("❌ 未知的媒体类型")
+        return redirect(url_for('explore'))
+
+    cache_key = f"{media_type}_{item_id}"
+    current_time = time.time()
+    render_data = None
+
+    # ====== ✨ 1. 读取基础 TMDB 缓存 ======
+    if cache_key in TMDB_DETAIL_CACHE:
+        cached_item = TMDB_DETAIL_CACHE[cache_key]
+        if current_time - cached_item['timestamp'] < CACHE_TTL:
+            render_data = cached_item['data']
+        else:
+            del TMDB_DETAIL_CACHE[cache_key]
+
+    # ====== ✨ 2. 如果没命中缓存，老老实实跨洋请求 TMDB ======
+    if not render_data:
+        try:
+            url = f"https://api.themoviedb.org/3/{media_type}/{item_id}"
+            params = {
+                "api_key": api_key,
+                "language": "zh-CN",
+                "append_to_response": "content_ratings,release_dates"
+            }
+            resp = requests.get(url, params=params, proxies=get_user_proxies(current_user), timeout=10)
+
+            if resp.status_code != 200:
+                flash(f"❌ 获取详情失败 (TMDB 状态码: {resp.status_code})")
+                return redirect(url_for('explore'))
+
+            data = resp.json()
+
+            title = data.get('title') if media_type == 'movie' else data.get('name')
+            overview = data.get('overview') or "这似乎是一部很神秘的影视作品，未抓取到相关的剧情介绍。"
+            date_str = data.get('release_date') if media_type == 'movie' else data.get('first_air_date')
+            year = date_str[:4] if date_str else "未知"
+
+            poster_path = data.get('poster_path')
+            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else url_for('static',
+                                                                                                     filename='images/logo.png')
+            backdrop_path = data.get('backdrop_path')
+            bg_url = f"https://image.tmdb.org/t/p/w1280{backdrop_path}" if backdrop_path else poster_url
+            display_type = 'series' if media_type == 'tv' else 'movie'
+
+            # 提取影视类型
+            genres_list = [g.get('name') for g in data.get('genres', []) if g.get('name')]
+            genres_str = ", ".join(genres_list) if genres_list else "未知类型"
+
+            # 提取年龄分级
+            rating = "NR"
+            if media_type == 'tv':
+                c_ratings = data.get('content_ratings', {}).get('results', [])
+                for cr in c_ratings:
+                    if cr.get('iso_3166_1') == 'US':
+                        rating = cr.get('rating')
+                        break
+            else:
+                r_dates = data.get('release_dates', {}).get('results', [])
+                for rd in r_dates:
+                    if rd.get('iso_3166_1') == 'US':
+                        cert_info = rd.get('release_dates', [{}])[0]
+                        rating = cert_info.get('certification') or "NR"
+                        break
+            if not rating:
+                rating = "NR"
+
+            seasons_data = {}
+            season_poster_map = {}
+            season_overview_map = {}
+
+            if media_type == 'tv':
+                raw_seasons = data.get('seasons', [])
+                for s in raw_seasons:
+                    s_num = s.get('season_number')
+                    if s_num is None: continue
+
+                    # 请求单季详细列表
+                    s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
+                    s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"},
+                                          proxies=get_user_proxies(current_user), timeout=5)
+
+                    if s_resp.status_code == 200:
+                        s_data = s_resp.json()
+                        episodes = s_data.get('episodes', [])
+
+                        formatted_episodes = []
+                        for ep in episodes:
+                            still_path = ep.get('still_path')
+                            full_still_url = f"https://image.tmdb.org/t/p/w300{still_path}" if still_path else url_for(
+                                'static', filename='images/logo.png')
+
+                            formatted_episodes.append({
+                                'episode_num': ep.get('episode_number'),
+                                'title': ep.get('name'),
+                                'overview': ep.get('overview'),
+                                'still_path': full_still_url,
+                                'air_date': ep.get('air_date') or '未知首播时间'
+                            })
+
+                        seasons_data[s_num] = formatted_episodes
+                        s_poster = s.get('poster_path')
+                        season_poster_map[
+                            s_num] = f"https://image.tmdb.org/t/p/w300{s_poster}" if s_poster else poster_url
+                        season_overview_map[s_num] = s.get('overview') or s_data.get('overview') or ""
+
+            render_data = {
+                'title': title,
+                'media_type': display_type,
+                'year': year,
+                'genres': genres_str,
+                'rating': rating,
+                'overview': overview,
+                'poster_url': poster_url,
+                'bg_url': bg_url,
+                'seasons': seasons_data,
+                'season_poster_map': season_poster_map,
+                'season_overview_map': season_overview_map
+            }
+
+            # 存入缓存
+            TMDB_DETAIL_CACHE[cache_key] = {
+                'timestamp': current_time,
+                'data': render_data
+            }
+        except Exception as e:
+            flash(f"❌ 网络请求失败: {str(e)}")
+            return redirect(url_for('explore'))
+
+    # ====== ✨ 3. 核心大招：带着 TMDB 的名字，去你本地 SQLite 里查水表 ======
+    # 这段绝不缓存，确保每次点进来都是最新的观看记录
+    is_movie_watched = False
+
+    watched_episodes_dict = {}  # 记录单集及其观看时间
+    season_watch_status = {}  # 记录整季观看状态："full" 或 "partial"
+    has_watched_any = False  # 记录是否有观看过，用于显示顶部整体"正在追剧中"徽章
+
+    import re
+    title_to_check = render_data['title']
+
+    if render_data['media_type'] == 'movie':
+        # 如果是电影，直接去海报缓存表里捞
+        movie_exist = db.session.query(WatchPoster.id).filter_by(
+            user_id=current_user.id, media_type='Movie', display_title=title_to_check, is_deleted=False
+        ).first()
+        if movie_exist:
+            is_movie_watched = True
+    else:
+        # 如果是剧集，去足迹明细表里把所有名字匹配的单集全捞出来
+        ep_records = WatchRecord.query.filter_by(
+            user_id=current_user.id, item_type='Episode', series_name=title_to_check, is_deleted=False
+        ).all()
+
+        for ep in ep_records:
+            s_num = 1
+            if ep.season_name:
+                match = re.search(r'\d+', ep.season_name)
+                if match: s_num = int(match.group())
+            e_num = ep.episode_num
+
+            if e_num is not None:
+                # 记录具体哪一季哪一集看过了，并提取播放时间
+                date_str = ep.date_played.strftime('%Y-%m-%d %H:%M') if ep.date_played else "未知时间"
+                watched_episodes_dict[f"{s_num}_{e_num}"] = date_str
+
+        # 核心算法：循环判断每一季的观看进度 VS TMDB 的总集数
+        seasons_dict = render_data.get('seasons', {})
+        for s_num, eps_list in seasons_dict.items():
+            total_eps = len(eps_list)
+            if total_eps == 0:
+                continue
+
+            # 统计这一季里，你的观看足迹命中了多少集
+            watched_count = sum(
+                1 for ep_info in eps_list if f"{s_num}_{ep_info.get('episode_num')}" in watched_episodes_dict)
+
+            if watched_count > 0:
+                has_watched_any = True
+                # 全部看完给 full，看了一部分给 partial
+                if watched_count >= total_eps:
+                    season_watch_status[s_num] = "full"
+                else:
+                    season_watch_status[s_num] = "partial"
+
+    return render_template('explore_detail.html',
+                           is_movie_watched=is_movie_watched,
+                           watched_episodes_dict=watched_episodes_dict,
+                           season_watch_status=season_watch_status,
+                           has_watched_any=has_watched_any,
+                           **render_data)
 
 @app.route('/api/search_tmdb')
 @login_required
 def api_search_tmdb():
-    """TMDB 异步搜索接口：根据[影视中文名字]进行本地高匿碰撞比对"""
+    """TMDB 异步搜索接口：带内存缓存防限速，并与本地库进行实时碰撞对比"""
     query = request.args.get('q')
     if not query:
         return jsonify({"success": False, "message": "搜索词不能为空"})
@@ -466,71 +672,142 @@ def api_search_tmdb():
     if not api_key:
         return jsonify({"success": False, "message": "请先在配置管理中绑定 TMDB API Key"})
 
-    try:
-        url = "https://api.themoviedb.org/3/search/multi"
-        params = {
-            "api_key": api_key,
-            "query": query,
-            "language": "zh-CN",
-            "page": 1,
-            "include_adult": "false"
-        }
+    current_time = time.time()
+    raw_results = None
 
-        # 完美引用用户自定义的全局 HTTP 代理进行中转请求
-        resp = requests.get(url, params=params, proxies=get_user_proxies(current_user), timeout=10)
-
-        if resp.status_code == 200:
-            data = resp.json()
-            raw_results = data.get('results', [])
-
-            if not raw_results:
-                return jsonify({"success": True, "results": []})
-
-            # ====== ✨ 核心逻辑：从本地缓存表提取该用户所有的[电影名]和[纯剧集名] ======
-            # 1. 提取已观看的电影名称集合 (对应 display_title)
-            local_movies = db.session.query(WatchPoster.display_title) \
-                .filter(WatchPoster.user_id == current_user.id, WatchPoster.media_type == 'Movie').all()
-            watched_movies_set = {r[0] for r in local_movies if r[0]}
-
-            # 2. 提取已观看的纯剧集名字集合 (对应新字段 series_name)
-            local_series = db.session.query(WatchPoster.series_name) \
-                .filter(WatchPoster.user_id == current_user.id, WatchPoster.media_type == 'Series').all()
-            watched_series_set = {r[0] for r in local_series if r[0]}
-
-            results = []
-            for item in raw_results:
-                media_type = item.get('media_type')
-                if media_type in ['movie', 'tv']:
-                    # 获取中文核心文本名字
-                    tmdb_name = item.get('title') if media_type == 'movie' else item.get('name')
-                    if not tmdb_name:
-                        continue
-
-                    date = item.get('release_date') if media_type == 'movie' else item.get('first_air_date')
-                    poster_path = item.get('poster_path')
-
-                    # 执行严格的[名字级]数据库命中判断
-                    is_watched = False
-                    if media_type == 'movie':
-                        is_watched = tmdb_name in watched_movies_set
-                    else:
-                        is_watched = tmdb_name in watched_series_set
-
-                    results.append({
-                        'id': item.get('id'),
-                        'media_type': media_type,  # 直接透传原始类型，由前端控制左上角输出
-                        'title': tmdb_name,
-                        'date': date[:4] if date else "未知年份",
-                        'poster_url': f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None,
-                        'is_watched': is_watched  # 碰撞比对成功为 True，前端直接渲染绿色对勾标章
-                    })
-
-            return jsonify({"success": True, "results": results})
+    # ====== ✨ 核心逻辑 1：检查短时缓存 ======
+    if query in TMDB_SEARCH_CACHE:
+        cached_item = TMDB_SEARCH_CACHE[query]
+        # 判断缓存是否过期
+        if current_time - cached_item['timestamp'] < CACHE_TTL:
+            raw_results = cached_item['data']
+            print(f"⚡ 命中搜索缓存: {query}")
         else:
-            return jsonify({"success": False, "message": f"TMDB 返回异常 (状态码: {resp.status_code})"})
+            # 缓存过期，清理掉
+            del TMDB_SEARCH_CACHE[query]
+
+    # ====== ✨ 核心逻辑 2：缓存未命中，发起真实网络请求 ======
+    if raw_results is None:
+        try:
+            url = "https://api.themoviedb.org/3/search/multi"
+            params = {
+                "api_key": api_key,
+                "query": query,
+                "language": "zh-CN",
+                "page": 1,
+                "include_adult": "false"
+            }
+
+            resp = requests.get(url, params=params, proxies=get_user_proxies(current_user), timeout=10)
+
+            if resp.status_code == 200:
+                data = resp.json()
+                raw_results = data.get('results', [])
+
+                # 请求成功，存入内存缓存
+                TMDB_SEARCH_CACHE[query] = {
+                    'timestamp': current_time,
+                    'data': raw_results
+                }
+                print(f"🌐 走网络请求并写入缓存: {query}")
+            else:
+                return jsonify({"success": False, "message": f"TMDB 返回异常 (状态码: {resp.status_code})"})
+
+        except Exception as e:
+            return jsonify({"success": False, "message": f"网络请求失败，请检查代理配置: {str(e)}"})
+
+    # 如果网络请求成功但没数据，直接返回空
+    if not raw_results:
+        return jsonify({"success": True, "results": []})
+
+        # ====== ✨ 核心逻辑 3：本地数据库实时高匿碰撞 ======
+    try:
+        local_movies = db.session.query(WatchPoster.display_title) \
+            .filter(WatchPoster.user_id == current_user.id, WatchPoster.media_type == 'Movie',
+                    WatchPoster.is_deleted == False).all()
+        watched_movies_set = {r[0] for r in local_movies if r[0]}
+
+        local_series = db.session.query(WatchPoster.series_name) \
+            .filter(WatchPoster.user_id == current_user.id, WatchPoster.media_type == 'Series',
+                    WatchPoster.is_deleted == False).all()
+        watched_series_set = {r[0] for r in local_series if r[0]}
+
+        results = []
+        import re
+        for item in raw_results:
+            media_type = item.get('media_type')
+            if media_type in ['movie', 'tv']:
+                tmdb_name = item.get('title') if media_type == 'movie' else item.get('name')
+                if not tmdb_name:
+                    continue
+
+                date = item.get('release_date') if media_type == 'movie' else item.get('first_air_date')
+                poster_path = item.get('poster_path')
+                item_id = item.get('id')
+
+                    # ✨ 新增：三态判定 (none/watched/watching)
+                watch_status = 'none'
+
+                if media_type == 'movie':
+                    if tmdb_name in watched_movies_set:
+                            watch_status = 'watched'
+                else:
+                    if tmdb_name in watched_series_set:
+                            # 剧集命中本地记录，进一步判断进度
+                        total_eps = 0
+                        if item_id in TMDB_TV_EP_COUNT_CACHE:
+                            total_eps = TMDB_TV_EP_COUNT_CACHE[item_id]
+                        else:
+                            try:
+                                    # 快速请求该剧集的官方总集数
+                                tv_resp = requests.get(f"https://api.themoviedb.org/3/tv/{item_id}",
+                                                        params={"api_key": api_key},
+                                                        proxies=get_user_proxies(current_user),
+                                                        timeout=3)
+                                if tv_resp.status_code == 200:
+                                    total_eps = tv_resp.json().get('number_of_episodes', 0)
+                                    TMDB_TV_EP_COUNT_CACHE[item_id] = total_eps
+                            except:
+                                pass
+
+                            # 获取本地该剧集的正常播放记录
+                        ep_records = WatchRecord.query.filter_by(
+                            user_id=current_user.id, item_type='Episode', series_name=tmdb_name, is_deleted=False
+                        ).all()
+
+                        watched_normal_eps = set()
+                        for ep in ep_records:
+                            s_num = 1
+                            if ep.season_name:
+                                match = re.search(r'\d+', ep.season_name)
+                                if match: s_num = int(match.group())
+
+                                # 排除特别篇(第0季)的干扰
+                            if s_num > 0 and ep.episode_num is not None:
+                                watched_normal_eps.add(f"{s_num}_{ep.episode_num}")
+
+                        local_count = len(watched_normal_eps)
+
+                            # 满进度判定
+                        if total_eps > 0 and local_count >= total_eps:
+                            watch_status = 'watched'
+                        else:
+                            watch_status = 'watching'
+
+                results.append({
+                    'id': item_id,
+                    'media_type': media_type,
+                    'title': tmdb_name,
+                    'date': date[:4] if date else "未知年份",
+                    'poster_url': f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None,
+                    'watch_status': watch_status  # ✨ 传递新的三态变量
+                })
+
+        return jsonify({"success": True, "results": results})
 
     except Exception as e:
-        return jsonify({"success": False, "message": f"网络请求失败，请检查代理配置: {str(e)}"})
+        return jsonify({"success": False, "message": f"本地数据碰撞异常: {str(e)}"})
+
 @app.route('/watched')
 @login_required
 def watched():
@@ -1001,9 +1278,6 @@ def watched_list():
     return render_template('watched_list.html', library_data=library_data)
 
 
-import re
-
-
 @app.route('/detail/<media_type>/<path:title>')
 @login_required
 def media_detail(media_type, title):
@@ -1094,8 +1368,7 @@ if __name__ == '__main__':
 
     # 3. 在项目启动前，主动去扒一遍 config/users.json，找出你配置的自定义端口
     try:
-        import json
-        import os
+
 
         config_path = os.path.join(app.root_path, 'config', 'users.json')
         if os.path.exists(config_path):

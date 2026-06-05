@@ -4,12 +4,17 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="f701a4ed-4bfc-4516-86ad-09f9b8366bae" name="更改" comment="feat: 新增海报缓存目录">
-      <change afterPath="$PROJECT_DIR$/templates/explore.html" afterDir="false" />
+    <list default="true" id="f701a4ed-4bfc-4516-86ad-09f9b8366bae" name="更改" comment="feat: 重构用户配置为 JSON 存储及新增历史记录软删除&#10;&#10;- 用户数据存储方式从 SQLite 迁移至本地 JSON&#10;- 新增自定义网页访问端口功能&#10;- 历史记录增加级联选择与软删除机制，同步时自动恢复被删记录">
+      <change afterPath="$PROJECT_DIR$/static/js/Sortable.min.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/static/js/html2canvas.min.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/static/js/lucide.min.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/templates/explore_detail.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/base.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/base.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/config.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/config.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/detail.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/detail.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/explore.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/explore.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/templates/watched.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/watched.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/templates/watched_list.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/watched_list.html" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -27,6 +32,7 @@
   </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+    <option name="UPDATE_TYPE" value="REBASE" />
   </component>
   <component name="GitHubPullRequestSearchHistory">{
   &quot;lastFilter&quot;: {
@@ -56,12 +62,16 @@
     "Python.app.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
-    "last_opened_file_path": "E:/JellyWall/static/images",
-    "settings.editor.selected.configurable": "preferences.pluginManager"
+    "last_opened_file_path": "E:/JellyWall/static/js",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
   }
 }]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="E:\JellyWall\static\js" />
+      <recent name="E:\JellyWall\config" />
+      <recent name="E:\JellyWall\static\backdrops" />
+      <recent name="E:\JellyWall\static\stills" />
       <recent name="E:\JellyWall\static\images" />
     </key>
   </component>
@@ -149,7 +159,47 @@
       <option name="project" value="LOCAL" />
       <updated>1779441050478</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="feat: 新增 TMDB 探索模块并修复部分 Bug&#10;&#10;【新增功能 - 探索中心】&#10;- 新增 `/explore` 探索页，接入 TMDB API 实现影视搜索与海报瀑布流展示。&#10;- 搜索结果自动与本地历史记录比对，已看过的影视会精准显示绿色对勾标记。&#10;- 海报卡片新增“电影/电视剧”类型角标，并支持按年份自动排序。&#10;&#10;【配置管理】&#10;- 数据库新增 TMDB API 密钥字段。&#10;- 配置页新增 TMDB 接入选项，支持带 HTTP 代理的连通性测试。&#10;&#10;【体验优化】&#10;- 修复了部分页面加载闪烁与交互逻辑 Bug。">
+      <option name="closed" value="true" />
+      <created>1779786037558</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1779786037558</updated>
+    </task>
+    <task id="LOCAL-00007" summary="feat: 重构底层剧集数据模型并新增单集元数据缓存&#10;&#10;【新增功能】&#10;- 底层模型升级：新增 `EpisodeDetail` 表，支持单集剧情简介与专属剧照的独立缓存。&#10;- 观影明细扩展：`WatchRecord` 表新增 `episode_num` (纯数字集数) 和 `source` (历史来源) 字段，为后续多源数据（Watcharr/TMDB）接入打下基础。&#10;&#10;【配置管理】&#10;- 同步引擎升级：请求参数新增 `Overview` 字段，并自动维护本地 `static/stills` 单集剧照目录。">
+      <option name="closed" value="true" />
+      <created>1779962011462</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1779962011462</updated>
+    </task>
+    <task id="LOCAL-00008" summary="feat: 新增历史记录海报墙视图与双背景图同步功能&#10;&#10;- 历史记录页新增“列表/海报”双视图切换功能，并支持本地状态（localStorage）记忆。">
+      <option name="closed" value="true" />
+      <created>1780308289109</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1780308289109</updated>
+    </task>
+    <task id="LOCAL-00009" summary="feat &amp; fix: 优化详情页视觉体验与交互逻辑，新增列表状态记忆&#10;&#10;- 视觉重构：详情页背景采用毛玻璃模糊效果进行绘制&#10;- 数据绑定：详情页全面接入真实的剧集/单季剧情简介，彻底移除前端 Hardcode 写死文本。&#10;- 排序修正：海报模式下的详情列表按照集数进行排序&#10;- 交互升级：详情页新增“返回”按钮，交互丝滑些。">
+      <option name="closed" value="true" />
+      <created>1780368109781</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1780368109781</updated>
+    </task>
+    <task id="LOCAL-00010" summary="feat: 重构用户配置为 JSON 存储及新增历史记录软删除&#10;&#10;- 用户数据存储方式从 SQLite 迁移至本地 JSON&#10;- 新增自定义网页访问端口功能&#10;- 历史记录增加级联选择与软删除机制，同步时自动恢复被删记录">
+      <option name="closed" value="true" />
+      <created>1780392638994</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1780392638994</updated>
+    </task>
+    <option name="localTasksCounter" value="11" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -169,7 +219,12 @@
     <MESSAGE value="fix: 完善登录注册闭环与基础 UI 更新&#10;&#10;- 新增注册路由及页面，修复登录跳转逻辑，打通用户鉴权全流程。&#10;- 全局引入品牌 Logo（登录页与侧边栏），并优化导航栏展示文案。" />
     <MESSAGE value="feat: 新增剧集主海报与季海报双缓存，并优化同步代码结构" />
     <MESSAGE value="feat: 新增海报缓存目录" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: 新增海报缓存目录" />
+    <MESSAGE value="feat: 新增 TMDB 探索模块并修复部分 Bug&#10;&#10;【新增功能 - 探索中心】&#10;- 新增 `/explore` 探索页，接入 TMDB API 实现影视搜索与海报瀑布流展示。&#10;- 搜索结果自动与本地历史记录比对，已看过的影视会精准显示绿色对勾标记。&#10;- 海报卡片新增“电影/电视剧”类型角标，并支持按年份自动排序。&#10;&#10;【配置管理】&#10;- 数据库新增 TMDB API 密钥字段。&#10;- 配置页新增 TMDB 接入选项，支持带 HTTP 代理的连通性测试。&#10;&#10;【体验优化】&#10;- 修复了部分页面加载闪烁与交互逻辑 Bug。" />
+    <MESSAGE value="feat: 重构底层剧集数据模型并新增单集元数据缓存&#10;&#10;【新增功能】&#10;- 底层模型升级：新增 `EpisodeDetail` 表，支持单集剧情简介与专属剧照的独立缓存。&#10;- 观影明细扩展：`WatchRecord` 表新增 `episode_num` (纯数字集数) 和 `source` (历史来源) 字段，为后续多源数据（Watcharr/TMDB）接入打下基础。&#10;&#10;【配置管理】&#10;- 同步引擎升级：请求参数新增 `Overview` 字段，并自动维护本地 `static/stills` 单集剧照目录。" />
+    <MESSAGE value="feat: 新增历史记录海报墙视图与双背景图同步功能&#10;&#10;- 历史记录页新增“列表/海报”双视图切换功能，并支持本地状态（localStorage）记忆。" />
+    <MESSAGE value="feat &amp; fix: 优化详情页视觉体验与交互逻辑，新增列表状态记忆&#10;&#10;- 视觉重构：详情页背景采用毛玻璃模糊效果进行绘制&#10;- 数据绑定：详情页全面接入真实的剧集/单季剧情简介，彻底移除前端 Hardcode 写死文本。&#10;- 排序修正：海报模式下的详情列表按照集数进行排序&#10;- 交互升级：详情页新增“返回”按钮，交互丝滑些。" />
+    <MESSAGE value="feat: 重构用户配置为 JSON 存储及新增历史记录软删除&#10;&#10;- 用户数据存储方式从 SQLite 迁移至本地 JSON&#10;- 新增自定义网页访问端口功能&#10;- 历史记录增加级联选择与软删除机制，同步时自动恢复被删记录" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: 重构用户配置为 JSON 存储及新增历史记录软删除&#10;&#10;- 用户数据存储方式从 SQLite 迁移至本地 JSON&#10;- 新增自定义网页访问端口功能&#10;- 历史记录增加级联选择与软删除机制，同步时自动恢复被删记录" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

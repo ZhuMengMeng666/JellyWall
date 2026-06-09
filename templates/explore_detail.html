@@ -13,24 +13,24 @@
 
     /* ====== 🌟 悬浮顶部返回按钮样式 ====== */
     .back-btn {
-        position: absolute;           /* ✨ 核心：脱离文档流，悬浮定位 */
-        top: 30px;                    /* ✨ 完美对齐外层盒子的 padding */
-        left: 30px;                   /* ✨ 占据左侧空缺的坑位 */
+        position: absolute;
+        top: 30px;
+        left: 30px;
         display: inline-flex; align-items: center; gap: 8px;
-        padding: 8px 16px;            /* ✨ 与右上角主题按钮的内边距严格一致 */
+        padding: 8px 16px;
         background-color: var(--sidebar-bg);
         color: var(--text-main);
         border: 1px solid var(--border-color);
-        border-radius: 20px;          /* ✨ 变成药丸形状，与主题切换按钮呼应 */
+        border-radius: 20px;
         text-decoration: none; font-size: 14px; font-weight: 600;
         cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        z-index: 50;                  /* 确保不会被海报遮挡 */
+        z-index: 50;
     }
 
     .back-btn:hover {
         color: var(--primary-color);
         border-color: var(--primary-color);
-        transform: translateX(-3px);  /* 悬停时微微向左滑动，暗示返回 */
+        transform: translateX(-3px);
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
 
@@ -53,27 +53,23 @@
         box-shadow: 0 15px 40px rgba(0,0,0,0.6);
         z-index: 2;
         transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.5s;
-
-        /* ====== ✨ 垂直居中对齐 ====== */
         flex-shrink: 0;
-        align-self: center;   /* 垂直居中悬浮，拒绝被拉伸 */
+        align-self: center;
     }
     .detail-poster:hover { transform: translateY(-8px) scale(1.02); box-shadow: 0 25px 50px rgba(0,0,0,0.8); }
 
     .detail-info { flex: 1; display: flex; flex-direction: column; justify-content: center; z-index: 2; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
 
-    /* ✨ 更新了标题的排版，让年份和标题在一行，并调整了年份颜色和字号 */
     .detail-title { font-size: 42px; font-weight: 900; margin: 0 0 12px 0; letter-spacing: 1px; display: flex; align-items: baseline; gap: 12px; }
     .detail-title .year { font-weight: 400; color: rgba(255, 255, 255, 0.6); font-size: 32px; }
 
-    /* ✨ 更新了元数据区域：增加线框评级盒子的样式，去掉原来的 tag 背景块 */
     .detail-meta { font-size: 16px; margin-bottom: 25px; color: #fff; display: flex; gap: 12px; align-items: center; font-weight: 500;}
     .rating-box { border: 1px solid rgba(255, 255, 255, 0.5); padding: 2px 6px; border-radius: 4px; font-size: 14px; color: rgba(255, 255, 255, 0.8); letter-spacing: 0.5px; }
 
     .overview-title { font-size: 20px; font-weight: 800; margin-bottom: 12px; color: #fff; }
     .overview-content { font-size: 16px; line-height: 1.7; color: rgba(255,255,255,0.85); max-width: 850px; }
 
-    /* ====== 🌟 季列表区域 (与观看历史保持一致) ====== */
+    /* ====== 🌟 季列表区域 ====== */
     .section-title { font-size: 26px; font-weight: 900; color: var(--text-main); margin-bottom: 25px; padding-left: 5px;}
     .season-card {
         background-color: var(--sidebar-bg); border-radius: 14px; border: 1px solid var(--border-color);
@@ -106,6 +102,22 @@
     .episode-title { font-size: 18px; font-weight: 800; color: var(--text-main); margin: 0 0 12px 0; transition: color 0.3s;}
     .episode-item:hover .episode-title { color: var(--primary-color); }
     .episode-overview { font-size: 15px; color: var(--text-muted); line-height: 1.6; }
+
+    /* ====== 🌟 手动标记已看控制样式 ====== */
+    .action-btn-mini {
+        display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; margin-left: 12px;
+        background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    }
+    .action-btn-mini:hover { background: #10b981; color: #fff; border-color: #10b981; transform: scale(1.03); }
+    .action-btn-mini:disabled { background: #333 !important; color: #777 !important; border-color: #444 !important; cursor: not-allowed; }
+
+    .action-btn-inline {
+        display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; margin-left: 12px;
+        background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid var(--border-color);
+        border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; vertical-align: middle;
+    }
+    .action-btn-inline:hover { background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.4); }
 </style>
 
 <a href="javascript:history.back()" class="back-btn">
@@ -136,6 +148,12 @@
                 </svg>
                 正在追剧中
             </span>
+            {% endif %}
+
+            {% if (media_type == 'movie' and not is_movie_watched) or (media_type == 'series' and season_watch_status|length == 0) %}
+            <button class="action-btn-mini" onclick="markAsWatched('{{ media_type }}', '{{ 'movie' if media_type == 'movie' else 'series' }}')">
+                <i data-lucide="check-circle-2"></i> 标记整部{{ '电影' if media_type == 'movie' else '剧集' }}已看
+            </button>
             {% endif %}
         </div>
 
@@ -171,6 +189,12 @@
                     已看部分
                 </span>
                 {% endif %}
+
+                {% if season_watch_status.get(season_num) != 'full' %}
+                <button class="action-btn-inline" onclick="event.stopPropagation(); markAsWatched('series', 'season', {{ season_num }})" title="将这一季全部单集标为已看">
+                    <i data-lucide="list-plus"></i> 整季标记已看
+                </button>
+                {% endif %}
             </h2>
 
             <p class="season-overview">
@@ -200,6 +224,14 @@
                     {% set ep_key = season_num|string ~ '_' ~ ep.episode_num|string %}
                     {% if watched_episodes_dict and ep_key in watched_episodes_dict %}
                         <span style="color: #10b981; font-size: 13px; margin-left: 10px; font-weight: bold; background: rgba(16, 185, 129, 0.1); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">✓ 已观看：{{ watched_episodes_dict[ep_key] }}</span>
+                    {% else %}
+                        <button class="action-btn-inline batch-select-btn"
+                                data-season="{{ season_num }}"
+                                data-episode="{{ ep.episode_num }}"
+                                data-eptitle="{{ ep.title }}"
+                                onclick="toggleEpisodeSelection(this)">
+                            <i data-lucide="plus"></i> 选择此集
+                        </button>
                     {% endif %}
                 </h3>
                 <p class="episode-overview">
@@ -213,6 +245,15 @@
 </div>
 {% endfor %}
 {% endif %}
+
+<div id="batchActionBar" style="display: none; position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: var(--sidebar-bg); padding: 12px 28px; border-radius: 40px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); z-index: 999; border: 1px solid var(--border-color); align-items: center; gap: 20px; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);">
+    <span style="color: var(--text-main); font-weight: 700; font-size: 15px;">
+        已选择 <span id="batchCount" style="color: var(--primary-color); font-size: 18px; margin: 0 4px;">0</span> 集
+    </span>
+    <button class="action-btn-mini" onclick="submitBatchEpisodes('series')" style="margin: 0; background: #10b981; color: #fff; border-color: #10b981; padding: 6px 16px; font-size: 14px;">
+        <i data-lucide="check-circle-2"></i> 确认一键入库
+    </button>
+</div>
 
 <script>
     function toggleEpisodes(element) {
@@ -240,6 +281,154 @@
                 ep.style.opacity = '0';
             });
             container.style.display = 'none';
+        }
+    }
+
+    // ====== ✨ 异步请求：手动标记整季/整部 ======
+    async function markAsWatched(mediaType, scope, seasonNum = null, episodeNum = null) {
+        const pathParts = window.location.pathname.split('/');
+        const itemId = parseInt(pathParts[pathParts.length - 1]);
+
+        if (!itemId) {
+            window.showToast ? window.showToast("❌ 无法解析当前影视ID") : alert("无法解析当前影视ID");
+            return;
+        }
+
+        const btn = event.currentTarget;
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> 正在入库...`;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+
+        try {
+            const response = await fetch('/api/explore/mark_watched', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    media_type: mediaType,
+                    item_id: itemId,
+                    scope: scope,
+                    season_num: seasonNum,
+                    episode_num: episodeNum
+                })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                if (window.showToast) {
+                    window.showToast("✅ " + data.message);
+                } else {
+                    alert(data.message);
+                }
+                setTimeout(() => { window.location.reload(); }, 800);
+            } else {
+                if (window.showToast) {
+                    window.showToast("❌ " + data.message);
+                } else {
+                    alert("❌ " + data.message);
+                }
+
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+        } catch (error) {
+            if (window.showToast) {
+                window.showToast("❌ 请求异常，请确认网络代理与后端服务状态");
+            } else {
+                alert("❌ 请求异常，请确认网络代理与后端服务状态");
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+    }
+
+    // ====== ✨ 批量入库引擎 ======
+    let selectedEpisodes = [];
+
+    // 1. 按钮拨动与样式切换
+    function toggleEpisodeSelection(btn) {
+        const season = parseInt(btn.getAttribute('data-season'));
+        const episode = parseInt(btn.getAttribute('data-episode'));
+        const title = btn.getAttribute('data-eptitle');
+
+        // 切换选中状态
+        const isSelected = btn.classList.toggle('selected');
+
+        if (isSelected) {
+            btn.innerHTML = `<i data-lucide="check"></i> 已勾选`;
+            btn.style.background = 'rgba(16, 185, 129, 0.2)';
+            btn.style.color = '#10b981';
+            btn.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+            selectedEpisodes.push({ season, episode, title });
+        } else {
+            btn.innerHTML = `<i data-lucide="plus"></i> 选择此集`;
+            btn.style.background = '';
+            btn.style.color = '';
+            btn.style.borderColor = '';
+            // 剔除数组中的这一项
+            selectedEpisodes = selectedEpisodes.filter(e => !(e.season === season && e.episode === episode));
+        }
+
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        updateBatchActionBar();
+    }
+
+    // 2. 悬浮窗弹射与收起
+    function updateBatchActionBar() {
+        const bar = document.getElementById('batchActionBar');
+        const countSpan = document.getElementById('batchCount');
+        if (selectedEpisodes.length > 0) {
+            bar.style.display = 'flex';
+            bar.style.animation = 'fadeInUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards';
+            countSpan.innerText = selectedEpisodes.length;
+        } else {
+            bar.style.display = 'none';
+        }
+    }
+
+    // 3. 将数组打包发送给后端
+    async function submitBatchEpisodes(mediaType) {
+        if (selectedEpisodes.length === 0) return;
+
+        const pathParts = window.location.pathname.split('/');
+        const itemId = parseInt(pathParts[pathParts.length - 1]);
+
+        const btn = document.querySelector('#batchActionBar button');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> 入库中...`;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+
+        try {
+            const response = await fetch('/api/explore/mark_watched', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    media_type: mediaType,
+                    item_id: itemId,
+                    scope: 'episode_batch',       // ✨ 告诉后端这是批量任务
+                    episodes_list: selectedEpisodes // ✨ 附带装满坐标的数组
+                })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                if (window.showToast) window.showToast("✅ " + data.message);
+                setTimeout(() => { window.location.reload(); }, 800);
+            } else {
+                if (window.showToast) window.showToast("❌ " + data.message);
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+        } catch (error) {
+            if (window.showToast) window.showToast("❌ 请求异常");
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
         }
     }
 </script>

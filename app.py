@@ -12,6 +12,10 @@ import re
 import time
 import json
 import os
+import os
+import requests
+from datetime import datetime
+from flask import request, jsonify
 
 # ====== ✨ 新增：TMDB 搜索短时缓存池 (存放格式: {query: {timestamp: float, data: list}}) ======
 TMDB_SEARCH_CACHE = {}
@@ -660,6 +664,332 @@ def explore_detail(media_type, item_id):
                            has_watched_any=has_watched_any,
                            **render_data)
 
+
+
+
+
+def download_tmdb_image(url, folder, filename, user_proxies=None):
+    """辅助函数：安全下载 TMDB 影视图片到本地 static 目录"""
+    try:
+        os.makedirs(folder, exist_ok=True)
+        filepath = os.path.join(folder, filename)
+        # 如果本地已存在该图片，直接复用，避免重复请求
+        if os.path.exists(filepath):
+            return filename
+
+        resp = requests.get(url, proxies=user_proxies, timeout=15)
+        if resp.status_code == 200:
+            with open(filepath, 'wb') as f:
+                f.write(resp.content)
+            return filename
+    except Exception as e:
+        print(f"[-] TMDB 图片本地化失败: {e}")
+    return None
+
+
+@app.route('/api/explore/mark_watched', methods=['POST'])
+@login_required
+def api_mark_watched():
+    """探索页专属 API：手动将 TMDB 数据逆向同步至本地 SQLite 观看历史并完整刮削季、集元数据"""
+    api_key = current_user.tmdb_api_key
+    if not api_key:
+        return jsonify({"success": False, "message": "未绑定 TMDB API Key"})
+
+    req_data = request.json or {}
+    media_type = req_data.get('media_type')  # 'movie' 或 'series' / 'tv'
+    if media_type == 'tv':
+        media_type = 'series'
+
+    item_id = req_data.get('item_id')
+    scope = req_data.get('scope')  # 粒度范围: 'movie', 'series', 'season', 'episode', 'episode_batch'
+    target_season = req_data.get('season_num')
+    target_episode = req_data.get('episode_num')
+
+    if not media_type or not item_id or not scope:
+        return jsonify({"success": False, "message": "缺少必要请求参数"})
+
+    proxies = get_user_proxies(current_user)
+    now = datetime.now()
+
+    try:
+        # 1. 实时向 TMDB 索取底层元数据，确保抓取到正确的官方中文名、海报路径及简介
+        tmdb_type = 'movie' if media_type == 'movie' else 'tv'
+        url = f"https://api.themoviedb.org/3/{tmdb_type}/{item_id}"
+        resp = requests.get(url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies, timeout=10)
+        if resp.status_code != 200:
+            return jsonify({"success": False, "message": "无法从 TMDB 拉取该影视的基础元数据"})
+
+        data = resp.json()
+        title = data.get('title') if tmdb_type == 'movie' else data.get('name')
+        poster_path = data.get('poster_path')
+        overview = data.get('overview') or ""
+
+        if not title:
+            return jsonify({"success": False, "message": "影视数据解析失败，未获取到有效名称"})
+
+        # 2. 同步下载主海报墙所需的图片到本地
+        local_poster_name = None
+        if poster_path:
+            remote_poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+            local_poster_name = download_tmdb_image(
+                remote_poster_url,
+                os.path.join(app.root_path, 'static', 'posters'),
+                f"tmdb_{item_id}.jpg",
+                proxies
+            )
+        relative_main_poster_path = f"posters/{local_poster_name}" if local_poster_name else "images/logo.png"
+
+        # 3. 建立 TMDB 季元数据映射池（用于分离提取每一季的专属海报与季度简介）
+        tmdb_seasons_map = {}
+        if media_type == 'series':
+            for s in data.get('seasons', []):
+                s_num = s.get('season_number')
+                if s_num is not None:
+                    tmdb_seasons_map[s_num] = {
+                        'poster_path': s.get('poster_path'),
+                        'overview': s.get('overview') or ""
+                    }
+
+        # 核心组件 A：动态创建/更新【季海报与季详情】记录的内部闭包函数
+        def ensure_season_poster(s_num):
+            target_id = f"{item_id}_S{s_num}"
+            poster_record = WatchPoster.query.filter_by(
+                user_id=current_user.id, target_id=target_id, is_deleted=False
+            ).first()
+            if not poster_record:
+                s_info = tmdb_seasons_map.get(s_num, {})
+                s_poster_path = s_info.get('poster_path')
+                s_overview = s_info.get('overview') or ""
+
+                local_s_poster_name = None
+                if s_poster_path:
+                    local_s_poster_name = download_tmdb_image(
+                        f"https://image.tmdb.org/t/p/w500{s_poster_path}",
+                        os.path.join(app.root_path, 'static', 'posters'),
+                        f"tmdb_{item_id}_S{s_num}.jpg",
+                        proxies
+                    )
+                relative_s_poster = f"posters/{local_s_poster_name}" if local_s_poster_name else relative_main_poster_path
+
+                poster_record = WatchPoster(
+                    user_id=current_user.id,
+                    target_id=target_id,
+                    media_type='Series',
+                    display_title=f"{title} (第 {s_num} 季)" if s_num != 0 else f"{title} (特别篇)",
+                    series_name=title,
+                    season_num=s_num,
+                    local_image_path=relative_s_poster,  # 详情页季海报完美锁定
+                    series_image_path=relative_main_poster_path,  # 主墙海报保持聚合
+                    overview=overview,
+                    season_overview=s_overview,  # 完美写入季详情简介
+                    last_watched_date=now,
+                    is_deleted=False,
+                    tmdb_id=str(item_id)
+                )
+                db.session.add(poster_record)
+
+        # 核心组件 B：动态创建【单集详情与剧照本地化】缓存的内部闭包函数
+        def ensure_episode_detail(s_num, e_num, ep_name, ep_overview, ep_still_path):
+            ep_item_id = f"{item_id}_{s_num}_{e_num}"
+            existing_detail = EpisodeDetail.query.filter_by(item_id=ep_item_id).first()
+            if not existing_detail:
+                local_still_name = None
+                if ep_still_path:
+                    os.makedirs(os.path.join(app.root_path, 'static', 'stills'), exist_ok=True)
+                    local_still_name = download_tmdb_image(
+                        f"https://image.tmdb.org/t/p/w300{ep_still_path}",
+                        os.path.join(app.root_path, 'static', 'stills'),
+                        f"still_tmdb_{ep_item_id}.jpg",
+                        proxies
+                    )
+                relative_still_path = f"stills/still_tmdb_{ep_item_id}.jpg" if local_still_name else "images/logo.png"
+
+                new_detail = EpisodeDetail(
+                    item_id=ep_item_id,
+                    series_name=title,
+                    season_num=s_num,
+                    episode_num=e_num,
+                    episode_name=ep_name or f"第 {e_num} 集",
+                    overview=ep_overview or "",
+                    series_tmdb_id=str(item_id),
+                    still_image_path=relative_still_path  # 单集剧照无缝渲染
+                )
+                db.session.add(new_detail)
+
+        # 4. 电影单独创建主海报记录
+        if media_type == 'movie':
+            poster_record = WatchPoster.query.filter_by(
+                user_id=current_user.id, media_type='Movie', display_title=title, is_deleted=False
+            ).first()
+            if not poster_record:
+                poster_record = WatchPoster(
+                    user_id=current_user.id,
+                    target_id=str(item_id),
+                    media_type='Movie',
+                    display_title=title,
+                    local_image_path=relative_main_poster_path,
+                    overview=overview,
+                    last_watched_date=now,
+                    is_deleted=False,
+                    tmdb_id=str(item_id)
+                )
+                db.session.add(poster_record)
+
+        # 5. 根据不同的 scope 进行多层级级联写入 WatchRecord 历史足迹表与单集缓存
+        if scope == 'movie':
+            exist = WatchRecord.query.filter_by(
+                user_id=current_user.id, item_type='Movie', title=title, is_deleted=False
+            ).first()
+            if not exist:
+                rec = WatchRecord(
+                    user_id=current_user.id,
+                    item_id=str(item_id),
+                    item_type='Movie',
+                    library_name='TMDB添加',
+                    title=title,
+                    date_played=now,
+                    source='tmdb',
+                    is_deleted=False,
+                    tmdb_id=str(item_id)
+                )
+                db.session.add(rec)
+
+        elif scope == 'episode':
+            ensure_season_poster(target_season)
+            # 独立请求获取当前单集的特定元数据（剧照与单独简介）
+            ep_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{target_season}/episode/{target_episode}"
+            ep_resp = requests.get(ep_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies, timeout=8)
+            ep_title = f"第 {target_episode} 集"
+            ep_overview = ""
+            ep_still_path = None
+            if ep_resp.status_code == 200:
+                ep_data = ep_resp.json()
+                ep_title = ep_data.get('name') or ep_title
+                ep_overview = ep_data.get('overview') or ""
+                ep_still_path = ep_data.get('still_path')
+
+            season_str = f"第 {target_season} 季" if target_season != 0 else "特别篇"
+            exist = WatchRecord.query.filter_by(
+                user_id=current_user.id, item_type='Episode', series_name=title, season_name=season_str,
+                episode_num=target_episode, is_deleted=False
+            ).first()
+            if not exist:
+                rec = WatchRecord(
+                    user_id=current_user.id,
+                    item_id=f"{item_id}_{target_season}_{target_episode}",
+                    item_type='Episode',
+                    library_name='TMDB添加',
+                    title=f"第 {target_episode} 集 - {ep_title}",
+                    series_name=title,
+                    season_name=season_str,
+                    episode_num=target_episode,
+                    date_played=now,
+                    source='tmdb',
+                    is_deleted=False,
+                    tmdb_id=str(item_id)
+                )
+                db.session.add(rec)
+                ensure_episode_detail(target_season, target_episode, ep_title, ep_overview, ep_still_path)
+
+        elif scope == 'episode_batch':
+            episodes_list = req_data.get('episodes_list', [])
+            # 按季聚合优化网络请求
+            batch_by_season = {}
+            for ep_info in episodes_list:
+                s_num = ep_info.get('season')
+                e_num = ep_info.get('episode')
+                if s_num is not None and e_num is not None:
+                    batch_by_season.setdefault(s_num, []).append(e_num)
+
+            for s_num, e_nums in batch_by_season.items():
+                ensure_season_poster(s_num)
+                s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
+                s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies,
+                                      timeout=8)
+                ep_meta_map = {}
+                if s_resp.status_code == 200:
+                    for ep in s_resp.json().get('episodes', []):
+                        ep_meta_map[ep.get('episode_number')] = ep
+
+                for e_num in e_nums:
+                    ep_data = ep_meta_map.get(e_num, {})
+                    ep_title = ep_data.get('name') or f"第 {e_num} 集"
+                    ep_overview = ep_data.get('overview') or ""
+                    ep_still_path = ep_data.get('still_path')
+
+                    season_str = f"第 {s_num} 季" if s_num != 0 else "特别篇"
+                    exist = WatchRecord.query.filter_by(
+                        user_id=current_user.id, item_type='Episode', series_name=title, season_name=season_str,
+                        episode_num=e_num, is_deleted=False
+                    ).first()
+
+                    if not exist:
+                        rec = WatchRecord(
+                            user_id=current_user.id,
+                            item_id=f"{item_id}_{s_num}_{e_num}",
+                            item_type='Episode',
+                            library_name='TMDB添加',
+                            title=f"第 {e_num} 集 - {ep_title}",
+                            series_name=title,
+                            season_name=season_str,
+                            episode_num=e_num,
+                            date_played=now,
+                            source='tmdb',
+                            is_deleted=False,
+                            tmdb_id=str(item_id)
+                        )
+                        db.session.add(rec)
+                        ensure_episode_detail(s_num, e_num, ep_title, ep_overview, ep_still_path)
+
+        elif scope in ['season', 'series']:
+            seasons_to_add = [target_season] if scope == 'season' else []
+            if scope == 'series':
+                raw_seasons = data.get('seasons', [])
+                seasons_to_add = [s.get('season_number') for s in raw_seasons if s.get('season_number') is not None]
+
+            for s_num in seasons_to_add:
+                ensure_season_poster(s_num)  # 动态同步创建每一季的专属海报详情卡
+                s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
+                s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies,
+                                      timeout=8)
+                if s_resp.status_code == 200:
+                    eps = s_resp.json().get('episodes', [])
+                    for ep in eps:
+                        e_num = ep.get('episode_number')
+                        if e_num is None: continue
+
+                        season_str = f"第 {s_num} 季" if s_num != 0 else "特别篇"
+                        exist = WatchRecord.query.filter_by(
+                            user_id=current_user.id, item_type='Episode', series_name=title, season_name=season_str,
+                            episode_num=e_num, is_deleted=False
+                        ).first()
+
+                        if not exist:
+                            rec = WatchRecord(
+                                user_id=current_user.id,
+                                item_id=f"{item_id}_{s_num}_{e_num}",
+                                item_type='Episode',
+                                library_name='TMDB添加',
+                                title=f"第 {e_num} 集 - {ep.get('name', '未知集名')}",
+                                series_name=title,
+                                season_name=season_str,
+                                episode_num=e_num,
+                                date_played=now,
+                                source='tmdb',
+                                is_deleted=False,
+                                tmdb_id=str(item_id)
+                            )
+                            db.session.add(rec)
+                            # 联动下载每一集的精美剧照并保存单集详情
+                            ensure_episode_detail(s_num, e_num, ep.get('name'), ep.get('overview'),
+                                                  ep.get('still_path'))
+
+        db.session.commit()
+        return jsonify({"success": True, "message": "已成功同步并下载本地海报与元数据！"})
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"反向同步操作失败: {str(e)}"})
 @app.route('/api/search_tmdb')
 @login_required
 def api_search_tmdb():

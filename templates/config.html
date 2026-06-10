@@ -5,9 +5,10 @@
     /* 基础卡片与排版样式 */
     .config-card { background-color: var(--sidebar-bg); padding: 30px; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 25px; }
     .config-title { color: var(--primary-color); font-size: 20px; font-weight: 800; margin-top: 0; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+    .config-title i { width: 22px; height: 22px; stroke-width: 2.5; }
 
     /* 状态徽章 */
-    .status-badge { display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; background-color: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
+    .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; background-color: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
     .status-badge.offline { background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
 
     /* 表单与输入框 */
@@ -23,17 +24,40 @@
 
     /* 按钮组 */
     .btn-group { display: flex; gap: 12px; margin-top: 10px; }
-    .submit-btn { padding: 12px 24px; border-radius: 8px; background-color: var(--primary-color); color: #fff; border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: transform 0.2s, filter 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+    /* ====== 优化：调整按钮大小，使其更精致 ====== */
+    .submit-btn {
+        padding: 9px 18px; /* 缩小了上下左右的内边距 */
+        border-radius: 6px; /* 圆角稍微收敛一点 */
+        background-color: var(--primary-color);
+        color: #fff;
+        border: none;
+        font-size: 14px; /* 字号从 15px 缩小到 14px */
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s, filter 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px; /* 图标和文字的间距稍微缩小 */
+    }
+    .submit-btn i {
+        width: 16px; height: 16px; /* 配合文字缩小图标尺寸 */
+        stroke-width: 2.5;
+    }
     .submit-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
     .test-btn { background-color: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); }
     .test-btn:hover { background-color: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+    .test-btn:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
 </style>
 
 <div class="config-card">
-    <div class="config-title"><span>📡</span> 当前绑定状态</div>
+    <div class="config-title"><i data-lucide="radio"></i> 当前绑定状态</div>
     <div style="display: flex; flex-direction: column; gap: 12px;">
         {% if current_user.jellyfin_url and current_user.jellyfin_api_key %}
-            <div><span class="status-badge">已连接</span></div>
+            <div>
+                <span class="status-badge">
+                    <i data-lucide="check-circle-2" style="width: 14px; height: 14px;"></i> 已连接
+                </span>
+            </div>
             <div style="color: var(--text-main); font-size: 15px;">
                 <strong>接口地址：</strong> <span style="font-family: monospace; color: var(--primary-color);">{{ current_user.jellyfin_url }}</span>
             </div>
@@ -41,7 +65,11 @@
                 您的鉴权密钥 (Token) 与用户 ID 已安全存储在本地。
             </div>
         {% else %}
-            <div><span class="status-badge offline">未连接</span></div>
+            <div>
+                <span class="status-badge offline">
+                    <i data-lucide="x-circle" style="width: 14px; height: 14px;"></i> 未连接
+                </span>
+            </div>
             <div style="color: var(--text-muted); font-size: 14px;">
                 尚未绑定 Jellyfin 媒体服务器，请在下方填写信息进行连接。
             </div>
@@ -50,7 +78,7 @@
 </div>
 
 <div class="config-card">
-    <div class="config-title"><span>🔗</span> 绑定 / 修改服务器</div>
+    <div class="config-title"><i data-lucide="server"></i> 绑定 / 修改服务器</div>
     <form method="POST" action="{{ url_for('config') }}">
         <input type="hidden" name="form_type" value="jellyfin_settings">
 
@@ -84,13 +112,13 @@
         </div>
 
         <button type="submit" class="submit-btn" style="margin-top: 10px;">
-            <span>⚡</span> 验证并连接
+            <i data-lucide="zap"></i> 验证并连接
         </button>
     </form>
 </div>
 
 <div class="config-card">
-    <div class="config-title"><span>🌐</span> HTTP 代理设置</div>
+    <div class="config-title"><i data-lucide="network"></i> HTTP 代理设置</div>
     <form method="POST" action="{{ url_for('config') }}">
         <input type="hidden" name="form_type" value="proxy_settings">
 
@@ -108,18 +136,18 @@
         </div>
 
         <div class="btn-group">
-            <button type="button" class="submit-btn test-btn" onclick="handleTestProxy()">
-                <span>🔍</span> 测试连接
+            <button type="button" class="submit-btn test-btn" id="btn-test-proxy" onclick="handleTestProxy()">
+                <i data-lucide="activity"></i> <span>测试连接</span>
             </button>
             <button type="submit" class="submit-btn">
-                <span>💾</span> 保存代理
+                <i data-lucide="save"></i> 保存代理
             </button>
         </div>
     </form>
 </div>
 
 <div class="config-card">
-    <div class="config-title"><span>🎬</span> TMDB API 配置</div>
+    <div class="config-title"><i data-lucide="clapperboard"></i> TMDB API 配置</div>
     <form method="POST" action="{{ url_for('config') }}">
         <input type="hidden" name="form_type" value="tmdb_settings">
 
@@ -129,18 +157,18 @@
                    placeholder="请输入 TMDB API Key" value="{{ current_user.tmdb_api_key or '' }}">
         </div>
         <div class="btn-group">
-            <button type="button" class="submit-btn test-btn" onclick="handleTestTMDB()">
-                <span>🔍</span> 测试连通性
+            <button type="button" class="submit-btn test-btn" id="btn-test-tmdb" onclick="handleTestTMDB()">
+                <i data-lucide="activity"></i> <span>测试连通性</span>
             </button>
             <button type="submit" class="submit-btn">
-                <span>💾</span> 保存配置
+                <i data-lucide="save"></i> 保存配置
             </button>
         </div>
     </form>
 </div>
 
 <div class="config-card">
-    <div class="config-title"><span>🔌</span> 网页访问端口配置</div>
+    <div class="config-title"><i data-lucide="plug"></i> 网页访问端口配置</div>
     <form method="POST" action="{{ url_for('config') }}">
         <input type="hidden" name="form_type" value="web_settings">
 
@@ -150,30 +178,39 @@
                    placeholder="例如: 5000" value="{{ current_user.web_port or '' }}" required>
         </div>
 
-        <div style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px;">
-            ⚠️ 提示：修改此端口后，需重启后端服务方可生效。
+        <div style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px; display: flex; align-items: center; gap: 6px;">
+            <i data-lucide="alert-triangle" style="width: 14px; height: 14px; color: #f59e0b;"></i>
+            <span>提示：修改此端口后，需重启后端服务方可生效。</span>
         </div>
 
         <div class="btn-group">
             <button type="submit" class="submit-btn">
-                <span>💾</span> 保存端口配置
+                <i data-lucide="save"></i> 保存端口配置
             </button>
         </div>
     </form>
 </div>
 
 <script>
-    // 处理测试代理逻辑 (异步 Fetch)
+    // 确保直接进入此页面时图标能正确渲染
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // 处理测试代理逻辑 (异步 Fetch + 按钮 Loading 状态)
     async function handleTestProxy() {
         const url = document.getElementById('proxy_url').value.trim();
         const port = document.getElementById('proxy_port').value.trim();
+        const btn = document.getElementById('btn-test-proxy');
+        const originalHtml = btn.innerHTML;
 
         if(!url || !port) {
-            // 直接调用提取到全局 base.html 的 window.showToast
             window.showToast("❌ 请先填写代理的网址和端口");
             return;
         }
 
+        // 切换 Loading 状态
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> <span>测试中...</span>`;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
         window.showToast("⏳ 正在测试代理连通性...");
 
         try {
@@ -186,17 +223,31 @@
             window.showToast(result.message);
         } catch (error) {
             window.showToast("❌ 请求发送失败，请检查网络是否通畅。");
+        } finally {
+            // 恢复按钮状态
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
         }
     }
 
+    // 处理 TMDB 测试逻辑
     async function handleTestTMDB() {
         const apiKey = document.getElementById('tmdb_api_key').value.trim();
+        const btn = document.getElementById('btn-test-tmdb');
+        const originalHtml = btn.innerHTML;
+
         if(!apiKey) {
             window.showToast("❌ 请先填写 TMDB API Key");
             return;
         }
 
+        // 切换 Loading 状态
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> <span>测试中...</span>`;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
         window.showToast("⏳ 正在测试 TMDB 连接...");
+
         try {
             const response = await fetch('/test_tmdb', {
                 method: 'POST',
@@ -207,6 +258,11 @@
             window.showToast(result.message);
         } catch (error) {
             window.showToast("❌ 请求发送失败，请检查网络。");
+        } finally {
+            // 恢复按钮状态
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
         }
     }
 </script>

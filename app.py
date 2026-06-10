@@ -463,6 +463,7 @@ def explore():
     """渲染探索搜索页面"""
     return render_template('explore.html', title="探索发现")
 
+
 @app.route('/explore_detail/<media_type>/<int:item_id>')
 @login_required
 def explore_detail(media_type, item_id):
@@ -605,6 +606,7 @@ def explore_detail(media_type, item_id):
     # ====== ✨ 3. 核心大招：带着 TMDB 的名字，去你本地 SQLite 里查水表 ======
     # 这段绝不缓存，确保每次点进来都是最新的观看记录
     is_movie_watched = False
+    is_series_watched = False  # ✨ 修复：初始化剧集全看完状态标识
 
     watched_episodes_dict = {}  # 记录单集及其观看时间
     season_watch_status = {}  # 记录整季观看状态："full" 或 "partial"
@@ -657,14 +659,32 @@ def explore_detail(media_type, item_id):
                 else:
                     season_watch_status[s_num] = "partial"
 
+        # ====== ✨ 修复：新增剧集是否全看完的判断逻辑 ======
+        if has_watched_any:
+            is_series_watched = True
+            valid_s_count = 0
+            for s_num, eps_list in seasons_dict.items():
+                # 只判断正片（排除第0季特别篇的干扰）
+                if s_num > 0 and len(eps_list) > 0:
+                    valid_s_count += 1
+                    if season_watch_status.get(s_num) != "full":
+                        is_series_watched = False
+                        break
+
+            # 如果这部剧全都是特别篇，没有正片，则兜底判断特别篇
+            if valid_s_count == 0:
+                for s_num, eps_list in seasons_dict.items():
+                    if len(eps_list) > 0 and season_watch_status.get(s_num) != "full":
+                        is_series_watched = False
+                        break
+
     return render_template('explore_detail.html',
                            is_movie_watched=is_movie_watched,
+                           is_series_watched=is_series_watched,  # ✨ 修复：传递新计算的状态给前端
                            watched_episodes_dict=watched_episodes_dict,
                            season_watch_status=season_watch_status,
                            has_watched_any=has_watched_any,
                            **render_data)
-
-
 
 
 
@@ -739,7 +759,7 @@ def api_mark_watched():
             )
         relative_main_poster_path = f"posters/{local_poster_name}" if local_poster_name else "images/logo.png"
 
-        # 3. 建立 TMDB 季元数据映射池（用于分离提取每一季的专属海报与季度简介）
+        # 3. 建立 TMDB 季元数据映射池
         tmdb_seasons_map = {}
         if media_type == 'series':
             for s in data.get('seasons', []):
@@ -753,10 +773,16 @@ def api_mark_watched():
         # 核心组件 A：动态创建/更新【季海报与季详情】记录的内部闭包函数
         def ensure_season_poster(s_num):
             target_id = f"{item_id}_S{s_num}"
+            # ✨ 修复防撞：不再过滤 is_deleted=False，直接通过 target_id 捞取记录
             poster_record = WatchPoster.query.filter_by(
-                user_id=current_user.id, target_id=target_id, is_deleted=False
+                user_id=current_user.id, target_id=target_id
             ).first()
-            if not poster_record:
+
+            if poster_record:
+                # ✨ 如果海报存在，直接将其“复活”并更新最后观看时间
+                poster_record.is_deleted = False
+                poster_record.last_watched_date = now
+            else:
                 s_info = tmdb_seasons_map.get(s_num, {})
                 s_poster_path = s_info.get('poster_path')
                 s_overview = s_info.get('overview') or ""
@@ -778,10 +804,10 @@ def api_mark_watched():
                     display_title=f"{title} (第 {s_num} 季)" if s_num != 0 else f"{title} (特别篇)",
                     series_name=title,
                     season_num=s_num,
-                    local_image_path=relative_s_poster,  # 详情页季海报完美锁定
-                    series_image_path=relative_main_poster_path,  # 主墙海报保持聚合
+                    local_image_path=relative_s_poster,
+                    series_image_path=relative_main_poster_path,
                     overview=overview,
-                    season_overview=s_overview,  # 完美写入季详情简介
+                    season_overview=s_overview,
                     last_watched_date=now,
                     is_deleted=False,
                     tmdb_id=str(item_id)
@@ -812,16 +838,21 @@ def api_mark_watched():
                     episode_name=ep_name or f"第 {e_num} 集",
                     overview=ep_overview or "",
                     series_tmdb_id=str(item_id),
-                    still_image_path=relative_still_path  # 单集剧照无缝渲染
+                    still_image_path=relative_still_path
                 )
                 db.session.add(new_detail)
 
         # 4. 电影单独创建主海报记录
         if media_type == 'movie':
+            # ✨ 修复防撞：电影海报记录判断
             poster_record = WatchPoster.query.filter_by(
-                user_id=current_user.id, media_type='Movie', display_title=title, is_deleted=False
+                user_id=current_user.id, target_id=str(item_id)
             ).first()
-            if not poster_record:
+
+            if poster_record:
+                poster_record.is_deleted = False
+                poster_record.last_watched_date = now
+            else:
                 poster_record = WatchPoster(
                     user_id=current_user.id,
                     target_id=str(item_id),
@@ -837,10 +868,14 @@ def api_mark_watched():
 
         # 5. 根据不同的 scope 进行多层级级联写入 WatchRecord 历史足迹表与单集缓存
         if scope == 'movie':
+            # ✨ 修复防撞：通过唯一的 item_id 查找，不限制 is_deleted
             exist = WatchRecord.query.filter_by(
-                user_id=current_user.id, item_type='Movie', title=title, is_deleted=False
+                user_id=current_user.id, item_id=str(item_id)
             ).first()
-            if not exist:
+            if exist:
+                exist.is_deleted = False
+                exist.date_played = now
+            else:
                 rec = WatchRecord(
                     user_id=current_user.id,
                     item_id=str(item_id),
@@ -856,7 +891,6 @@ def api_mark_watched():
 
         elif scope == 'episode':
             ensure_season_poster(target_season)
-            # 独立请求获取当前单集的特定元数据（剧照与单独简介）
             ep_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{target_season}/episode/{target_episode}"
             ep_resp = requests.get(ep_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies, timeout=8)
             ep_title = f"第 {target_episode} 集"
@@ -869,14 +903,19 @@ def api_mark_watched():
                 ep_still_path = ep_data.get('still_path')
 
             season_str = f"第 {target_season} 季" if target_season != 0 else "特别篇"
+            ep_item_id = f"{item_id}_{target_season}_{target_episode}"
+
+            # ✨ 修复防撞：单集复活
             exist = WatchRecord.query.filter_by(
-                user_id=current_user.id, item_type='Episode', series_name=title, season_name=season_str,
-                episode_num=target_episode, is_deleted=False
+                user_id=current_user.id, item_id=ep_item_id
             ).first()
-            if not exist:
+            if exist:
+                exist.is_deleted = False
+                exist.date_played = now
+            else:
                 rec = WatchRecord(
                     user_id=current_user.id,
-                    item_id=f"{item_id}_{target_season}_{target_episode}",
+                    item_id=ep_item_id,
                     item_type='Episode',
                     library_name='TMDB添加',
                     title=f"第 {target_episode} 集 - {ep_title}",
@@ -889,11 +928,10 @@ def api_mark_watched():
                     tmdb_id=str(item_id)
                 )
                 db.session.add(rec)
-                ensure_episode_detail(target_season, target_episode, ep_title, ep_overview, ep_still_path)
+            ensure_episode_detail(target_season, target_episode, ep_title, ep_overview, ep_still_path)
 
         elif scope == 'episode_batch':
             episodes_list = req_data.get('episodes_list', [])
-            # 按季聚合优化网络请求
             batch_by_season = {}
             for ep_info in episodes_list:
                 s_num = ep_info.get('season')
@@ -916,17 +954,21 @@ def api_mark_watched():
                     ep_title = ep_data.get('name') or f"第 {e_num} 集"
                     ep_overview = ep_data.get('overview') or ""
                     ep_still_path = ep_data.get('still_path')
-
                     season_str = f"第 {s_num} 季" if s_num != 0 else "特别篇"
+                    ep_item_id = f"{item_id}_{s_num}_{e_num}"
+
+                    # ✨ 修复防撞：批量选择时的单集复活
                     exist = WatchRecord.query.filter_by(
-                        user_id=current_user.id, item_type='Episode', series_name=title, season_name=season_str,
-                        episode_num=e_num, is_deleted=False
+                        user_id=current_user.id, item_id=ep_item_id
                     ).first()
 
-                    if not exist:
+                    if exist:
+                        exist.is_deleted = False
+                        exist.date_played = now
+                    else:
                         rec = WatchRecord(
                             user_id=current_user.id,
-                            item_id=f"{item_id}_{s_num}_{e_num}",
+                            item_id=ep_item_id,
                             item_type='Episode',
                             library_name='TMDB添加',
                             title=f"第 {e_num} 集 - {ep_title}",
@@ -939,7 +981,7 @@ def api_mark_watched():
                             tmdb_id=str(item_id)
                         )
                         db.session.add(rec)
-                        ensure_episode_detail(s_num, e_num, ep_title, ep_overview, ep_still_path)
+                    ensure_episode_detail(s_num, e_num, ep_title, ep_overview, ep_still_path)
 
         elif scope in ['season', 'series']:
             seasons_to_add = [target_season] if scope == 'season' else []
@@ -948,7 +990,7 @@ def api_mark_watched():
                 seasons_to_add = [s.get('season_number') for s in raw_seasons if s.get('season_number') is not None]
 
             for s_num in seasons_to_add:
-                ensure_season_poster(s_num)  # 动态同步创建每一季的专属海报详情卡
+                ensure_season_poster(s_num)
                 s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
                 s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies,
                                       timeout=8)
@@ -959,15 +1001,20 @@ def api_mark_watched():
                         if e_num is None: continue
 
                         season_str = f"第 {s_num} 季" if s_num != 0 else "特别篇"
+                        ep_item_id = f"{item_id}_{s_num}_{e_num}"
+
+                        # ✨ 修复防撞：整部/整季勾选时的批量复活
                         exist = WatchRecord.query.filter_by(
-                            user_id=current_user.id, item_type='Episode', series_name=title, season_name=season_str,
-                            episode_num=e_num, is_deleted=False
+                            user_id=current_user.id, item_id=ep_item_id
                         ).first()
 
-                        if not exist:
+                        if exist:
+                            exist.is_deleted = False
+                            exist.date_played = now
+                        else:
                             rec = WatchRecord(
                                 user_id=current_user.id,
-                                item_id=f"{item_id}_{s_num}_{e_num}",
+                                item_id=ep_item_id,
                                 item_type='Episode',
                                 library_name='TMDB添加',
                                 title=f"第 {e_num} 集 - {ep.get('name', '未知集名')}",
@@ -980,9 +1027,8 @@ def api_mark_watched():
                                 tmdb_id=str(item_id)
                             )
                             db.session.add(rec)
-                            # 联动下载每一集的精美剧照并保存单集详情
-                            ensure_episode_detail(s_num, e_num, ep.get('name'), ep.get('overview'),
-                                                  ep.get('still_path'))
+
+                        ensure_episode_detail(s_num, e_num, ep.get('name'), ep.get('overview'), ep.get('still_path'))
 
         db.session.commit()
         return jsonify({"success": True, "message": "已成功同步并下载本地海报与元数据！"})
@@ -990,6 +1036,7 @@ def api_mark_watched():
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "message": f"反向同步操作失败: {str(e)}"})
+
 @app.route('/api/search_tmdb')
 @login_required
 def api_search_tmdb():
@@ -1080,50 +1127,43 @@ def api_search_tmdb():
 
                 if media_type == 'movie':
                     if tmdb_name in watched_movies_set:
-                            watch_status = 'watched'
+                        watch_status = 'watched'
                 else:
                     if tmdb_name in watched_series_set:
-                            # 剧集命中本地记录，进一步判断进度
                         total_eps = 0
                         if item_id in TMDB_TV_EP_COUNT_CACHE:
                             total_eps = TMDB_TV_EP_COUNT_CACHE[item_id]
                         else:
                             try:
-                                    # 快速请求该剧集的官方总集数
                                 tv_resp = requests.get(f"https://api.themoviedb.org/3/tv/{item_id}",
-                                                        params={"api_key": api_key},
-                                                        proxies=get_user_proxies(current_user),
-                                                        timeout=3)
+                                                       params={"api_key": api_key},
+                                                       proxies=get_user_proxies(current_user), timeout=3)
                                 if tv_resp.status_code == 200:
                                     total_eps = tv_resp.json().get('number_of_episodes', 0)
                                     TMDB_TV_EP_COUNT_CACHE[item_id] = total_eps
                             except:
                                 pass
 
-                            # 获取本地该剧集的正常播放记录
-                        ep_records = WatchRecord.query.filter_by(
-                            user_id=current_user.id, item_type='Episode', series_name=tmdb_name, is_deleted=False
-                        ).all()
-
+                        ep_records = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode',
+                                                                 series_name=tmdb_name, is_deleted=False).all()
                         watched_normal_eps = set()
                         for ep in ep_records:
                             s_num = 1
                             if ep.season_name:
                                 match = re.search(r'\d+', ep.season_name)
                                 if match: s_num = int(match.group())
-
-                                # 排除特别篇(第0季)的干扰
                             if s_num > 0 and ep.episode_num is not None:
                                 watched_normal_eps.add(f"{s_num}_{ep.episode_num}")
 
                         local_count = len(watched_normal_eps)
 
-                            # 满进度判定
+                        # ✨ 修复：增加 local_count > 0 判断，防止 0 集时误判为 watching
                         if total_eps > 0 and local_count >= total_eps:
                             watch_status = 'watched'
-                        else:
+                        elif local_count > 0:
                             watch_status = 'watching'
-
+                        else:
+                            watch_status = 'none'
                 results.append({
                     'id': item_id,
                     'media_type': media_type,
@@ -1142,6 +1182,7 @@ def api_search_tmdb():
 @login_required
 def watched():
     """读取本地缓存：利用新增的纯剧集主海报与名字进行全局无重复渲染"""
+    # 保持时间升序：时间越新的记录越靠后遍历，从而在字典赋值时自动覆盖旧记录
     all_posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
         WatchPoster.last_watched_date.asc()).all()
 
@@ -1149,21 +1190,23 @@ def watched():
 
     for p in all_posters:
         if p.media_type == "Movie":
-            key = p.target_id
+            # ✨ 优化 1：电影优先使用 tmdb_id 聚合，防止多源头碰撞，无则使用 target_id 兜底
+            key = f"movie_{p.tmdb_id}" if p.tmdb_id else f"movie_{p.target_id}"
             name = p.display_title
             img_file = p.local_image_path  # 电影依然使用 local_image_path
         else:
-            # 剧集：纯按剧集 ID（即 target_id 前缀）去重聚合
-            pure_series_id = p.target_id.split('_')[0]
-            key = pure_series_id
-            name = p.series_name  # 💥 直接提取新字段：纯剧集名字
-            img_file = p.series_image_path  # 💥 直接提取新字段：纯剧集主海报，彻底隔绝多季重复方块！
+            # ✨ 优化 2：剧集放弃多平台不合群的 target_id，改用全局唯一的 tmdb_id 聚合，无则用剧集名兜底
+            # 这样无论记录来自 Jellyfin (UUID) 还是探索页 (TMDB数字ID)，都能完美合并为同一个方块！
+            key = f"series_{p.tmdb_id}" if p.tmdb_id else f"series_{p.series_name}"
+            name = p.series_name  # 直接提取新字段：纯剧集名字
+            img_file = p.series_image_path or p.local_image_path  # 直接提取新字段：纯剧集主海报，防多季重复
 
+        # 时间靠后的最新足迹会自动覆盖字典中的旧足迹，从而锁定最新观看时间与最新的主海报图片
         aggregated_dict[key] = {
             "id": p.id,
             "name": name,
             "type_icon": "🎬" if p.media_type == "Movie" else "📺",
-            "local_img_url": url_for('static', filename=img_file),
+            "local_img_url": url_for('static', filename=img_file) if img_file else url_for('static', filename='images/logo.png'),
             "date_actual": p.last_watched_date
         }
 
@@ -1325,14 +1368,24 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
             title=item.get("Name", "未知"), date_played=dt_local, source="Jellyfin", tmdb_id=tmdb_id
         )
         if item_type == "Episode":
-            record.series_name = item.get("SeriesName", "未知剧集")
-            record.season_name = f"第 {item.get('ParentIndexNumber', '?')} 季"
-            ep_index = item.get('IndexNumber')
-            record.title = f"第 {ep_index or '?'} 集 - {item.get('Name', '未知集名')}"
-            try:
-                record.episode_num = int(ep_index) if ep_index is not None else None
-            except ValueError:
-                record.episode_num = None
+            if item_type == "Episode":
+                record.series_name = item.get("SeriesName", "未知剧集")
+
+                # ✨ 修复 2：智能提取真实的季名称
+                p_index = item.get("ParentIndexNumber")
+                if item.get("SeasonName"):
+                    record.season_name = item.get("SeasonName")
+                elif p_index is not None:
+                    record.season_name = f"第 {p_index} 季" if p_index != 0 else "特别篇"
+                else:
+                    record.season_name = "第 1 季"
+
+                ep_index = item.get('IndexNumber')
+                record.title = f"第 {ep_index or '?'} 集 - {item.get('Name', '未知集名')}"
+                try:
+                    record.episode_num = int(ep_index) if ep_index is not None else None
+                except (ValueError, TypeError):
+                    record.episode_num = None
 
         db.session.add(record)
         return True
@@ -1496,7 +1549,7 @@ def sync_history():
                 f"{base_user_url}/Items", headers=headers,
                 params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
                         "Recursive": "true", "Limit": 2000,
-                        "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds"},
+                        "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
                 timeout=15
             )
             if items_resp.status_code != 200: continue
@@ -1578,19 +1631,20 @@ def watched_list():
                 'poster_path': movie_poster_map.get(record.title, "images/logo.png")
             })
 
-        # [分支 B：处理剧集]
+            # [分支 B：处理剧集]
         else:
             series_name = getattr(record, 'series_name', record.title)
 
-            try:
-                season_num = int(getattr(record, 'season_num', 1)) if getattr(record, 'season_num', 1) is not None else 1
-            except ValueError:
-                season_num = 1
-            season_name = f"第 {season_num} 季"
+            # ✨ 修复 3：直接读取数据库中已经清洗好的 season_name，杜绝强行算作第1季
+            season_name = getattr(record, 'season_name')
+            if not season_name:
+                season_name = "第 1 季"
+
             episode_name = record.title
 
             # 顺手把该剧的海报映射存进去
-            library_data[lib_name]['series_posters'][series_name] = series_poster_map.get(series_name, "images/logo.png")
+            library_data[lib_name]['series_posters'][series_name] = series_poster_map.get(series_name,
+                                                                                          "images/logo.png")
 
             # 构建原有的剧集折叠树结构
             if series_name not in library_data[lib_name]['episodes_tree']:
@@ -1600,7 +1654,7 @@ def watched_list():
                 library_data[lib_name]['episodes_tree'][series_name][season_name] = []
 
             library_data[lib_name]['episodes_tree'][series_name][season_name].append({
-                'id': record.id,  # ✨ 新增：传入剧集单集在数据库中的真实 ID
+                'id': record.id,
                 'episode': episode_name,
                 'date': date_played_str
             })
@@ -1669,16 +1723,40 @@ def delete_history():
         return jsonify({'success': False, 'message': '未选择任何记录'})
 
     try:
-        # 将选中的记录标记为已删除
         records = WatchRecord.query.filter(WatchRecord.id.in_(record_ids), WatchRecord.user_id == current_user.id).all()
+
+        movies_to_check = set()
+        series_to_check = set()
+
         for r in records:
             r.is_deleted = True
+            if r.item_type == 'Movie':
+                movies_to_check.add(r.title)
+            else:
+                series_to_check.add(getattr(r, 'series_name', r.title))
 
-        # 顺便处理海报墙：如果一部剧的所有记录都被删了，把它的海报也隐藏掉
-        # （这里简化处理，直接让用户在海报模式下也能无缝体验软删除）
+        # 先将足迹的软删除状态刷入数据库，方便下面做统计
+        db.session.flush()
+
+        # ✨ 新增：处理海报墙级联隐藏（如果电影/剧集的最后一条记录被删了，海报也跟着软删除）
+        for m_title in movies_to_check:
+            if not WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', title=m_title,
+                                               is_deleted=False).first():
+                for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Movie',
+                                                     display_title=m_title).all():
+                    p.is_deleted = True
+
+        for s_name in series_to_check:
+            if not WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode', series_name=s_name,
+                                               is_deleted=False).first():
+                for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series',
+                                                     series_name=s_name).all():
+                    p.is_deleted = True
+
         db.session.commit()
         return jsonify({'success': True, 'message': f'成功移除了 {len(records)} 条足迹'})
     except Exception as e:
+        db.session.rollback()
         return jsonify({'success': False, 'message': f'删除失败: {str(e)}'})
 
 @app.route('/demo')

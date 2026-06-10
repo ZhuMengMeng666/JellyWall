@@ -135,7 +135,7 @@
             <span class="rating-box">{{ rating }}</span>
             <span>{{ genres }}</span>
 
-            {% if is_movie_watched %}
+            {% if is_movie_watched or is_series_watched %}
             <span style="color: #10b981; font-weight: bold; display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; background: rgba(16, 185, 129, 0.15); padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3);">
                 <svg viewBox="0 0 20 20" style="width: 16px; height: 16px; fill: #10b981;"><path d="M16.807 5.23a1 1 0 01.07 1.41l-7.25 8a1 1 0 01-1.41.07l-3.25-3.5a1 1 0 111.41-1.41l2.5 2.68 6.57-7.25a1 1 0 011.41-.07z"/></svg>
                 已看完
@@ -150,9 +150,13 @@
             </span>
             {% endif %}
 
-            {% if (media_type == 'movie' and not is_movie_watched) or (media_type == 'series' and season_watch_status|length == 0) %}
-            <button class="action-btn-mini" onclick="markAsWatched('{{ media_type }}', '{{ 'movie' if media_type == 'movie' else 'series' }}')">
-                <i data-lucide="check-circle-2"></i> 标记整部{{ '电影' if media_type == 'movie' else '剧集' }}已看
+            {% if media_type == 'movie' and not is_movie_watched %}
+            <button class="action-btn-mini" onclick="markAsWatched('movie', 'movie')">
+                <i data-lucide="check-circle-2"></i> 标记为已看
+            </button>
+            {% elif media_type == 'series' and not is_series_watched %}
+            <button class="action-btn-mini" onclick="selectAllEpisodes()">
+                <i data-lucide="check-circle-2"></i> 标记为已看
             </button>
             {% endif %}
         </div>
@@ -191,8 +195,8 @@
                 {% endif %}
 
                 {% if season_watch_status.get(season_num) != 'full' %}
-                <button class="action-btn-inline" onclick="event.stopPropagation(); markAsWatched('series', 'season', {{ season_num }})" title="将这一季全部单集标为已看">
-                    <i data-lucide="list-plus"></i> 整季标记已看
+                <button class="action-btn-inline" onclick="event.stopPropagation(); selectSeasonEpisodes({{ season_num }})" title="将这一季未看单集全部加入暂存池">
+                    <i data-lucide="list-checks"></i> 标记为以看
                 </button>
                 {% endif %}
             </h2>
@@ -220,24 +224,37 @@
             <div class="episode-info">
                 <h3 class="episode-title">
                     {{ ep.title }}
-
-                    {% set ep_key = season_num|string ~ '_' ~ ep.episode_num|string %}
-                    {% if watched_episodes_dict and ep_key in watched_episodes_dict %}
-                        <span style="color: #10b981; font-size: 13px; margin-left: 10px; font-weight: bold; background: rgba(16, 185, 129, 0.1); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">✓ 已观看：{{ watched_episodes_dict[ep_key] }}</span>
-                    {% else %}
-                        <button class="action-btn-inline batch-select-btn"
-                                data-season="{{ season_num }}"
-                                data-episode="{{ ep.episode_num }}"
-                                data-eptitle="{{ ep.title }}"
-                                onclick="toggleEpisodeSelection(this)">
-                            <i data-lucide="plus"></i> 选择此集
-                        </button>
-                    {% endif %}
                 </h3>
+
                 <p class="episode-overview">
-                    {% if ep.overview %}{{ ep.overview }}<br><br>{% endif %}
-                    📅 首播时间：{{ ep.air_date }}
+                    {% if ep.overview %}{{ ep.overview }}{% endif %}
                 </p>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 12px;">
+
+                    <span style="font-size: 14px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px;">
+                        <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                        首播时间：{{ ep.air_date }}
+                    </span>
+
+                    <div class="episode-actions">
+                        {% set ep_key = season_num|string ~ '_' ~ ep.episode_num|string %}
+                        {% if watched_episodes_dict and ep_key in watched_episodes_dict %}
+                            <span style="color: #10b981; font-size: 13px; font-weight: bold; background: rgba(16, 185, 129, 0.1); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);">
+                                ✓ 已观看：{{ watched_episodes_dict[ep_key] }}
+                            </span>
+                        {% else %}
+                            <button class="action-btn-inline batch-select-btn" style="margin-left: 0;"
+                                    data-season="{{ season_num }}"
+                                    data-episode="{{ ep.episode_num }}"
+                                    data-eptitle="{{ ep.title }}"
+                                    onclick="toggleEpisodeSelection(this)">
+                                <i data-lucide="plus"></i> 选择此集
+                            </button>
+                        {% endif %}
+                    </div>
+
+                </div>
             </div>
         </div>
         {% endfor %}
@@ -430,6 +447,85 @@
             btn.innerHTML = originalHtml;
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }
+    }
+    // ====== ✨ 引擎：一键全选/反选指定季 ======
+    function selectSeasonEpisodes(seasonNum) {
+        // 抓取这一季下面所有的“选择此集”按钮
+        const buttons = document.querySelectorAll(`.batch-select-btn[data-season="${seasonNum}"]`);
+        // 看看还有多少个没被选中
+        const unselected = Array.from(buttons).filter(btn => !btn.classList.contains('selected'));
+
+        if (unselected.length > 0) {
+            // 如果有没选中的，就全部变成选中状态
+            unselected.forEach(btn => {
+                const season = parseInt(btn.getAttribute('data-season'));
+                const episode = parseInt(btn.getAttribute('data-episode'));
+                const title = btn.getAttribute('data-eptitle');
+
+                btn.classList.add('selected');
+                btn.innerHTML = `<i data-lucide="check"></i> 已勾选`;
+                btn.style.background = 'rgba(16, 185, 129, 0.2)';
+                btn.style.color = '#10b981';
+                btn.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+                selectedEpisodes.push({ season, episode, title });
+            });
+        } else {
+            // 如果已经全部选中了，再次点击按钮就相当于“全不选”（反选）
+            buttons.forEach(btn => {
+                const season = parseInt(btn.getAttribute('data-season'));
+                const episode = parseInt(btn.getAttribute('data-episode'));
+
+                btn.classList.remove('selected');
+                btn.innerHTML = `<i data-lucide="plus"></i> 选择此集`;
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.style.borderColor = '';
+                // 从暂存池数组中剔除它们
+                selectedEpisodes = selectedEpisodes.filter(e => !(e.season === season && e.episode === episode));
+            });
+        }
+
+        // 刷新图标和底部悬浮条
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        updateBatchActionBar();
+    }
+
+    // ====== ✨ 引擎：一键全选/反选整部剧 ======
+    function selectAllEpisodes() {
+        // 抓取页面上所有的“选择此集”按钮
+        const buttons = document.querySelectorAll(`.batch-select-btn`);
+        const unselected = Array.from(buttons).filter(btn => !btn.classList.contains('selected'));
+
+        if (unselected.length > 0) {
+            unselected.forEach(btn => {
+                const season = parseInt(btn.getAttribute('data-season'));
+                const episode = parseInt(btn.getAttribute('data-episode'));
+                const title = btn.getAttribute('data-eptitle');
+
+                btn.classList.add('selected');
+                btn.innerHTML = `<i data-lucide="check"></i> 已勾选`;
+                btn.style.background = 'rgba(16, 185, 129, 0.2)';
+                btn.style.color = '#10b981';
+                btn.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+                selectedEpisodes.push({ season, episode, title });
+            });
+            if (window.showToast) window.showToast(`已批量勾选 ${unselected.length} 集！`);
+        } else {
+            buttons.forEach(btn => {
+                const season = parseInt(btn.getAttribute('data-season'));
+                const episode = parseInt(btn.getAttribute('data-episode'));
+
+                btn.classList.remove('selected');
+                btn.innerHTML = `<i data-lucide="plus"></i> 选择此集`;
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.style.borderColor = '';
+                selectedEpisodes = selectedEpisodes.filter(e => !(e.season === season && e.episode === episode));
+            });
+        }
+
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        updateBatchActionBar();
     }
 </script>
 {% endblock %}

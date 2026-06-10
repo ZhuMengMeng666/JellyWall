@@ -55,18 +55,36 @@
         .sidebar-header {
             padding: 25px 20px; display: flex; align-items: center; justify-content: space-between;
             border-bottom: 1px solid var(--border-color);
+            transition: padding 0.3s;
         }
-        .logo-container { display: flex; align-items: center; gap: 10px; }
-        .logo-img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; }
-        .logo-text { font-weight: 900; font-size: 20px; color: var(--primary-color); letter-spacing: -0.5px; }
-        .toggle-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 20px; transition: color 0.2s; }
-        .toggle-btn:hover { color: var(--primary-color); }
+        .logo-container { display: flex; align-items: center; gap: 10px; overflow: hidden; }
+        .logo-img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
+        .logo-text { font-weight: 900; font-size: 20px; color: var(--primary-color); letter-spacing: -0.5px; white-space: nowrap; }
+
+        /* ====== ✨ 优化 1：收起侧边栏时，隐藏 Logo，完美居中汉堡按钮 ====== */
+        .sidebar.collapsed .logo-container { display: none; }
+        .sidebar.collapsed .sidebar-header { justify-content: center; padding: 25px 0; }
+
+        /* ====== ✨ 优化 2：给汉堡按钮增加细腻的悬浮色块和点击触感 ====== */
+        .toggle-btn {
+            background: transparent; border: none; color: var(--text-muted); cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+            padding: 6px; border-radius: 8px; flex-shrink: 0;
+        }
+        .toggle-btn:hover {
+            color: var(--primary-color);
+            background-color: color-mix(in srgb, var(--text-muted) 15%, transparent);
+            transform: scale(1.05);
+        }
+        .toggle-btn:active {
+            transform: scale(0.95);
+        }
 
         .nav-links { list-style: none; padding: 15px 0; margin: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; }
         .nav-links li { margin: 0 15px; }
         .nav-links li a { display: flex; align-items: center; padding: 12px 15px; color: var(--text-muted); text-decoration: none; white-space: nowrap; border-radius: 8px; position: relative; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
         .icon { width: 24px; display: inline-flex; justify-content: center; align-items: center; margin-right: 12px; transition: transform 0.3s; }
-        /* ====== ✨ 新增：专门针对 SVG 的样式，统一控制线条粗细与缩放 ====== */
         .icon svg { width: 20px; height: 20px; stroke-width: 2.2; }
 
         .nav-links li a:hover { background-color: var(--bg-color); color: var(--primary-color); transform: translateY(-3px); box-shadow: 0 6px 12px var(--hover-shadow); }
@@ -82,14 +100,20 @@
 
         .main-content { flex: 1; padding: 30px; overflow-y: auto; position: relative; }
 
-        /* 顶部导航与主题切换器 */
+        /* ====== ✨ 重构：顶部导航与主题切换器（纯 CSS 控制 SVG 无缝切换） ====== */
         .top-navbar { display: flex; justify-content: flex-end; align-items: center; padding-bottom: 20px; gap: 20px; }
-        .theme-switch { background: var(--sidebar-bg); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 14px; transition: 0.2s; }
-        .theme-switch:hover { border-color: var(--primary-color); }
+        .theme-switch { display: flex; align-items: center; gap: 6px; background: var(--sidebar-bg); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 14px; font-weight: 600; transition: 0.2s; }
+        .theme-switch:hover { border-color: var(--primary-color); color: var(--primary-color); }
+        .theme-switch svg { width: 16px; height: 16px; }
 
-        /* ====== ✨ 新增：利用 CSS 伪元素自动控制按钮文字，彻底告别 JS 闪烁 ====== */
-        html[data-theme="dark"] #mode-btn::after { content: '🌙 深色模式'; }
-        html[data-theme="light"] #mode-btn::after { content: '☀️ 浅色模式'; }
+        /* 通过 CSS 精准控制亮暗模式下图文的显隐，拒绝 JS 渲染带来的闪烁 */
+        html[data-theme="dark"] .icon-light { display: none; }
+        html[data-theme="dark"] .icon-dark { display: block; }
+        html[data-theme="dark"] .mode-text::after { content: '深色模式'; }
+
+        html[data-theme="light"] .icon-dark { display: none; }
+        html[data-theme="light"] .icon-light { display: block; }
+        html[data-theme="light"] .mode-text::after { content: '浅色模式'; }
 
         .color-picker-container { display: flex; gap: 10px; align-items: center; background: var(--sidebar-bg); padding: 8px 15px; border-radius: 20px; border: 1px solid var(--border-color); }
         .color-dot { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.2s; }
@@ -113,17 +137,14 @@
             display: flex; justify-content: space-between; align-items: center;
             margin-bottom: 12px; font-weight: 800; color: var(--primary-color); font-size: 16px;
         }
-        .toast-close { cursor: pointer; color: var(--text-muted); font-size: 16px; transition: 0.2s; }
+        .toast-close { cursor: pointer; color: var(--text-muted); display: flex; align-items: center; justify-content: center; transition: 0.2s; }
         .toast-close:hover { color: #ef4444; }
         .toast-body { font-size: 14px; line-height: 1.5; color: var(--text-muted); }
         .toast-body ul::-webkit-scrollbar { width: 6px; }
         .toast-body ul::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 4px; }
-        /* ====== ✨ 提前锁定 Lucide 图标的坑位，防止闪烁和布局抖动 ====== */
-        i[data-lucide] {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-        }
+
+        /* 提前锁定 Lucide 图标的坑位，防止闪烁和布局抖动 */
+        i[data-lucide] { display: inline-block; width: 20px; height: 20px; }
     </style>
 
     <script>
@@ -148,8 +169,12 @@
                 {% for msg in messages %}
                     <div class="toast">
                         <div class="toast-header">
-                            <span>系统通知</span>
-                            <span class="toast-close" onclick="closeToast(this)">✖</span>
+                            <span style="display: flex; align-items: center; gap: 8px;">
+                                <i data-lucide="bell-ring" style="width: 18px; height: 18px;"></i> 系统通知
+                            </span>
+                            <span class="toast-close" onclick="closeToast(this)">
+                                <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+                            </span>
                         </div>
                         <div class="toast-body">{{ msg | safe }}</div>
                     </div>
@@ -164,7 +189,7 @@
                 <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="logo-img">
                 <span class="text logo-text">JellyWall</span>
             </div>
-            <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
+            <button class="toggle-btn" onclick="toggleSidebar()"><i data-lucide="menu"></i></button>
         </div>
 
         <ul class="nav-links">
@@ -189,9 +214,13 @@
 
     <div class="main-content">
         <div class="top-navbar">
-            <button class="theme-switch" onclick="toggleDarkMode(event)" id="mode-btn"></button>
+            <button class="theme-switch" onclick="toggleDarkMode(event)" id="mode-btn">
+                <i data-lucide="moon" class="icon-dark"></i>
+                <i data-lucide="sun" class="icon-light"></i>
+                <span class="mode-text"></span>
+            </button>
             <div class="color-picker-container">
-                <span style="font-size: 12px; color: var(--text-muted);">主题色:</span>
+                <span style="font-size: 12px; color: var(--text-muted); font-weight: bold;">主题色:</span>
                 <div class="color-dot" style="background-color: #00a4dc;" onclick="setPrimaryColor(event, '#00a4dc')"></div>
                 <div class="color-dot" style="background-color: #8b5cf6;" onclick="setPrimaryColor(event, '#8b5cf6')"></div>
                 <div class="color-dot" style="background-color: #10b981;" onclick="setPrimaryColor(event, '#10b981')"></div>
@@ -225,7 +254,6 @@
         function toggleDarkMode(event) {
             triggerRippleAnimation(event, () => {
                 const htmlTag = document.documentElement;
-                // ====== ✨ 删除 JS 修改文本逻辑，仅修改 data-theme 属性 ======
                 if (htmlTag.getAttribute('data-theme') === 'dark') {
                     htmlTag.setAttribute('data-theme', 'light');
                     localStorage.setItem('jellywall_theme', 'light');
@@ -251,14 +279,22 @@
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             toast.className = 'toast';
+            // ✨ 优化：纯 JS 触发的弹窗也加入了精致的铃铛与关闭矢量图标
             toast.innerHTML = `
                 <div class="toast-header">
-                    <span>系统通知</span>
-                    <span class="toast-close" onclick="closeToast(this)">✖</span>
+                    <span style="display: flex; align-items: center; gap: 8px;">
+                        <i data-lucide="bell-ring" style="width: 18px; height: 18px;"></i> 系统通知
+                    </span>
+                    <span class="toast-close" onclick="closeToast(this)">
+                        <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+                    </span>
                 </div>
                 <div class="toast-body">${message}</div>
             `;
             container.appendChild(toast);
+
+            // 确保新注入的 HTML 里的 SVG 图标能立即被 Lucide 解析渲染
+            if (typeof lucide !== 'undefined') lucide.createIcons();
 
             setTimeout(() => toast.classList.add('show'), 10);
 
@@ -274,11 +310,6 @@
             setTimeout(() => toast.remove(), 400);
         };
 
-        // ==========================================
-        // ✨ 性能优化：将核心渲染逻辑提炼到全局同步执行
-        // 这样可以拦截浏览器的首次绘制，彻底消除页面跳转时的闪烁
-        // ==========================================
-
         // 1. 瞬间把 <i> 替换成 <svg>，消除图标闪烁
         lucide.createIcons();
 
@@ -289,7 +320,7 @@
                 link.parentElement.classList.add('active');
             }
         });
-        // 3. 需要等 DOM 完全加载完才执行的动画效果，依然留在包裹器里
+
         document.addEventListener('DOMContentLoaded', function() {
             // ====== 自动处理后端传过来的初始 Flash 弹窗动画 ======
             const toasts = document.querySelectorAll('.toast');

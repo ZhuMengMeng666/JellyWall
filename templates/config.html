@@ -78,6 +78,35 @@
 </div>
 
 <div class="config-card">
+    <div class="config-title"><i data-lucide="key"></i> 修改登录密码</div>
+    <form method="POST" action="{{ url_for('config') }}">
+        <input type="hidden" name="form_type" value="password_settings">
+
+        <div class="form-group">
+            <label>原密码</label>
+            <input type="password" name="old_password" class="custom-input" placeholder="请输入当前使用的密码" required>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group col">
+                <label>新密码</label>
+                <input type="password" name="new_password" class="custom-input" placeholder="请输入新密码（不少于 6 位）" required>
+            </div>
+            <div class="form-group col">
+                <label>确认新密码</label>
+                <input type="password" name="confirm_password" class="custom-input" placeholder="请再次输入新密码" required>
+            </div>
+        </div>
+
+        <div class="btn-group">
+            <button type="submit" class="submit-btn">
+                <i data-lucide="save"></i> 更新密码
+            </button>
+        </div>
+    </form>
+</div>
+
+<div class="config-card">
     <div class="config-title"><i data-lucide="server"></i> 绑定 / 修改服务器</div>
     <form method="POST" action="{{ url_for('config') }}">
         <input type="hidden" name="form_type" value="jellyfin_settings">

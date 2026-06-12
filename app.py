@@ -320,7 +320,66 @@ def onboarding():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    return render_template('dashboard.html', title="首页")
+    # ====== 1. 电影数据多维统计 ======
+    movies_query = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', is_deleted=False)
+    movie_total = movies_query.count()
+    movie_jf = movies_query.filter_by(source='Jellyfin').count()
+    movie_tmdb = movie_total - movie_jf  # 剩下的自然就是 TMDB 等手动标记的来源
+
+    # ====== 2. 剧集数据多维统计 ======
+    eps_query = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode', is_deleted=False)
+    ep_total = eps_query.count()
+    ep_jf = eps_query.filter_by(source='Jellyfin').count()
+    ep_tmdb = ep_total - ep_jf
+
+    # 按剧名去重，计算看了多少“部”剧
+    unique_series = db.session.query(WatchRecord.series_name).filter_by(
+        user_id=current_user.id, item_type='Episode', is_deleted=False
+    ).distinct().count()
+
+    # ====== 3. 最近观看足迹 (带海报与格式化标签) ======
+    recent_records_raw = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False) \
+        .order_by(WatchRecord.date_played.desc()).limit(8).all()
+
+    import re
+    recent_feed = []
+    for rec in recent_records_raw:
+        poster_path = "images/logo.png"
+
+        # 匹配对应的主海报
+        if rec.item_type == 'Movie':
+            poster_obj = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Movie',
+                                                     display_title=rec.title, is_deleted=False).first()
+            if poster_obj: poster_path = poster_obj.local_image_path
+        else:
+            series_name = getattr(rec, 'series_name', rec.title)
+            poster_obj = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series',
+                                                     series_name=series_name, is_deleted=False).first()
+            if poster_obj: poster_path = poster_obj.series_image_path or poster_obj.local_image_path
+
+        # 智能提取 SxxExx 格式 (如 S01E32)
+        s_num = 1
+        if rec.season_name:
+            match = re.search(r'\d+', rec.season_name)
+            if match: s_num = int(match.group())
+        e_num = rec.episode_num if rec.episode_num is not None else 0
+        se_tag = f"S{s_num:02d}E{e_num:02d}" if rec.item_type == 'Episode' else "Movie"
+
+        recent_feed.append({
+            'item_type': rec.item_type,
+            'title': rec.title,
+            'series_name': rec.series_name,
+            'se_tag': se_tag,
+            'source': rec.source,
+            'date_played': rec.date_played,
+            'poster_path': poster_path
+        })
+
+    return render_template('dashboard.html', title="仪表板",
+                           movie_total=movie_total, movie_jf=movie_jf, movie_tmdb=movie_tmdb,
+                           ep_total=ep_total, ep_jf=ep_jf, ep_tmdb=ep_tmdb,
+                           unique_series=unique_series,
+                           recent_feed=recent_feed)  # 💥 变量名换成了 recent_feed
 
 
 @app.route('/test_proxy', methods=['POST'])
@@ -390,6 +449,33 @@ def config():
             # 写入 JSON
             current_user.save()
             flash("🎉 TMDB 密钥保存成功！")
+            return redirect(url_for('config'))
+
+        # ====== ✨ 新增：处理修改密码请求 ======
+        if form_type == 'password_settings':
+            old_password = request.form.get('old_password')
+            new_password = request.form.get('new_password')
+            confirm_password = request.form.get('confirm_password')
+
+            # 1. 验证原密码是否正确
+            if not check_password_hash(current_user.password, old_password):
+                flash("❌ 原密码错误，请重试。")
+            # 2. 验证两次输入的新密码是否一致
+            elif new_password != confirm_password:
+                flash("❌ 两次输入的新密码不一致。")
+                # 3. 验证新密码长度（可选防呆设计）
+            elif len(new_password) < 6:
+                flash("⚠️ 新密码长度建议不少于 6 位。")
+            else:
+                # 4. 生成新的哈希密码并保存
+                current_user.password = generate_password_hash(new_password)
+                current_user.save()  # 自动写入 config/users.json
+
+                # ====== ✨ 核心改动：修改密码后立即注销当前用户，并踢回登录页 ======
+                logout_user()
+                flash("🎉 密码修改成功！请使用新密码重新登录。")
+                return redirect(url_for('login'))
+
             return redirect(url_for('config'))
 
         # ====== ✨ 新增：处理网页端口保存请求 ======

@@ -1,11 +1,225 @@
 {% extends 'base.html' %}
+
 {% block content %}
-    <div style="background-color: var(--sidebar-bg); padding: 30px; border-radius: 10px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
-        <h3 style="color: var(--primary-color); font-size: 24px; margin-top: 0;">欢迎来到 JellyWall！</h3>
-        <p style="color: var(--text-main); font-size: 16px; line-height: 1.6;">你已经成功绑定了 Jellyfin 服务器。</p>
-        <p style="color: var(--text-muted); line-height: 1.6;">
-            点击左侧的 <strong>“编年史海报墙”</strong> 可生成精美的观影记录长图。<br>
-            点击 <strong>“数据大盘”</strong> 可拖拽管理并查看详细的追剧进度。
-        </p>
+<style>
+    /* ==================================
+       1. 核心数据卡片网格 (顶部数据大盘)
+       ================================== */
+    .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+
+    .stat-card { background: var(--sidebar-bg); padding: 25px; border-radius: 16px; border: 1px solid var(--border-color); display: flex; flex-direction: column; transition: transform 0.3s, box-shadow 0.3s; position: relative; overflow: hidden; }
+    .stat-card:hover { transform: translateY(-5px); box-shadow: 0 12px 24px rgba(0,0,0,0.15); border-color: color-mix(in srgb, var(--primary-color) 50%, transparent); }
+
+    .stat-header { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
+    .stat-icon { width: 48px; height: 48px; border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 15%, transparent); color: var(--primary-color); display: flex; align-items: center; justify-content: center; }
+    .stat-icon svg { width: 24px; height: 24px; }
+    .stat-title { font-size: 15px; color: var(--text-muted); font-weight: 600; margin: 0; }
+
+    .stat-number { font-size: 36px; color: var(--text-main); font-weight: 900; line-height: 1; margin-bottom: 15px; display: flex; align-items: baseline; gap: 8px; }
+    .stat-unit { font-size: 14px; color: var(--text-muted); font-weight: normal; }
+
+    /* 来源明细胶囊标签 */
+    .source-tags { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 15px; margin-top: auto; }
+    .tag { font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+    .tag-jf { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); }
+    .tag-tmdb { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+
+    /* ==================================
+       2. 下半部分：左右分栏网格与面板容器
+       ================================== */
+    .dashboard-content-grid {
+        display: grid;
+        /* 左侧时间线最高 500px，右侧自适应填满剩余空间 */
+        grid-template-columns: minmax(350px, 500px) 1fr;
+        gap: 40px;
+        align-items: start;
+        margin-top: 35px;
+    }
+
+    @media (max-width: 1024px) {
+        .dashboard-content-grid { grid-template-columns: 1fr; }
+    }
+
+    /* 各个区块的通用标题 */
+    .section-title { font-size: 20px; font-weight: 800; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+
+    /* 通用阴影面板底座 */
+    .panel-card {
+        background: var(--sidebar-bg);
+        border-radius: 16px;
+        border: 1px solid var(--border-color);
+        padding: 25px 30px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.04);
+    }
+
+    /* ==================================
+       3. 左侧：紧凑型悬浮时间线 UI
+       ================================== */
+    .timeline-container { position: relative; margin-top: 20px; }
+
+    /* 贯穿始终的垂直虚线 */
+    .timeline-container::before {
+        content: ''; position: absolute; left: 6px; top: 15px; bottom: 10px; width: 2px;
+        background-image: linear-gradient(to bottom, var(--border-color) 50%, transparent 50%);
+        background-size: 2px 10px; background-repeat: repeat-y;
+    }
+
+    .timeline-item { position: relative; padding-left: 32px; margin-bottom: 8px; display: flex; align-items: center; }
+    .timeline-item:last-child { margin-bottom: 0; }
+
+    /* 时间线圆点（统一跟随系统主题色） */
+    .timeline-marker {
+        position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 14px; height: 14px;
+        border-radius: 50%; border: 3px solid var(--bg-color);
+        background-color: var(--primary-color); box-shadow: 0 0 0 2px var(--primary-color); z-index: 2;
+    }
+
+    /* 悬浮包裹卡片 */
+    .timeline-card {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        flex: 1;
+        padding: 12px 16px;
+        border-radius: 12px;
+        border: 1px solid transparent;
+        transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+        cursor: pointer;
+        min-width: 0; /* 防止内容撑破卡片 */
+    }
+    .timeline-card:hover {
+        background-color: var(--bg-color); /* 在 panel-card 背景上显现一点差异化颜色 */
+        border-color: var(--border-color);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        transform: translateY(-3px);
+    }
+
+    /* 缩小的主海报缩略图 */
+    .timeline-poster {
+        width: 48px; height: 72px; border-radius: 6px; object-fit: cover;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15); flex-shrink: 0; background-color: #222;
+        transition: transform 0.2s;
+    }
+    .timeline-card:hover .timeline-poster { transform: scale(1.05); }
+
+    /* 紧凑型信息排版与截断 */
+    .timeline-content { flex: 1; display: flex; flex-direction: column; justify-content: center; min-width: 0; gap: 8px; }
+
+    .timeline-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+
+    .timeline-title-wrapper { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .timeline-title { font-size: 16px; font-weight: 800; color: var(--primary-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* 时间和单集标题使用次级文本色，拉开信息层级 */
+    .timeline-time { font-size: 12px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; margin-left: auto; }
+
+    .timeline-tags { display: flex; align-items: center; gap: 8px; overflow: hidden; width: 100%; }
+    .tag-se { background: color-mix(in srgb, var(--primary-color) 15%, transparent); color: var(--primary-color); padding: 3px 8px; border-radius: 6px; font-size: 12px; font-family: monospace; font-weight: 900; letter-spacing: 0.5px; flex-shrink: 0;}
+    .tag-title { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 2px; }
+
+    /* ==================================
+       4. 右侧：预留功能面板样式
+       ================================== */
+    .right-placeholder {
+        background: var(--sidebar-bg); border-radius: 16px; border: 2px dashed var(--border-color);
+        padding: 50px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        color: var(--text-muted); text-align: center; transition: all 0.3s;
+    }
+    .right-placeholder:hover { border-color: var(--primary-color); color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 5%, transparent); }
+
+</style>
+
+<div class="dash-grid">
+    <div class="stat-card">
+        <div class="stat-header">
+            <div class="stat-icon"><i data-lucide="film"></i></div>
+            <h3 class="stat-title">已阅电影总计</h3>
+        </div>
+        <div class="stat-number">{{ movie_total }} <span class="stat-unit">部</span></div>
+        <div class="source-tags">
+            <span class="tag tag-jf"><i data-lucide="server" style="width:12px; height:12px;"></i> Jellyfin: {{ movie_jf }}</span>
+            <span class="tag tag-tmdb"><i data-lucide="globe" style="width:12px; height:12px;"></i> TMDB: {{ movie_tmdb }}</span>
+        </div>
     </div>
+
+    <div class="stat-card">
+        <div class="stat-header">
+            <div class="stat-icon"><i data-lucide="tv"></i></div>
+            <h3 class="stat-title">已阅剧集总计 (共 {{ unique_series }} 部)</h3>
+        </div>
+        <div class="stat-number">{{ ep_total }} <span class="stat-unit">集</span></div>
+        <div class="source-tags">
+            <span class="tag tag-jf"><i data-lucide="server" style="width:12px; height:12px;"></i> Jellyfin: {{ ep_jf }}</span>
+            <span class="tag tag-tmdb"><i data-lucide="globe" style="width:12px; height:12px;"></i> TMDB: {{ ep_tmdb }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="dashboard-content-grid">
+
+    <div class="left-column">
+        <div class="panel-card">
+            <h2 class="section-title" style="margin-top: 0;"><i data-lucide="clock-4"></i> 最近同步</h2>
+            <div class="timeline-container">
+                {% for item in recent_feed[:7] %}
+                <div class="timeline-item">
+                    <div class="timeline-marker"></div>
+
+                    <div class="timeline-card">
+                        <img src="{{ url_for('static', filename=item.poster_path) }}" class="timeline-poster" loading="lazy" onerror="this.src='{{ url_for('static', filename='images/logo.png') }}'">
+
+                        <div class="timeline-content">
+                            <div class="timeline-header">
+                                <div class="timeline-title-wrapper">
+                                    <div class="timeline-title" title="{% if item.item_type == 'Movie' %}{{ item.title }}{% else %}{{ item.series_name }}{% endif %}">
+                                        {% if item.item_type == 'Movie' %}{{ item.title }}{% else %}{{ item.series_name }}{% endif %}
+                                    </div>
+
+                                    {% if item.source == 'tmdb' %}
+                                        <span class="tag tag-tmdb"><i data-lucide="globe" style="width:12px; height:12px;"></i> TMDB</span>
+                                    {% else %}
+                                        <span class="tag tag-jf"><i data-lucide="server" style="width:12px; height:12px;"></i> Jellyfin</span>
+                                    {% endif %}
+                                </div>
+
+                                <div class="timeline-time">{{ item.date_played.strftime('%Y-%m-%d · %H:%M') }}</div>
+                            </div>
+
+                            <div class="timeline-tags">
+                                <span class="tag-se">{{ item.se_tag }}</span>
+
+                                {% if item.item_type == 'Episode' %}
+                                    <span class="tag-title" title="{{ item.title }}">{{ item.title }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+                {% else %}
+                <div style="padding: 40px; text-align: center; color: var(--text-muted);">
+                    <i data-lucide="ghost" style="width: 48px; height: 48px; opacity: 0.5; margin-bottom: 15px; display: block; margin-left: auto; margin-right: auto;"></i>
+                    本地数据库暂无记录，快去同步或探索添加吧！
+                </div>
+                {% endfor %}
+            </div>
+        </div> </div>
+
+    <div class="right-column">
+        <div class="right-placeholder" style="padding-top: 25px; align-items: flex-start; height: 100%;">
+            <h2 class="section-title" style="margin-top: 0; margin-bottom: 30px; color: var(--text-main);"><i data-lucide="layout-panel-left"></i> 扩展面板</h2>
+
+            <div style="width: 100%; text-align: center; margin-top: 40px;">
+                <i data-lucide="blocks" style="width: 48px; height: 48px; margin-bottom: 15px; opacity: 0.5;"></i>
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; color: var(--text-main);">专属预留位</h3>
+                <span style="font-size: 13px; line-height: 1.5; color: var(--text-muted);">左侧时间线已收窄<br>这块风水宝地留给你放其他模块</span>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+</script>
 {% endblock %}

@@ -61,11 +61,9 @@
         .logo-img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
         .logo-text { font-weight: 900; font-size: 20px; color: var(--primary-color); letter-spacing: -0.5px; white-space: nowrap; }
 
-        /* ====== ✨ 优化 1：收起侧边栏时，隐藏 Logo，完美居中汉堡按钮 ====== */
         .sidebar.collapsed .logo-container { display: none; }
         .sidebar.collapsed .sidebar-header { justify-content: center; padding: 25px 0; }
 
-        /* ====== ✨ 优化 2：给汉堡按钮增加细腻的悬浮色块和点击触感 ====== */
         .toggle-btn {
             background: transparent; border: none; color: var(--text-muted); cursor: pointer;
             display: flex; align-items: center; justify-content: center;
@@ -100,13 +98,11 @@
 
         .main-content { flex: 1; padding: 30px; overflow-y: auto; position: relative; }
 
-        /* ====== ✨ 重构：顶部导航与主题切换器（纯 CSS 控制 SVG 无缝切换） ====== */
         .top-navbar { display: flex; justify-content: flex-end; align-items: center; padding-bottom: 20px; gap: 20px; }
         .theme-switch { display: flex; align-items: center; gap: 6px; background: var(--sidebar-bg); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 14px; font-weight: 600; transition: 0.2s; }
         .theme-switch:hover { border-color: var(--primary-color); color: var(--primary-color); }
         .theme-switch svg { width: 16px; height: 16px; }
 
-        /* 通过 CSS 精准控制亮暗模式下图文的显隐，拒绝 JS 渲染带来的闪烁 */
         html[data-theme="dark"] .icon-light { display: none; }
         html[data-theme="dark"] .icon-dark { display: block; }
         html[data-theme="dark"] .mode-text::after { content: '深色模式'; }
@@ -143,7 +139,6 @@
         .toast-body ul::-webkit-scrollbar { width: 6px; }
         .toast-body ul::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 4px; }
 
-        /* 提前锁定 Lucide 图标的坑位，防止闪烁和布局抖动 */
         i[data-lucide] { display: inline-block; width: 20px; height: 20px; }
     </style>
 
@@ -220,11 +215,15 @@
                 <span class="mode-text"></span>
             </button>
             <div class="color-picker-container">
-                <span style="font-size: 12px; color: var(--text-muted); font-weight: bold;">主题色:</span>
-                <div class="color-dot" style="background-color: #00a4dc;" onclick="setPrimaryColor(event, '#00a4dc')"></div>
-                <div class="color-dot" style="background-color: #8b5cf6;" onclick="setPrimaryColor(event, '#8b5cf6')"></div>
-                <div class="color-dot" style="background-color: #10b981;" onclick="setPrimaryColor(event, '#10b981')"></div>
-                <div class="color-dot" style="background-color: #f43f5e;" onclick="setPrimaryColor(event, '#f43f5e')"></div>
+                <span style="font-size: 12px; color: var(--text-muted); font-weight: bold; margin-right: 2px;">主题色:</span>
+                <div class="color-dot" style="background-color: #00a4dc;" onclick="setPrimaryColor(event, '#00a4dc')" title="天际蓝"></div>
+                <div class="color-dot" style="background-color: #8b5cf6;" onclick="setPrimaryColor(event, '#8b5cf6')" title="魅影紫"></div>
+                <div class="color-dot" style="background-color: #ec4899;" onclick="setPrimaryColor(event, '#ec4899')" title="猛男粉"></div>
+                <div class="color-dot" style="background-color: #f43f5e;" onclick="setPrimaryColor(event, '#f43f5e')" title="玫瑰红"></div>
+                <div class="color-dot" style="background-color: #f59e0b;" onclick="setPrimaryColor(event, '#f59e0b')" title="芒果黄"></div>
+                <div class="color-dot" style="background-color: #10b981;" onclick="setPrimaryColor(event, '#10b981')" title="翡翠绿"></div>
+                <div class="color-dot" style="background-color: #14b8a6;" onclick="setPrimaryColor(event, '#14b8a6')" title="薄荷青"></div>
+                <div class="color-dot" style="background-color: #64748b;" onclick="setPrimaryColor(event, '#64748b')" title="石板灰"></div>
             </div>
         </div>
 
@@ -279,7 +278,6 @@
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             toast.className = 'toast';
-            // ✨ 优化：纯 JS 触发的弹窗也加入了精致的铃铛与关闭矢量图标
             toast.innerHTML = `
                 <div class="toast-header">
                     <span style="display: flex; align-items: center; gap: 8px;">
@@ -293,7 +291,6 @@
             `;
             container.appendChild(toast);
 
-            // 确保新注入的 HTML 里的 SVG 图标能立即被 Lucide 解析渲染
             if (typeof lucide !== 'undefined') lucide.createIcons();
 
             setTimeout(() => toast.classList.add('show'), 10);
@@ -310,10 +307,8 @@
             setTimeout(() => toast.remove(), 400);
         };
 
-        // 1. 瞬间把 <i> 替换成 <svg>，消除图标闪烁
         lucide.createIcons();
 
-        // 2. 瞬间计算并添加侧边栏的蓝色高亮，消除高亮块的延迟跳动
         const currentPath = window.location.pathname;
         document.querySelectorAll('.nav-links li a').forEach(link => {
             if (link.getAttribute('href') === currentPath) {
@@ -322,7 +317,6 @@
         });
 
         document.addEventListener('DOMContentLoaded', function() {
-            // ====== 自动处理后端传过来的初始 Flash 弹窗动画 ======
             const toasts = document.querySelectorAll('.toast');
             toasts.forEach((toast, index) => {
                 setTimeout(() => { toast.classList.add('show'); }, 100 * index);

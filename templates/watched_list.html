@@ -81,6 +81,56 @@
     .btn-danger:hover { background: #dc2626; }
     .btn-cancel { background: transparent; color: #bbb; border: 1px solid #bbb; padding: 10px 24px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: all 0.2s;}
     .btn-cancel:hover { background: rgba(255,255,255,0.1); color: #fff; }
+
+    /* ====== ✨ 同步实时弹窗 (跟随主题色 + 简约环形动画) ====== */
+    .sync-overlay {
+        display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(0,0,0,0.6); z-index: 10000; align-items: center; justify-content: center;
+        backdrop-filter: blur(5px); opacity: 0; transition: opacity 0.3s ease;
+    }
+    .sync-modal-box {
+        background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 12px; width: 420px;
+        padding: 20px 24px; box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+        transform: scale(0.95); transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); display: flex; flex-direction: column;
+    }
+    .sync-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+    .sync-modal-header span { color: var(--text-main); font-size: 14px; font-weight: 700; letter-spacing: 0.5px; }
+
+    .sync-close-btn {
+        background: transparent; border: 1px solid var(--border-color); color: var(--text-muted); border-radius: 6px; padding: 4px;
+        cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+    }
+    .sync-close-btn:hover {
+        border-color: var(--primary-color); color: var(--primary-color);
+        background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+    }
+
+    .sync-modal-body { display: flex; gap: 24px; align-items: center; padding-bottom: 10px;}
+
+    /* 左侧图标容器 (完美跟随主题色) */
+    .sync-spinner-box {
+        width: 50px; height: 50px;
+        background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+        border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
+        border-radius: 14px;
+        display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+
+    /* 简约无限循环转圈动画 */
+    .sync-spinner {
+        width: 24px; height: 24px;
+        border: 3px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
+        border-top-color: var(--primary-color);
+        border-radius: 50%;
+        animation: spin-ring 1s linear infinite;
+    }
+    @keyframes spin-ring {
+        to { transform: rotate(360deg); }
+    }
+
+    .sync-text-box { display: flex; flex-direction: column; overflow: hidden; flex: 1; }
+    .sync-title { font-size: 16px; color: var(--text-main); font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;}
+    .sync-subtitle { font-size: 13px; color: var(--text-muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 </style>
 
 <script>
@@ -259,6 +309,24 @@
     </button>
 </div>
 
+<div id="sync-modal-overlay" class="sync-overlay">
+    <div class="sync-modal-box">
+        <div class="sync-modal-header">
+            <span>Jellyfin Sync</span>
+            <button class="sync-close-btn" onclick="cancelSync()"><i data-lucide="x" style="width: 14px; height: 14px;"></i></button>
+        </div>
+        <div class="sync-modal-body">
+            <div class="sync-spinner-box">
+                <div class="sync-spinner"></div>
+            </div>
+            <div class="sync-text-box">
+                <div class="sync-title">同步中,请勿关闭/重启此项目</div>
+                <div class="sync-subtitle" id="sync-status-sub">正在连接服务器...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const container = document.getElementById('library-container');
@@ -306,22 +374,61 @@
         }
     };
 
+    // ====== ✨ 核心升级：基于 SSE 的实时流同步监听 ======
     window.handleSyncClick = function(linkElement, event) {
-        event.preventDefault();
-        const btn = document.getElementById('sync-btn');
-        const iconContainer = document.getElementById('sync-icon');
-        const text = document.getElementById('sync-text');
+        event.preventDefault(); // 阻止原先的直接页面跳转
 
-        btn.style.opacity = '0.7'; btn.style.cursor = 'not-allowed'; linkElement.style.pointerEvents = 'none';
+        const overlay = document.getElementById('sync-modal-overlay');
+        const modal = overlay.querySelector('.sync-modal-box');
+        const subText = document.getElementById('sync-status-sub');
 
-        // 动态替换为 loading 动画的 SVG 图标
-        iconContainer.outerHTML = '<i data-lucide="loader-2" id="sync-icon" style="width: 16px; height: 16px; animation: spin 1s linear infinite;"></i>';
-        text.innerHTML = '正在请求与下载...';
+        // 丝滑弹出 Watcharr 风格窗口
+        overlay.style.display = 'flex';
+        void overlay.offsetWidth; // 触发重绘
+        overlay.style.opacity = '1';
+        modal.style.transform = 'scale(1)';
         if (typeof lucide !== 'undefined') lucide.createIcons();
 
-        window.showToast("⏳ 正在与 Jellyfin 通信并比对最新数据。<br><br>若有新记录，将自动下载高清海报。这可能需要几十秒时间，请耐心等待...");
-        setTimeout(() => { window.location.href = linkElement.href; }, 300);
+        subText.innerText = "正在建立流式连接...";
+
+        // 开启实时数据流 (SSE) 监听，我们将对接新的后端路由
+        const eventSource = new EventSource('/api/sync_stream');
+
+        // 接收后端源源不断推送过来的实况数据
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+
+            if (data.status === 'syncing') {
+                subText.innerText = "正在同步：" + data.name; // 实时显示正在处理的名字
+            } else if (data.status === 'done') {
+                subText.innerText = "同步完毕，正在重载媒体库...";
+                eventSource.close();
+                setTimeout(() => window.location.reload(), 1000);
+            } else if (data.status === 'error') {
+                subText.innerText = "Error: " + data.message;
+                eventSource.close();
+            }
+        };
+
+        eventSource.onerror = function(err) {
+            subText.innerText = "Error: 连接意外断开";
+            eventSource.close();
+        };
+
+        // 挂载到全局，方便点击右上角取消时强行掐断流
+        window.currentSyncStream = eventSource;
     };
+
+    // ====== ✨ 绑定右上角 X 按钮的取消事件 ======
+    window.cancelSync = function() {
+        if (window.currentSyncStream) {
+            window.currentSyncStream.close(); // 掐断前端接收
+        }
+        const overlay = document.getElementById('sync-modal-overlay');
+        overlay.style.opacity = '0';
+        setTimeout(() => { overlay.style.display = 'none'; }, 300);
+    };
+
 
     // ====== 编辑、级联勾选与软删除核心逻辑 ======
     let isEditMode = false;

@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  jellywall:
+    build: .
+    container_name: jellywall
+    restart: unless-stopped
+    ports:
+      # 左边是你 NAS 上想用的访问端口，右边是容器内端口
+      - "5000:5000"
+    volumes:
+      # 映射配置文件 (users.json 等)
+      - /volume2/HDD-Docker/JellyWall/config:/app/config
+      # 映射 SQLite 数据库
+      - /volume2/HDD-Docker/JellyWall/instance:/app/instance
+      # 映射本地化的缓存海报与剧照
+      - /volume2/HDD-Docker/JellyWall/static/posters:/app/static/posters
+      - /volume2/HDD-Docker/JellyWall/static/stills:/app/static/stills
+      - /volume2/HDD-Docker/JellyWall/static/backdrops:/app/static/backdrops
+    environment:
+      - TZ=Asia/Shanghai  # 确保日志和同步时间时区正确

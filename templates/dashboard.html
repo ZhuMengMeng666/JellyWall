@@ -18,7 +18,6 @@
     .stat-number { font-size: 36px; color: var(--text-main); font-weight: 900; line-height: 1; margin-bottom: 15px; display: flex; align-items: baseline; gap: 8px; }
     .stat-unit { font-size: 14px; color: var(--text-muted); font-weight: normal; }
 
-    /* 来源明细胶囊标签 */
     .source-tags { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 15px; margin-top: auto; }
     .tag { font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
     .tag-jf { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); }
@@ -29,7 +28,6 @@
        ================================== */
     .dashboard-content-grid {
         display: grid;
-        /* 左侧时间线最高 500px，右侧自适应填满剩余空间 */
         grid-template-columns: minmax(350px, 500px) 1fr;
         gap: 40px;
         align-items: start;
@@ -40,10 +38,8 @@
         .dashboard-content-grid { grid-template-columns: 1fr; }
     }
 
-    /* 各个区块的通用标题 */
     .section-title { font-size: 20px; font-weight: 800; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
 
-    /* 通用阴影面板底座 */
     .panel-card {
         background: var(--sidebar-bg);
         border-radius: 16px;
@@ -52,12 +48,13 @@
         box-shadow: 0 6px 20px rgba(0,0,0,0.04);
     }
 
+    .right-column { min-width: 0; }
+
     /* ==================================
        3. 左侧：紧凑型悬浮时间线 UI
        ================================== */
     .timeline-container { position: relative; margin-top: 20px; }
 
-    /* 贯穿始终的垂直虚线 */
     .timeline-container::before {
         content: ''; position: absolute; left: 6px; top: 15px; bottom: 10px; width: 2px;
         background-image: linear-gradient(to bottom, var(--border-color) 50%, transparent 50%);
@@ -67,34 +64,22 @@
     .timeline-item { position: relative; padding-left: 32px; margin-bottom: 8px; display: flex; align-items: center; }
     .timeline-item:last-child { margin-bottom: 0; }
 
-    /* 时间线圆点（统一跟随系统主题色） */
     .timeline-marker {
         position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 14px; height: 14px;
         border-radius: 50%; border: 3px solid var(--bg-color);
         background-color: var(--primary-color); box-shadow: 0 0 0 2px var(--primary-color); z-index: 2;
     }
 
-    /* 悬浮包裹卡片 */
     .timeline-card {
-        display: flex;
-        align-items: center;
-        gap: 15px;
-        flex: 1;
-        padding: 12px 16px;
-        border-radius: 12px;
-        border: 1px solid transparent;
-        transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
-        cursor: pointer;
-        min-width: 0; /* 防止内容撑破卡片 */
+        display: flex; align-items: center; gap: 15px; flex: 1; padding: 12px 16px;
+        border-radius: 12px; border: 1px solid transparent;
+        transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1); cursor: pointer; min-width: 0;
     }
     .timeline-card:hover {
-        background-color: var(--bg-color); /* 在 panel-card 背景上显现一点差异化颜色 */
-        border-color: var(--border-color);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-        transform: translateY(-3px);
+        background-color: var(--bg-color); border-color: var(--border-color);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08); transform: translateY(-3px);
     }
 
-    /* 缩小的主海报缩略图 */
     .timeline-poster {
         width: 48px; height: 72px; border-radius: 6px; object-fit: cover;
         box-shadow: 0 4px 8px rgba(0,0,0,0.15); flex-shrink: 0; background-color: #222;
@@ -102,23 +87,18 @@
     }
     .timeline-card:hover .timeline-poster { transform: scale(1.05); }
 
-    /* 紧凑型信息排版与截断 */
     .timeline-content { flex: 1; display: flex; flex-direction: column; justify-content: center; min-width: 0; gap: 8px; }
-
     .timeline-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-
     .timeline-title-wrapper { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .timeline-title { font-size: 16px; font-weight: 800; color: var(--primary-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    /* 时间和单集标题使用次级文本色，拉开信息层级 */
     .timeline-time { font-size: 12px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; margin-left: auto; }
-
     .timeline-tags { display: flex; align-items: center; gap: 8px; overflow: hidden; width: 100%; }
     .tag-se { background: color-mix(in srgb, var(--primary-color) 15%, transparent); color: var(--primary-color); padding: 3px 8px; border-radius: 6px; font-size: 12px; font-family: monospace; font-weight: 900; letter-spacing: 0.5px; flex-shrink: 0;}
     .tag-title { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 2px; }
 
     /* ==================================
-       4. 右侧：预留功能面板样式
+       4. 右侧：预留面板
        ================================== */
     .right-placeholder {
         background: var(--sidebar-bg); border-radius: 16px; border: 2px dashed var(--border-color);
@@ -127,6 +107,62 @@
     }
     .right-placeholder:hover { border-color: var(--primary-color); color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 5%, transparent); }
 
+    /* ==================================
+       5. 观影活跃度热力图 (无动效全局标注版)
+       ================================== */
+    .heatmap-card {
+        background: var(--sidebar-bg); border-radius: 16px; border: 1px solid var(--border-color);
+        padding: 25px 30px; box-shadow: 0 6px 20px rgba(0,0,0,0.04);
+        display: flex; flex-direction: column; min-width: 0;
+    }
+
+    .heatmap-wrapper { overflow-x: auto; padding-bottom: 15px; margin-top: 10px; }
+    .heatmap-wrapper::-webkit-scrollbar { height: 6px; }
+    .heatmap-wrapper::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+    .heatmap-wrapper::-webkit-scrollbar-track { background: transparent; }
+
+    .heatmap-inner { width: max-content; }
+
+    /* 月份坐标轴容器 */
+    .heatmap-months { position: relative; height: 20px; margin-bottom: 5px; width: 100%; }
+    .month-label { position: absolute; font-size: 12px; color: var(--text-muted); bottom: 0; }
+
+    /* 网格容器 */
+    .heatmap-grid {
+        display: grid; grid-template-rows: repeat(7, 13px); grid-auto-flow: column;
+        gap: 4px; width: max-content;
+    }
+
+    /* 单个小方块 (彻底取消放缩动效) */
+    .heatmap-cell {
+        width: 13px; height: 13px; border-radius: 3px;
+        background-color: color-mix(in srgb, var(--text-muted) 15%, transparent);
+        cursor: pointer;
+    }
+    /* 仅保留极其轻微的透明度反馈，不产生任何位移和边框干扰 */
+    .heatmap-cell:hover { opacity: 0.7; }
+
+    /* 热力颜色等级 */
+    .heatmap-cell[data-level="1"] { background-color: color-mix(in srgb, var(--primary-color) 30%, transparent); }
+    .heatmap-cell[data-level="2"] { background-color: color-mix(in srgb, var(--primary-color) 60%, transparent); }
+    .heatmap-cell[data-level="3"] { background-color: color-mix(in srgb, var(--primary-color) 85%, transparent); }
+    .heatmap-cell[data-level="4"] { background-color: var(--primary-color); }
+
+    /* 图例 */
+    .heatmap-legend { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--text-muted); margin-top: 15px; }
+    .legend-box { width: 11px; height: 11px; border-radius: 2px; }
+
+    /* ✨ 核心：独立的全局 Tooltip 样式，直接挂载在 Body 下，绝对不会被遮挡 */
+    .global-heatmap-tooltip {
+        position: absolute; background: #222; color: #fff; padding: 6px 12px; border-radius: 6px;
+        font-size: 12px; white-space: nowrap; pointer-events: none; opacity: 0; z-index: 10000;
+        transition: opacity 0.15s ease-out; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        transform: translate(-50%, -100%); margin-top: -8px;
+    }
+    .global-heatmap-tooltip::after {
+        content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+        border-width: 5px; border-style: solid; border-color: #222 transparent transparent transparent;
+    }
 </style>
 
 <div class="dash-grid">
@@ -203,16 +239,30 @@
                 </div>
                 {% endfor %}
             </div>
-        </div> </div>
+        </div>
+    </div>
 
     <div class="right-column">
-        <div class="right-placeholder" style="padding-top: 25px; align-items: flex-start; height: 100%;">
-            <h2 class="section-title" style="margin-top: 0; margin-bottom: 30px; color: var(--text-main);"><i data-lucide="layout-panel-left"></i> 扩展面板</h2>
+        <div class="heatmap-card">
+            <h2 class="section-title" style="margin-top: 0; margin-bottom: 10px;">
+                <i data-lucide="activity"></i> 观影活跃度
+            </h2>
 
-            <div style="width: 100%; text-align: center; margin-top: 40px;">
-                <i data-lucide="blocks" style="width: 48px; height: 48px; margin-bottom: 15px; opacity: 0.5;"></i>
-                <h3 style="margin: 0 0 8px 0; font-size: 16px; color: var(--text-main);">专属预留位</h3>
-                <span style="font-size: 13px; line-height: 1.5; color: var(--text-muted);">左侧时间线已收窄<br>这块风水宝地留给你放其他模块</span>
+            <div class="heatmap-wrapper">
+                <div class="heatmap-inner">
+                    <div class="heatmap-months" id="heatmap-months"></div>
+                    <div class="heatmap-grid" id="heatmap-grid"></div>
+                </div>
+            </div>
+
+            <div class="heatmap-legend">
+                <span>少</span>
+                <div class="legend-box" style="background-color: color-mix(in srgb, var(--text-muted) 15%, transparent);"></div>
+                <div class="legend-box" style="background-color: color-mix(in srgb, var(--primary-color) 30%, transparent);"></div>
+                <div class="legend-box" style="background-color: color-mix(in srgb, var(--primary-color) 60%, transparent);"></div>
+                <div class="legend-box" style="background-color: color-mix(in srgb, var(--primary-color) 85%, transparent);"></div>
+                <div class="legend-box" style="background-color: var(--primary-color);"></div>
+                <span>多</span>
             </div>
         </div>
     </div>
@@ -220,6 +270,103 @@
 </div>
 
 <script>
+    // ==========================================
+    // 渲染热力图引擎 (自动对齐月份 + 动态全局弹窗)
+    // ==========================================
+    document.addEventListener('DOMContentLoaded', function() {
+        const grid = document.getElementById('heatmap-grid');
+        const monthsContainer = document.getElementById('heatmap-months');
+        if (!grid) return;
+
+        const activityData = {{ heatmap_data | default({}) | tojson | safe }};
+
+        const today = new Date();
+        const pastYear = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 364);
+
+        let html = '';
+        let monthsHtml = '';
+
+        // 计算 365 天前的那天是星期几 (0是周日)
+        const startDay = pastYear.getDay();
+
+        // 补齐开头的透明格子，确保排版严格对齐真实日历星期
+        for(let i = 0; i < startDay; i++) {
+            html += `<div class="heatmap-cell" style="background: transparent; cursor: default; outline: none; border: none;"></div>`;
+        }
+
+        let lastMonth = -1;
+
+        for (let i = 364; i >= 0; i--) {
+            let d = new Date();
+            d.setDate(today.getDate() - i);
+
+            let year = d.getFullYear();
+            let month = String(d.getMonth() + 1).padStart(2, '0');
+            let day = String(d.getDate()).padStart(2, '0');
+            let dateStr = `${year}-${month}-${day}`;
+
+            // 月份标注逻辑：定位每月初所在的列
+            if (d.getDate() === 1 || (i === 364 && d.getDate() <= 15)) {
+                let cellAbsoluteIndex = (364 - i) + startDay;
+                let colIndex = Math.floor(cellAbsoluteIndex / 7);
+                // 17px 是每个格子包含间隙的固定宽度 (13px格子 + 4px间距)
+                monthsHtml += `<div class="month-label" style="left: ${colIndex * 17}px;">${d.getMonth() + 1}月</div>`;
+            }
+
+            let data = activityData[dateStr];
+            let movies = data ? data.movies : 0;
+            let episodes = data ? data.episodes : 0;
+            let total = movies + episodes;
+
+            let level = 0;
+            if (total > 0 && total <= 2) level = 1;
+            else if (total > 2 && total <= 5) level = 2;
+            else if (total > 5 && total <= 8) level = 3;
+            else if (total > 8) level = 4;
+
+            let tooltipText = total === 0
+                ? `${dateStr} 暂无记录`
+                : `${dateStr} 观看了：${movies > 0 ? movies + ' 部电影 ' : ''}${episodes > 0 ? episodes + ' 集剧集' : ''}`;
+
+            html += `<div class="heatmap-cell" data-level="${level}" data-tooltip="${tooltipText}"></div>`;
+        }
+
+        grid.innerHTML = html;
+        monthsContainer.innerHTML = monthsHtml;
+
+        // 自动滚动到最右侧
+        const wrapper = document.querySelector('.heatmap-wrapper');
+        if (wrapper) {
+            wrapper.scrollLeft = wrapper.scrollWidth;
+        }
+
+        // ====== 独立全局悬浮提示逻辑 ======
+        let globalTooltip = document.getElementById('global-heatmap-tooltip');
+        if (!globalTooltip) {
+            globalTooltip = document.createElement('div');
+            globalTooltip.id = 'global-heatmap-tooltip';
+            globalTooltip.className = 'global-heatmap-tooltip';
+            document.body.appendChild(globalTooltip);
+        }
+
+        grid.addEventListener('mouseover', function(e) {
+            if (e.target.classList.contains('heatmap-cell') && e.target.dataset.tooltip) {
+                globalTooltip.innerHTML = e.target.dataset.tooltip;
+                const rect = e.target.getBoundingClientRect();
+                // 根据元素相对视口的位置计算，并加上网页卷去的高度
+                globalTooltip.style.left = (rect.left + rect.width / 2 + window.scrollX) + 'px';
+                globalTooltip.style.top = (rect.top + window.scrollY) + 'px';
+                globalTooltip.style.opacity = '1';
+            }
+        });
+
+        grid.addEventListener('mouseout', function(e) {
+            if (e.target.classList.contains('heatmap-cell')) {
+                globalTooltip.style.opacity = '0';
+            }
+        });
+    });
+
     if (typeof lucide !== 'undefined') lucide.createIcons();
 </script>
 {% endblock %}

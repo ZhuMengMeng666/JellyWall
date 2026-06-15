@@ -219,6 +219,115 @@
         </div>
     </form>
 </div>
+<div class="config-card">
+    <div class="config-title"><i data-lucide="timer"></i> 自动化同步配置</div>
+    <form method="POST" action="{{ url_for('config') }}">
+        <input type="hidden" name="form_type" value="auto_sync_settings">
+
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; background: color-mix(in srgb, var(--sidebar-bg) 50%, var(--bg-color)); padding: 15px 20px; border-radius: 10px; border: 1px solid var(--border-color);">
+            <div>
+                <div style="font-size: 15px; font-weight: bold; color: var(--text-main); margin-bottom: 4px;">开启定时后台同步</div>
+                <div style="font-size: 13px; color: var(--text-muted);">启用后，JellyWall 将在后台静默执行媒体库拉取，无需手动干预。</div>
+            </div>
+
+            <label style="position: relative; display: inline-block; width: 44px; height: 24px;">
+                <input type="checkbox" name="sync_enabled" id="sync_enabled" style="opacity: 0; width: 0; height: 0;" {% if current_user.sync_enabled %}checked{% endif %} onchange="toggleCronInput()">
+                <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border-color); transition: .4s; border-radius: 24px;" id="toggle-bg"></span>
+                <span style="position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%;" id="toggle-dot"></span>
+            </label>
+        </div>
+
+        <div id="cron-setup-area" style="transition: opacity 0.3s; {% if not current_user.sync_enabled %}opacity: 0.4; pointer-events: none;{% endif %}">
+            <div class="form-group">
+                <label>执行周期 (Cron 表达式)</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" name="sync_cron" id="sync_cron" class="custom-input" style="font-family: monospace; font-size: 16px; font-weight: bold; color: var(--primary-color); letter-spacing: 2px;"
+                           value="{{ current_user.sync_cron or '0 * * * *' }}" required oninput="translateCron()">
+
+                    <button type="button" class="submit-btn test-btn" style="padding: 10px 15px;" onclick="setCron('0 * * * *')">每小时</button>
+                    <button type="button" class="submit-btn test-btn" style="padding: 10px 15px;" onclick="setCron('0 */6 * * *')">每6小时</button>
+                    <button type="button" class="submit-btn test-btn" style="padding: 10px 15px;" onclick="setCron('0 2 * * *')">每天凌晨2点</button>
+                </div>
+            </div>
+
+            <div style="background: rgba(16, 185, 129, 0.1); border: 1px dashed rgba(16, 185, 129, 0.4); padding: 12px 15px; border-radius: 8px; display: flex; align-items: center; gap: 10px;">
+                <i data-lucide="bot" style="color: #10b981; width: 18px; height: 18px;"></i>
+                <span id="cron-translation" style="color: #10b981; font-size: 14px; font-weight: 600;">每小时的第 0 分钟触发</span>
+            </div>
+        </div>
+
+        <div class="btn-group" style="margin-top: 25px;">
+            <button type="submit" class="submit-btn">
+                <i data-lucide="save"></i> 保存自动化规则
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    // 开关 UI 联动逻辑
+    function toggleCronInput() {
+        const isChecked = document.getElementById('sync_enabled').checked;
+        const bg = document.getElementById('toggle-bg');
+        const dot = document.getElementById('toggle-dot');
+        const area = document.getElementById('cron-setup-area');
+
+        if (isChecked) {
+            bg.style.backgroundColor = 'var(--primary-color)';
+            dot.style.transform = 'translateX(20px)';
+            area.style.opacity = '1';
+            area.style.pointerEvents = 'auto';
+        } else {
+            bg.style.backgroundColor = 'var(--border-color)';
+            dot.style.transform = 'translateX(0)';
+            area.style.opacity = '0.4';
+            area.style.pointerEvents = 'none';
+        }
+    }
+
+    // 初始化开关状态
+    toggleCronInput();
+
+    // 快捷按钮填入
+    function setCron(val) {
+        document.getElementById('sync_cron').value = val;
+        translateCron();
+    }
+
+    // 简易的 Cron 人话翻译器 (匹配你的图片效果)
+    function translateCron() {
+        const val = document.getElementById('sync_cron').value.trim();
+        const parts = val.split(/\s+/);
+        const out = document.getElementById('cron-translation');
+
+        if (parts.length !== 5) {
+            out.innerText = "格式有误，请输入标准的 5 位 Cron 表达式 (分 时 日 月 周)";
+            out.style.color = "#ef4444";
+            return;
+        }
+        out.style.color = "#10b981";
+
+        const [min, hour, day, month, week] = parts;
+        let result = "将会在 ";
+
+        if (val === "0 * * * *") result += "每小时的第 0 分钟";
+        else if (val === "0 */6 * * *") result += "每隔 6 小时的第 0 分钟";
+        else if (val === "0 2 * * *") result += "每天的凌晨 2:00";
+        else {
+            result += `${month === '*' ? '每月' : month + '月'}的 `;
+            result += `${day === '*' ? '每天 ' : day + '号 '}`;
+            if (week !== '*') result += `(周 ${week}) `;
+            result += `${hour === '*' ? '每小时' : hour + '点'}`;
+            result += `${min === '*' ? '每分钟' : min + '分'} `;
+            result += "触发";
+        }
+
+        out.innerText = result;
+    }
+
+    // 初始化翻译
+    translateCron();
+</script>
 
 <script>
     // 确保直接进入此页面时图标能正确渲染

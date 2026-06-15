@@ -16,6 +16,9 @@ import os
 import requests
 from datetime import datetime
 from flask import request, jsonify
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import traceback
 
 # ====== ✨ 新增：TMDB 搜索短时缓存池 (存放格式: {query: {timestamp: float, data: list}}) ======
 TMDB_SEARCH_CACHE = {}
@@ -54,7 +57,7 @@ def save_users(users):
 
 # ====== ✨ 重写：纯 Python 类的 User 模型 ======
 class User(UserMixin):
-    def __init__(self, id, username, password, jellyfin_url=None, jellyfin_api_key=None, jellyfin_user_id=None, proxy_url=None, proxy_port=None, tmdb_api_key=None, web_port=None):
+    def __init__(self, id, username, password, jellyfin_url=None, jellyfin_api_key=None, jellyfin_user_id=None, proxy_url=None, proxy_port=None, tmdb_api_key=None, web_port=None, sync_enabled=False, sync_cron="0 * * * *"):
         self.id = str(id)  # JSON 的 key 必须是字符串
         self.username = username
         self.password = password
@@ -65,6 +68,8 @@ class User(UserMixin):
         self.proxy_port = proxy_port
         self.tmdb_api_key = tmdb_api_key
         self.web_port = web_port  # ✨ 赋值给对象属性
+        self.sync_enabled = sync_enabled
+        self.sync_cron = sync_cron
 
     # 将对象转为字典，方便存入 JSON
     def to_dict(self):
@@ -74,7 +79,9 @@ class User(UserMixin):
             "jellyfin_user_id": self.jellyfin_user_id, "proxy_url": self.proxy_url,
             "proxy_port": self.proxy_port,
             "tmdb_api_key": self.tmdb_api_key,
-            "web_port": self.web_port  # ✨ 保存到 JSON 时带上这个字段
+            "web_port": self.web_port,  # ✨ 保存到 JSON 时带上这个字段
+            "sync_enabled": self.sync_enabled,  # ✨ 保存到 JSON
+            "sync_cron": self.sync_cron  # ✨ 保存到 JSON
         }
 
     # 自带的保存方法，随时更新自己的信息到 JSON
@@ -177,6 +184,89 @@ def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id):
         series_tmdb_id=series_tmdb_id
     )
     db.session.add(new_detail)
+
+
+# ==========================================
+# 🤖 后台自动化同步引擎 (APScheduler)
+# ==========================================
+scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
+
+
+def background_sync_task(user_id):
+    """脱离 Request 上下文的纯后台同步任务"""
+    # 必须手动推入 Flask 上下文才能操作数据库
+    with app.app_context():
+        user = load_user(user_id)
+        if not user or not user.jellyfin_url or not user.jellyfin_api_key:
+            return
+
+        print(f"⏰ [Auto-Sync] 开始为用户 {user.username} 执行定时同步...")
+        jf_url = user.jellyfin_url
+        headers = {"X-Emby-Token": user.jellyfin_api_key}
+        base_user_url = f"{jf_url}/Users/{user.jellyfin_user_id}"
+
+        poster_dir = os.path.join(app.root_path, 'static', 'posters')
+        still_dir = os.path.join(app.root_path, 'static', 'stills')
+        backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
+        tmdb_search_cache = {}
+        synced_names = set()
+
+        try:
+            views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
+            if views_resp.status_code != 200: return
+
+            for view in views_resp.json().get("Items", []):
+                items_resp = requests.get(
+                    f"{base_user_url}/Items", headers=headers,
+                    params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
+                            "Recursive": "true", "Limit": 2000,
+                            "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
+                    timeout=15
+                )
+                if items_resp.status_code != 200: continue
+
+                for item in items_resp.json().get("Items", []):
+                    dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
+                    if not dt_local: continue
+
+                    master_tmdb_id = get_tmdb_id_smart(user, item, item["Type"], tmdb_search_cache)
+
+                    # ✨ 依然使用你之前设计的全局锁保护 SQLite
+                    with db_lock:
+                        if update_watch_record(user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
+                            update_watch_poster(user.id, user.jellyfin_user_id, item, item["Type"], dt_local,
+                                                jf_url, headers, poster_dir, backdrop_dir, synced_names, master_tmdb_id)
+
+                        if item["Type"] == "Episode":
+                            update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
+
+            with db_lock:
+                db.session.commit()
+            print(f"✅ [Auto-Sync] 用户 {user.username} 定时同步完成！")
+
+        except Exception as e:
+            print(f"❌ [Auto-Sync] 定时同步失败: {e}")
+
+
+def refresh_scheduler_jobs():
+    """读取所有用户的配置，动态刷新定时任务"""
+    scheduler.remove_all_jobs()
+    users = load_users()
+    for uid, udata in users.items():
+        if udata.get('sync_enabled') and udata.get('sync_cron'):
+            try:
+                # 解析前端传来的 5 位标准 Cron (分 时 日 月 周)
+                trigger = CronTrigger.from_crontab(udata['sync_cron'])
+                scheduler.add_job(
+                    background_sync_task,
+                    trigger=trigger,
+                    args=[uid],
+                    id=f"auto_sync_{uid}",
+                    replace_existing=True
+                )
+                print(f"⚙️ 已挂载用户 {udata.get('username')} 的定时任务: {udata['sync_cron']}")
+            except ValueError:
+                print(f"⚠️ 用户 {udata.get('username')} 的 Cron 表达式无效: {udata['sync_cron']}")
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -455,8 +545,23 @@ def test_tmdb():
 @login_required
 def config():
     if request.method == 'POST':
+
         # 判断是保存 Jellyfin 配置还是保存代理配置
         form_type = request.form.get('form_type')
+        # ====== ✨ 新增：处理自动化同步配置 ======
+        if form_type == 'auto_sync_settings':
+            sync_enabled = request.form.get('sync_enabled') == 'on'
+            sync_cron = request.form.get('sync_cron').strip()
+
+            current_user.sync_enabled = sync_enabled
+            current_user.sync_cron = sync_cron
+            current_user.save()
+
+            # 配置改变后，立马刷新调度器引擎
+            refresh_scheduler_jobs()
+
+            flash("🎉 自动化同步配置已保存生效！")
+            return redirect(url_for('config'))
         if form_type == 'proxy_settings':
             current_user.proxy_url = request.form.get('proxy_url').strip()
             current_user.proxy_port = request.form.get('proxy_port').strip()
@@ -1962,6 +2067,10 @@ if __name__ == '__main__':
     # 1. 保持你原有的数据库表结构自动创建逻辑
     with app.app_context():
         db.create_all()
+
+    # ✨ 启动前，加载一次所有定时任务
+    refresh_scheduler_jobs()
+    scheduler.start()
 
     # 2. 设置一个保底的默认端口
     run_port = 5000

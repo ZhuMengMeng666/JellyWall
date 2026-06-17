@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>{{ title }} - JellyWall</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/logo.svg') }}">
     <style>
         /* ==========================================
            1. 全局 CSS 变量定义
@@ -181,7 +182,7 @@
     <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="logo-container">
-                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="logo-img">
+                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Logo" class="logo-img">
                 <span class="text logo-text">JellyWall</span>
             </div>
             <button class="toggle-btn" onclick="toggleSidebar()"><i data-lucide="menu"></i></button>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <linearGradient id="jellyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#aa5cc3" />
+      <stop offset="100%" stop-color="#00a4dc" />
+    </linearGradient>
+  </defs>
+  
+  <rect x="15" y="20" width="22" height="28" rx="6" fill="url(#jellyGrad)" opacity="0.85"/>
+  <rect x="15" y="52" width="22" height="28" rx="6" fill="url(#jellyGrad)" opacity="0.85"/>
+  
+  <path d="M 45 22 C 45 18, 49 15, 53 17 L 82 45 C 85 48, 85 52, 82 55 L 53 83 C 49 85, 45 82, 45 78 Z" fill="url(#jellyGrad)"/>
+</svg>

@@ -2,16 +2,44 @@
 
 {% block content %}
 <style>
-    /* 基础卡片与排版样式 */
+    /* ==================================
+       🌟 悬浮导航栏 (修正版)
+       ================================== */
+    .sticky-nav {
+        /* 吸顶偏移量设为 0，紧贴 main-content 顶部 */
+        position: sticky; top: -5px; z-index: 999;
+        background: color-mix(in srgb, var(--sidebar-bg) 85%, transparent);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        padding: 15px 25px; border-radius: 12px; border: 1px solid var(--border-color);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1); margin-bottom: 30px;
+        display: flex; align-items: center; gap: 15px; overflow-x: auto;
+    }
+    .sticky-nav::-webkit-scrollbar { display: none; }
+
+    .nav-label { font-weight: 800; color: var(--text-main); font-size: 15px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; margin-right: 5px; }
+
+    .nav-pill {
+        padding: 6px 16px; border-radius: 20px; border: 1px solid var(--border-color);
+        color: var(--text-muted); font-size: 14px; font-weight: 600; cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); white-space: nowrap; background: transparent;
+    }
+    .nav-pill:hover { border-color: color-mix(in srgb, var(--primary-color) 50%, transparent); color: var(--text-main); }
+    .nav-pill.active {
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+        background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+    }
+
+    /* ==================================
+       基础卡片与排版样式
+       ================================== */
     .config-card { background-color: var(--sidebar-bg); padding: 30px; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 25px; }
     .config-title { color: var(--primary-color); font-size: 20px; font-weight: 800; margin-top: 0; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
     .config-title i { width: 22px; height: 22px; stroke-width: 2.5; }
 
-    /* 状态徽章 */
     .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; background-color: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
     .status-badge.offline { background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
 
-    /* 表单与输入框 */
     .form-group { margin-bottom: 20px; }
     .form-group label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-muted); font-weight: 500; }
     .form-row { display: flex; gap: 15px; }
@@ -22,34 +50,31 @@
     .custom-input, .custom-select { width: 100%; padding: 12px 15px; border-radius: 8px; background-color: var(--bg-color); color: var(--text-main); border: 1px solid var(--border-color); font-size: 15px; transition: all 0.2s; box-sizing: border-box; outline: none; }
     .custom-input:focus, .custom-select:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 20%, transparent); }
 
-    /* 按钮组 */
     .btn-group { display: flex; gap: 12px; margin-top: 10px; }
-    /* ====== 优化：调整按钮大小，使其更精致 ====== */
     .submit-btn {
-        padding: 9px 18px; /* 缩小了上下左右的内边距 */
-        border-radius: 6px; /* 圆角稍微收敛一点 */
-        background-color: var(--primary-color);
-        color: #fff;
-        border: none;
-        font-size: 14px; /* 字号从 15px 缩小到 14px */
-        font-weight: 600;
-        cursor: pointer;
-        transition: transform 0.2s, filter 0.2s;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px; /* 图标和文字的间距稍微缩小 */
+        padding: 9px 18px; border-radius: 6px; background-color: var(--primary-color); color: #fff;
+        border: none; font-size: 14px; font-weight: 600; cursor: pointer; transition: transform 0.2s, filter 0.2s;
+        display: inline-flex; align-items: center; gap: 6px;
     }
-    .submit-btn i {
-        width: 16px; height: 16px; /* 配合文字缩小图标尺寸 */
-        stroke-width: 2.5;
-    }
+    .submit-btn i { width: 16px; height: 16px; stroke-width: 2.5; }
     .submit-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
     .test-btn { background-color: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); }
     .test-btn:hover { background-color: color-mix(in srgb, var(--primary-color) 10%, transparent); }
     .test-btn:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
 </style>
 
-<div class="config-card">
+<div class="sticky-nav" id="top-nav">
+    <div class="nav-label"><i data-lucide="map-pin" style="width: 16px; height: 16px;"></i> 本页跳转</div>
+    <button class="nav-pill active" onclick="scrollToCard('card-status', this)">绑定状态</button>
+    <button class="nav-pill" onclick="scrollToCard('card-password', this)">密码修改</button>
+    <button class="nav-pill" onclick="scrollToCard('card-server', this)">Jellyfin</button>
+    <button class="nav-pill" onclick="scrollToCard('card-proxy', this)">代理设置</button>
+    <button class="nav-pill" onclick="scrollToCard('card-tmdb', this)">TMDB</button>
+    <button class="nav-pill" onclick="scrollToCard('card-autosync', this)">自动同步</button>
+    <button class="nav-pill" onclick="scrollToCard('card-port', this)">访问端口</button>
+</div>
+
+<div class="config-card" id="card-status">
     <div class="config-title"><i data-lucide="radio"></i> 当前绑定状态</div>
     <div style="display: flex; flex-direction: column; gap: 12px;">
         {% if current_user.jellyfin_url and current_user.jellyfin_api_key %}
@@ -77,7 +102,7 @@
     </div>
 </div>
 
-<div class="config-card">
+<div class="config-card" id="card-password">
     <div class="config-title"><i data-lucide="key"></i> 修改登录密码</div>
     <form method="POST" action="{{ url_for('config') }}">
         <input type="hidden" name="form_type" value="password_settings">
@@ -106,7 +131,7 @@
     </form>
 </div>
 
-<div class="config-card">
+<div class="config-card" id="card-server">
     <div class="config-title"><i data-lucide="server"></i> 绑定 / 修改服务器</div>
     <form method="POST" action="{{ url_for('config') }}">
         <input type="hidden" name="form_type" value="jellyfin_settings">
@@ -146,7 +171,7 @@
     </form>
 </div>
 
-<div class="config-card">
+<div class="config-card" id="card-proxy">
     <div class="config-title"><i data-lucide="network"></i> HTTP 代理设置</div>
     <form method="POST" action="{{ url_for('config') }}">
         <input type="hidden" name="form_type" value="proxy_settings">
@@ -175,7 +200,7 @@
     </form>
 </div>
 
-<div class="config-card">
+<div class="config-card" id="card-tmdb">
     <div class="config-title"><i data-lucide="clapperboard"></i> TMDB API 配置</div>
     <form method="POST" action="{{ url_for('config') }}">
         <input type="hidden" name="form_type" value="tmdb_settings">
@@ -196,30 +221,7 @@
     </form>
 </div>
 
-<div class="config-card">
-    <div class="config-title"><i data-lucide="plug"></i> 网页访问端口配置</div>
-    <form method="POST" action="{{ url_for('config') }}">
-        <input type="hidden" name="form_type" value="web_settings">
-
-        <div class="form-group">
-            <label>JellyWall 运行端口</label>
-            <input type="number" name="web_port" id="web_port" class="custom-input"
-                   placeholder="例如: 5000" value="{{ current_user.web_port or '' }}" required>
-        </div>
-
-        <div style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px; display: flex; align-items: center; gap: 6px;">
-            <i data-lucide="alert-triangle" style="width: 14px; height: 14px; color: #f59e0b;"></i>
-            <span>提示：修改此端口后，需重启后端服务方可生效。</span>
-        </div>
-
-        <div class="btn-group">
-            <button type="submit" class="submit-btn">
-                <i data-lucide="save"></i> 保存端口配置
-            </button>
-        </div>
-    </form>
-</div>
-<div class="config-card">
+<div class="config-card" id="card-autosync">
     <div class="config-title"><i data-lucide="timer"></i> 自动化同步配置</div>
     <form method="POST" action="{{ url_for('config') }}">
         <input type="hidden" name="form_type" value="auto_sync_settings">
@@ -240,8 +242,8 @@
         <div id="cron-setup-area" style="transition: opacity 0.3s; {% if not current_user.sync_enabled %}opacity: 0.4; pointer-events: none;{% endif %}">
             <div class="form-group">
                 <label>执行周期 (Cron 表达式)</label>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <input type="text" name="sync_cron" id="sync_cron" class="custom-input" style="font-family: monospace; font-size: 16px; font-weight: bold; color: var(--primary-color); letter-spacing: 2px;"
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <input type="text" name="sync_cron" id="sync_cron" class="custom-input" style="font-family: monospace; font-size: 16px; font-weight: bold; color: var(--primary-color); letter-spacing: 2px; min-width: 200px; flex: 1;"
                            value="{{ current_user.sync_cron or '0 * * * *' }}" required oninput="translateCron()">
 
                     <button type="button" class="submit-btn test-btn" style="padding: 10px 15px;" onclick="setCron('0 * * * *')">每小时</button>
@@ -264,8 +266,92 @@
     </form>
 </div>
 
+<div class="config-card" id="card-port">
+    <div class="config-title"><i data-lucide="plug"></i> 网页访问端口配置</div>
+    <form method="POST" action="{{ url_for('config') }}">
+        <input type="hidden" name="form_type" value="web_settings">
+
+        <div class="form-group">
+            <label>JellyWall 运行端口</label>
+            <input type="number" name="web_port" id="web_port" class="custom-input"
+                   placeholder="例如: 5000" value="{{ current_user.web_port or '' }}" required>
+        </div>
+
+        <div style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px; display: flex; align-items: center; gap: 6px;">
+            <i data-lucide="alert-triangle" style="width: 14px; height: 14px; color: #f59e0b;"></i>
+            <span>提示：修改此端口后，需重启后端服务方可生效。</span>
+        </div>
+
+        <div class="btn-group">
+            <button type="submit" class="submit-btn">
+                <i data-lucide="save"></i> 保存端口配置
+            </button>
+        </div>
+    </form>
+</div>
+
 <script>
-    // 开关 UI 联动逻辑
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // ==========================================
+    // 🌟 修正版：针对 .main-content 的跳转与滚动监听
+    // ==========================================
+    const mainContent = document.querySelector('.main-content');
+
+    function scrollToCard(id, btn) {
+        const target = document.getElementById(id);
+        if(target && mainContent) {
+            // target.offsetTop 是元素距离 mainContent 顶部的距离
+            // 减去 80px 的余量，防止被导航栏遮挡
+            const y = target.offsetTop - 80;
+
+            // 触发 mainContent 的滚动，而不是 window
+            mainContent.scrollTo({top: y, behavior: 'smooth'});
+
+            document.querySelectorAll('.nav-pill').forEach(el => el.classList.remove('active'));
+            btn.classList.add('active');
+        }
+    }
+
+    if (mainContent) {
+        mainContent.addEventListener('scroll', () => {
+            let currentId = '';
+            const cards = document.querySelectorAll('.config-card');
+
+            cards.forEach(card => {
+                // getBoundingClientRect().top 是相对浏览器视口顶部的距离
+                const rect = card.getBoundingClientRect();
+
+                // 当卡片的顶部进入视口上半部分（0 ~ 250px 之间）时判定为当前卡片
+                if (rect.top >= 0 && rect.top < 250) {
+                    currentId = card.getAttribute('id');
+                }
+            });
+
+            // 兜底逻辑：如果存在占地面积很大的卡片，导致顶部在视口外，底部还在视口内
+            if (!currentId) {
+                cards.forEach(card => {
+                    const rect = card.getBoundingClientRect();
+                    if (rect.top < 0 && rect.bottom > 100) {
+                        currentId = card.getAttribute('id');
+                    }
+                });
+            }
+
+            if (currentId) {
+                document.querySelectorAll('.nav-pill').forEach(el => {
+                    el.classList.remove('active');
+                    if (el.getAttribute('onclick').includes(currentId)) {
+                        el.classList.add('active');
+                    }
+                });
+            }
+        });
+    }
+
+    // ==========================================
+    // 自动化同步 Cron 逻辑
+    // ==========================================
     function toggleCronInput() {
         const isChecked = document.getElementById('sync_enabled').checked;
         const bg = document.getElementById('toggle-bg');
@@ -285,16 +371,13 @@
         }
     }
 
-    // 初始化开关状态
     toggleCronInput();
 
-    // 快捷按钮填入
     function setCron(val) {
         document.getElementById('sync_cron').value = val;
         translateCron();
     }
 
-    // 简易的 Cron 人话翻译器 (匹配你的图片效果)
     function translateCron() {
         const val = document.getElementById('sync_cron').value.trim();
         const parts = val.split(/\s+/);
@@ -321,31 +404,22 @@
             result += `${min === '*' ? '每分钟' : min + '分'} `;
             result += "触发";
         }
-
         out.innerText = result;
     }
 
-    // 初始化翻译
     translateCron();
-</script>
 
-<script>
-    // 确保直接进入此页面时图标能正确渲染
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-
-    // 处理测试代理逻辑 (异步 Fetch + 按钮 Loading 状态)
+    // ==========================================
+    // 代理 & TMDB 测试逻辑
+    // ==========================================
     async function handleTestProxy() {
         const url = document.getElementById('proxy_url').value.trim();
         const port = document.getElementById('proxy_port').value.trim();
         const btn = document.getElementById('btn-test-proxy');
         const originalHtml = btn.innerHTML;
 
-        if(!url || !port) {
-            window.showToast("❌ 请先填写代理的网址和端口");
-            return;
-        }
+        if(!url || !port) { window.showToast("❌ 请先填写代理的网址和端口"); return; }
 
-        // 切换 Loading 状态
         btn.disabled = true;
         btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> <span>测试中...</span>`;
         if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -353,34 +427,23 @@
 
         try {
             const response = await fetch('/test_proxy', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, port })
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, port })
             });
             const result = await response.json();
             window.showToast(result.message);
-        } catch (error) {
-            window.showToast("❌ 请求发送失败，请检查网络是否通畅。");
-        } finally {
-            // 恢复按钮状态
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
+        } catch (error) { window.showToast("❌ 请求发送失败，请检查网络是否通畅。"); } finally {
+            btn.disabled = false; btn.innerHTML = originalHtml;
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }
     }
 
-    // 处理 TMDB 测试逻辑
     async function handleTestTMDB() {
         const apiKey = document.getElementById('tmdb_api_key').value.trim();
         const btn = document.getElementById('btn-test-tmdb');
         const originalHtml = btn.innerHTML;
 
-        if(!apiKey) {
-            window.showToast("❌ 请先填写 TMDB API Key");
-            return;
-        }
+        if(!apiKey) { window.showToast("❌ 请先填写 TMDB API Key"); return; }
 
-        // 切换 Loading 状态
         btn.disabled = true;
         btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> <span>测试中...</span>`;
         if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -388,18 +451,12 @@
 
         try {
             const response = await fetch('/test_tmdb', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: apiKey })
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: apiKey })
             });
             const result = await response.json();
             window.showToast(result.message);
-        } catch (error) {
-            window.showToast("❌ 请求发送失败，请检查网络。");
-        } finally {
-            // 恢复按钮状态
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
+        } catch (error) { window.showToast("❌ 请求发送失败，请检查网络。"); } finally {
+            btn.disabled = false; btn.innerHTML = originalHtml;
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }
     }

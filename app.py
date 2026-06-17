@@ -2,23 +2,23 @@ from flask import Flask, render_template, request, redirect, url_for, flash, Res
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from datetime import datetime, timedelta
-import requests
 from werkzeug.security import generate_password_hash  # 确保顶部引入了加密库
 import threading
 import uuid  # 确保文件顶部有引入此模块，用于生成用户的独立 ID
 from werkzeug.security import check_password_hash
 from flask_login import login_user
 import re
-import time
 import json
-import os
-import os
+import sys  # ✨ 确保引入 sys 模块
 import requests
 from datetime import datetime
 from flask import request, jsonify
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-import traceback
+import time
+from flask import stream_with_context, Response
+
+
 
 # ====== ✨ 新增：TMDB 搜索短时缓存池 (存放格式: {query: {timestamp: float, data: list}}) ======
 TMDB_SEARCH_CACHE = {}
@@ -32,6 +32,71 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'jellywall_super_secret_key_2026'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///project.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+import logging
+import os
+import re
+import sys
+
+# ... (你的其他 app 代码) ...
+
+# ==========================================
+# 🌟 核心：接管日志引擎 (区分系统 HTTP 与 业务日志)
+# ==========================================
+log_dir = os.path.join(app.root_path, 'logs')
+os.makedirs(log_dir, exist_ok=True)
+log_file_path = os.path.join(log_dir, 'jellywall.log')
+
+
+# 自定义智能日志格式化器
+class SmartFileFormatter(logging.Formatter):
+    def format(self, record):
+        # 统一获取标准时间
+        record.asctime = self.formatTime(record, self.datefmt)
+
+        # 判断日志来源
+        if record.name == 'werkzeug':
+            # 1. 如果是底层 HTTP 请求日志：清洗原生时间戳，加上 [System-HTTP] 前缀
+            clean_msg = re.sub(r'\[\d{2}/[A-Za-z]{3}/\d{4} \d{2}:\d{2}:\d{2}\]\s*', '', record.getMessage())
+            log_str = f"[System-HTTP] [{record.asctime}] {clean_msg}"
+        else:
+            # 2. 如果是咱们自己的业务日志：加上 [INFO], [WARNING], [ERROR] 等级别前缀
+            log_str = f"[{record.levelname}] [{record.asctime}] {record.getMessage()}"
+
+        # 全局统一剔除控制台颜色乱码，保证写入文件的纯净
+        log_str = re.sub(r'\x1b\[[0-9;]*m', '', log_str)
+        return log_str
+
+
+# 1. 文件处理器 (输出给前端看的，挂载智能清洗器)
+file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
+formatter = SmartFileFormatter(datefmt='%Y-%m-%d %H:%M:%S')
+file_handler.setFormatter(formatter)
+
+# 2. 控制台处理器 (输出给 PyCharm 看的)
+console_handler = logging.StreamHandler(sys.stdout)
+# 为控制台也加一个基础的格式化器，这样你在 PyCharm 里也能清晰看到日志级别
+console_formatter = logging.Formatter('[%(levelname)s] %(message)s')
+console_handler.setFormatter(console_formatter)
+
+# 3. 拦截 Werkzeug 日志器
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.setLevel(logging.INFO)
+werkzeug_logger.handlers.clear()
+werkzeug_logger.addHandler(file_handler)
+werkzeug_logger.addHandler(console_handler)
+
+# (可选) 接管 Flask 自身日志
+app.logger.handlers.clear()
+app.logger.addHandler(file_handler)
+app.logger.addHandler(console_handler)
+app.logger.setLevel(logging.INFO)
+
+# ====== 初始化业务专属 Logger ======
+logger = logging.getLogger('jellywall')
+logger.setLevel(logging.INFO)
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -200,7 +265,7 @@ def background_sync_task(user_id):
         if not user or not user.jellyfin_url or not user.jellyfin_api_key:
             return
 
-        print(f"⏰ [Auto-Sync] 开始为用户 {user.username} 执行定时同步...")
+        logger.info(f"[Auto-Sync] 开始为用户 {user.username} 执行定时同步...")
         jf_url = user.jellyfin_url
         headers = {"X-Emby-Token": user.jellyfin_api_key}
         base_user_url = f"{jf_url}/Users/{user.jellyfin_user_id}"
@@ -242,10 +307,10 @@ def background_sync_task(user_id):
 
             with db_lock:
                 db.session.commit()
-            print(f"✅ [Auto-Sync] 用户 {user.username} 定时同步完成！")
+            logger.info(f"[Auto-Sync] 用户 {user.username} 定时同步完成！")
 
         except Exception as e:
-            print(f"❌ [Auto-Sync] 定时同步失败: {e}")
+            logger.error(f"[Auto-Sync] 定时同步失败: {e}")
 
 
 def refresh_scheduler_jobs():
@@ -264,9 +329,9 @@ def refresh_scheduler_jobs():
                     id=f"auto_sync_{uid}",
                     replace_existing=True
                 )
-                print(f"⚙️ 已挂载用户 {udata.get('username')} 的定时任务: {udata['sync_cron']}")
+                logger.info(f"已挂载用户 {udata.get('username')} 的定时任务: {udata['sync_cron']}")
             except ValueError:
-                print(f"⚠️ 用户 {udata.get('username')} 的 Cron 表达式无效: {udata['sync_cron']}")
+                logger.warning(f"用户 {udata.get('username')} 的 Cron 表达式无效: {udata['sync_cron']}")
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -309,6 +374,7 @@ def login():
         if user_data and check_password_hash(user_data['password'], password):
             # 3. 记录登录状态 (将读取到的字典转换为 User 对象)
             login_user(User(**user_data))
+            logger.info(f"用户登录成功: {username}")
 
             # 👇 这里就是登录成功后跳转的页面！通常是 dashboard（仪表板）
             return redirect(url_for('dashboard'))
@@ -352,6 +418,8 @@ def register():
 
         # 直接保存至 JSON 文件
         new_user.save()
+
+        logger.info(f"新用户注册成功: {username}")
 
         flash('注册成功！请登录。')
         return redirect(url_for('login'))
@@ -403,6 +471,7 @@ def onboarding():
                 flash(f'绑定失败：服务器返回状态码 {resp.status_code}')
         except Exception as e:
             flash(f'无法连接到 Jellyfin，请检查网络或配置。详细: {str(e)}')
+            logger.error(f"Jellyfin 绑定连通性测试失败: {str(e)}")
 
     return render_template('onboarding.html')
 
@@ -596,6 +665,7 @@ def config():
             else:
                 # 4. 生成新的哈希密码并保存
                 current_user.password = generate_password_hash(new_password)
+                logger.info(f"用户 {current_user.username} 成功修改了登录密码。")
                 current_user.save()  # 自动写入 config/users.json
 
                 # ====== ✨ 核心改动：修改密码后立即注销当前用户，并踢回登录页 ======
@@ -916,7 +986,7 @@ def download_tmdb_image(url, folder, filename, user_proxies=None):
                 f.write(resp.content)
             return filename
     except Exception as e:
-        print(f"[-] TMDB 图片本地化失败: {e}")
+        logger.error(f"TMDB 图片本地化失败: {e}")
     return None
 
 
@@ -1248,6 +1318,7 @@ def api_mark_watched():
 
     except Exception as e:
         db.session.rollback()
+        logger.error(f"反向同步操作失败 (用户: {current_user.username}): {str(e)}")
         return jsonify({"success": False, "message": f"反向同步操作失败: {str(e)}"})
 
 @app.route('/api/search_tmdb')
@@ -1271,7 +1342,7 @@ def api_search_tmdb():
         # 判断缓存是否过期
         if current_time - cached_item['timestamp'] < CACHE_TTL:
             raw_results = cached_item['data']
-            print(f"⚡ 命中搜索缓存: {query}")
+            logger.info(f"命中搜索缓存: {query}")
         else:
             # 缓存过期，清理掉
             del TMDB_SEARCH_CACHE[query]
@@ -1299,7 +1370,7 @@ def api_search_tmdb():
                     'timestamp': current_time,
                     'data': raw_results
                 }
-                print(f"🌐 走网络请求并写入缓存: {query}")
+                logger.info(f"走网络请求并写入缓存: {query}")
             else:
                 return jsonify({"success": False, "message": f"TMDB 返回异常 (状态码: {resp.status_code})"})
 
@@ -1563,6 +1634,7 @@ def get_tmdb_id_smart(user, item, item_type, tmdb_cache):
                 tmdb_cache[cache_key] = fetched_id  # 存入缓存
                 return fetched_id
     except Exception as e:
+        logger.warning(f"TMDB ID 嗅探请求失败 (关键字: {query_title}): {str(e)}")
         pass  # 搜索失败则静默放过
 
     tmdb_cache[cache_key] = None  # 标记为找不到，避免下次循环重复搜索
@@ -1792,6 +1864,7 @@ def sync_history():
             flash("✨ 同步完成！本地海报及历史记录已是最新。")
 
     except Exception as e:
+        logger.error(f"媒体库同步过程中发生网络异常: {str(e)}")
         flash(f"同步过程中发生网络异常: {str(e)}")
 
     return redirect(url_for('watched_list'))
@@ -1818,6 +1891,7 @@ def api_sync_stream():
         tmdb_search_cache = {}
 
         try:
+            logger.info(f"用户 {current_user.username} 触发了前端实时全量同步流...")
             yield f"data: {json.dumps({'status': 'syncing', 'name': '正在请求媒体库列表...'})}\n\n"
             views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
 
@@ -1869,12 +1943,14 @@ def api_sync_stream():
             # 扫描完毕后，统一提交数据库
             with db_lock:
                 db.session.commit()
+                logger.info(f"手动全量同步完成！共入库/更新 {sync_count} 条记录。")
 
             # 通知前端：全部搞定，可以刷新页面了
             yield f"data: {json.dumps({'status': 'done'})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+            logger.error(f"SSE 实时同步流异常终止: {str(e)}")
 
     # ✨ 使用 stream_with_context，确保 current_user 和 db.session 在生成器迭代时依然存活
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
@@ -2051,10 +2127,70 @@ def delete_history():
                     p.is_deleted = True
 
         db.session.commit()
+        logger.info(f"用户 {current_user.username} 手动删除了 {len(records)} 条观影足迹及相关缓存。")
         return jsonify({'success': True, 'message': f'成功移除了 {len(records)} 条足迹'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': f'删除失败: {str(e)}'})
+
+
+# ==========================================
+# 🌟 日志管理面板路由及文件写入逻辑
+# ==========================================
+
+def log_print(msg):
+    """全局自定义日志打印函数：控制台输出并追加到 logs/jellywall.log"""
+    print(msg)
+
+    # ✨ 确保 logs 文件夹存在
+    log_dir = os.path.join(app.root_path, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_file_path = os.path.join(log_dir, 'jellywall.log')
+
+    with open(log_file_path, 'a', encoding='utf-8') as f:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        f.write(f"[{timestamp}] {msg}\n")
+
+
+@app.route('/logs')
+@login_required
+def logs_view():
+    """渲染终端界面"""
+    return render_template('logs.html', title="日志管理")
+
+
+@app.route('/api/log_stream')
+@login_required
+def log_stream():
+    """实时读取本地日志文件推送到前端"""
+    log_dir = os.path.join(app.root_path, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_file_path = os.path.join(log_dir, 'jellywall.log')
+
+    if not os.path.exists(log_file_path):
+        open(log_file_path, 'a', encoding='utf-8').close()
+
+    def generate():
+        with open(log_file_path, 'r', encoding='utf-8') as f:
+            # ✨ 1. 先读取历史记录，把最后 100 行吐给前端
+            lines = f.readlines()
+            for line in lines[-100:]:
+                if line.strip():
+                    yield f"data: {line.strip()}\n\n"
+
+            # ✨ 2. 进入死循环，监听新写入的内容
+            while True:
+                line = f.readline()
+                if not line:
+                    time.sleep(0.5)
+                    # 极其关键：清除 EOF 标志，强制 Python 重新检查文件末尾
+                    f.seek(0, 1)
+                    continue
+
+                if line.strip():
+                    yield f"data: {line.strip()}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 @app.route('/demo')
 @login_required
@@ -2089,10 +2225,10 @@ if __name__ == '__main__':
                         run_port = int(u['web_port'])
                         break
     except Exception as e:
-        print(f"⚠️ 读取自定义端口失败，将使用默认端口 5000。原因: {e}")
+        logger.warning(f"读取自定义端口失败，将使用默认端口 5000。原因: {e}")
 
     # 4. 把读出来的端口喂给 Flask，让它监听所有 IP (0.0.0.0)
-    print(f"🚀 JellyWall 即将启动，运行端口: {run_port}")
+    logger.info(f"JellyWall 即将启动，运行端口: {run_port}")
     app.run(host='0.0.0.0', port=run_port, debug=True)
 
 

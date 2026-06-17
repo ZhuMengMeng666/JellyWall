@@ -23,6 +23,7 @@ instance/*
 static/backdrops/*
 static/posters/*
 static/stills/*
+logs/*
 
 # ==================================
 # 4. 目录占位符保护 (极度关键 ✨)
@@ -34,3 +35,4 @@ static/stills/*
 !static/backdrops/.gitkeep
 !static/posters/.gitkeep
 !static/stills/.gitkeep
+logs/.gitkeep

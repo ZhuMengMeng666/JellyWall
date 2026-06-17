@@ -1,0 +1,304 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    /* ==================================
+       🌟 终端风格日志控制台 UI (双模自适应版)
+       ================================== */
+
+    /* 默认色板：深色极客风格 (Hacker 蓝黑底绿字) */
+    .terminal-wrapper {
+        --term-bg: #0f172a;
+        --term-header: #1e293b;
+        --term-text: #a7f3d0;
+        --term-title: #f1f5f9;
+        --term-border: #334155;
+        --term-btn-text: #94a3b8;
+        --term-hover-bg: rgba(255,255,255,0.05);
+        --term-scrollbar: #334155;
+        --term-line-border: rgba(255,255,255,0.05);
+
+        /* 状态高亮色 */
+        --log-info: #60a5fa;
+        --log-warn: #fbbf24;
+        --log-error: #f87171;
+    }
+
+    /* 浅色模式色板：Mac OS 终端风格 (白底黑字) */
+    /* 这里的选择器兼容了绝大多数前端框架的主题切换方式 (通过 body 类名或 html 属性) */
+    :root[data-theme="light"] .terminal-wrapper,
+    :root[theme="light"] .terminal-wrapper,
+    body.light-mode .terminal-wrapper,
+    body.light .terminal-wrapper {
+        --term-bg: #ffffff;
+        --term-header: #f8fafc;
+        --term-text: #334155;
+        --term-title: #0f172a;
+        --term-border: #e2e8f0;
+        --term-btn-text: #64748b;
+        --term-hover-bg: rgba(0,0,0,0.04);
+        --term-scrollbar: #cbd5e1;
+        --term-line-border: rgba(0,0,0,0.05);
+
+        /* 浅色模式下的状态高亮色需要加深，以确保白底上的可读性 */
+        --log-info: #2563eb;
+        --log-warn: #d97706;
+        --log-error: #dc2626;
+    }
+
+    /* 终端容器基础样式，接入上方定义的变量 */
+    .terminal-wrapper {
+        background-color: var(--term-bg);
+        border-radius: 12px;
+        border: 1px solid var(--term-border);
+        box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 120px);
+        overflow: hidden;
+        transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+
+    .terminal-header {
+        background-color: var(--term-header);
+        padding: 12px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--term-border);
+        transition: background-color 0.3s ease;
+    }
+
+    .terminal-title {
+        color: var(--term-title);
+        font-size: 15px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        letter-spacing: 0.5px;
+    }
+
+    .terminal-actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+
+    /* 控制按钮样式 */
+    .btn-terminal {
+        background: transparent;
+        color: var(--term-btn-text);
+        border: 1px solid var(--term-border);
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.2s;
+    }
+    .btn-terminal:hover {
+        background: var(--term-hover-bg);
+        color: var(--term-title);
+    }
+
+    /* 激活和暂停状态，为了醒目，不随终端背景色强行改变 */
+    .btn-terminal.active {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+        border-color: rgba(16, 185, 129, 0.4);
+    }
+    .btn-terminal.paused {
+        background: rgba(245, 158, 11, 0.15);
+        color: #f59e0b;
+        border-color: rgba(245, 158, 11, 0.4);
+    }
+
+    /* 日志内容输出区 */
+    .terminal-body {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        font-family: 'Consolas', 'Courier New', monospace; /* 保持等宽代码字体 */
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--term-text);
+        transition: color 0.3s ease;
+    }
+
+    /* 滚动条美化 */
+    .terminal-body::-webkit-scrollbar { width: 8px; }
+    .terminal-body::-webkit-scrollbar-thumb { background: var(--term-scrollbar); border-radius: 4px; }
+    .terminal-body::-webkit-scrollbar-track { background: transparent; }
+
+    /* 单行日志样式 */
+    .log-line {
+        border-bottom: 1px dashed var(--term-line-border);
+        padding: 4px 0;
+        word-break: break-all;
+    }
+    .log-line:hover { background-color: var(--term-hover-bg); }
+
+    /* 根据日志级别的颜色标注 */
+    .log-error { color: var(--log-error); font-weight: bold; }
+    .log-warn { color: var(--log-warn); }
+    .log-info { color: var(--log-info); }
+    /* ✨ 新增：针对系统 HTTP 访问日志的专属样式与隐藏逻辑 */
+    .log-sys-http { color: var(--term-btn-text); opacity: 0.7; }
+    .terminal-body.hide-sys-logs .log-sys-http { display: none; }
+</style>
+
+<div class="terminal-wrapper">
+    <div class="terminal-header">
+        <div class="terminal-title">
+            <i data-lucide="terminal-square" style="width: 18px; height: 18px;"></i> System Console
+        </div>
+        <div class="terminal-actions">
+            <button id="btn-syslogs" class="btn-terminal active" onclick="toggleSysLogs()">
+                <i data-lucide="eye" style="width: 14px; height: 14px;"></i> 系统请求: 显示
+            </button>
+            <button id="btn-clear" class="btn-terminal" onclick="clearLogs()">
+                <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> 清空面板
+            </button>
+            <button id="btn-autoscroll" class="btn-terminal active" onclick="toggleAutoScroll()">
+                <i data-lucide="arrow-down-circle" style="width: 14px; height: 14px;"></i> 自动刷新: 开启
+            </button>
+        </div>
+    </div>
+    <div class="terminal-body" id="terminal-body">
+        <div class="log-line log-info">JellyWall Console Initialized... Waiting for log stream.</div>
+    </div>
+</div>
+
+<script>
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    const terminalBody = document.getElementById('terminal-body');
+    const btnAutoScroll = document.getElementById('btn-autoscroll');
+    let isAutoScroll = true;
+    let logStream = null;
+
+    // ✨ 1. 初始化时，优先从浏览器本地存储读取状态。如果之前没存过，默认当做 true
+    let showSysLogs = localStorage.getItem('jellywall_show_syslogs') !== 'false';
+
+    // ✨ 2. 将更新 UI 的逻辑单独抽离出来
+    function updateSysLogsUI() {
+        const btnSysLogs = document.getElementById('btn-syslogs');
+
+        if (showSysLogs) {
+            terminalBody.classList.remove('hide-sys-logs');
+            btnSysLogs.classList.add('active');
+            btnSysLogs.classList.remove('paused');
+            btnSysLogs.innerHTML = `<i data-lucide="eye" style="width: 14px; height: 14px;"></i> 系统请求: 显示`;
+        } else {
+            terminalBody.classList.add('hide-sys-logs');
+            btnSysLogs.classList.remove('active');
+            btnSysLogs.classList.add('paused');
+            btnSysLogs.innerHTML = `<i data-lucide="eye-off" style="width: 14px; height: 14px;"></i> 系统请求: 隐藏`;
+        }
+
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        if (isAutoScroll) scrollToBottom();
+    }
+
+    // ✨ 3. 按钮点击事件：修改状态后，将其持久化保存到 localStorage
+    function toggleSysLogs() {
+        showSysLogs = !showSysLogs;
+        localStorage.setItem('jellywall_show_syslogs', showSysLogs); // 存入缓存
+        updateSysLogsUI();
+    }
+
+    // 切换自动滚动
+    function toggleAutoScroll() {
+        isAutoScroll = !isAutoScroll;
+        if (isAutoScroll) {
+            btnAutoScroll.classList.remove('paused');
+            btnAutoScroll.classList.add('active');
+            btnAutoScroll.innerHTML = `<i data-lucide="arrow-down-circle" style="width: 14px; height: 14px;"></i> 自动刷新: 开启`;
+            scrollToBottom();
+        } else {
+            btnAutoScroll.classList.remove('active');
+            btnAutoScroll.classList.add('paused');
+            btnAutoScroll.innerHTML = `<i data-lucide="pause-circle" style="width: 14px; height: 14px;"></i> 自动刷新: 暂停`;
+        }
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+
+    // 清空面板
+    function clearLogs() {
+        terminalBody.innerHTML = '';
+    }
+
+    // 滚动到底部
+    function scrollToBottom() {
+        terminalBody.scrollTop = terminalBody.scrollHeight;
+    }
+
+    // 监听用户手动向上滚动
+    terminalBody.addEventListener('scroll', () => {
+        if (terminalBody.scrollHeight - terminalBody.scrollTop - terminalBody.clientHeight > 50) {
+            if (isAutoScroll) toggleAutoScroll();
+        }
+    });
+
+    // 建立 SSE 连接接收日志
+    function connectLogStream() {
+        logStream = new EventSource('/api/log_stream');
+
+        logStream.onmessage = function(event) {
+            const rawLog = event.data;
+            if (!rawLog.trim()) return;
+
+            const lineDiv = document.createElement('div');
+            lineDiv.className = 'log-line';
+
+            // 识别不同的日志级别并赋予相应样式
+            if (rawLog.includes('[System-HTTP]')) {
+                lineDiv.classList.add('log-sys-http');
+            } else if (rawLog.includes('[ERROR]') || rawLog.includes('Exception')) {
+                lineDiv.classList.add('log-error');
+            } else if (rawLog.includes('[WARNING]')) {
+                lineDiv.classList.add('log-warn');
+            } else {
+                lineDiv.classList.add('log-info');
+            }
+
+            lineDiv.innerText = rawLog;
+            terminalBody.appendChild(lineDiv);
+
+            if (terminalBody.childElementCount > 1000) {
+                terminalBody.removeChild(terminalBody.firstElementChild);
+            }
+
+            if (isAutoScroll) {
+                scrollToBottom();
+            }
+        };
+
+        logStream.onerror = function() {
+            const errDiv = document.createElement('div');
+            errDiv.className = 'log-line log-error';
+            errDiv.innerText = '[System] 日志流连接已断开，正在尝试重连...';
+            terminalBody.appendChild(errDiv);
+        };
+    }
+
+    // 发送测试日志
+    async function sendTestLog() {
+        try {
+            await fetch('/api/test_log', { method: 'POST' });
+        } catch (e) {
+            console.error("测试日志发送失败", e);
+        }
+    }
+
+    // ✨ 4. 页面加载完毕时，先应用一次读取到的状态 UI，再连接日志流
+    document.addEventListener('DOMContentLoaded', () => {
+        updateSysLogsUI();
+        connectLogStream();
+    });
+</script>
+{% endblock %}

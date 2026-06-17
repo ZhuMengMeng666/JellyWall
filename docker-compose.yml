@@ -17,5 +17,6 @@ services:
       - /volume2/HDD-Docker/JellyWall/static/posters:/app/static/posters
       - /volume2/HDD-Docker/JellyWall/static/stills:/app/static/stills
       - /volume2/HDD-Docker/JellyWall/static/backdrops:/app/static/backdrops
+      - /volume2/HDD-Docker/JellyWall/logs:/app/logs
     environment:
       - TZ=Asia/Shanghai  # 确保日志和同步时间时区正确

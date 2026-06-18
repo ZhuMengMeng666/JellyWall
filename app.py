@@ -17,6 +17,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import time
 from flask import stream_with_context, Response
+import zipfile
 
 
 
@@ -321,9 +322,87 @@ def background_sync_task(user_id):
             logger.error(f"[Auto-Sync] 定时同步失败: {e}")
 
 
+def archive_yesterday_logs():
+    """每天 9:30 触发：抽取昨天 0-24 点的日志并打包为 ZIP，原日志文件不动"""
+    # 脱离请求上下文的后台任务，需要手动推入 Flask 上下文获取路径
+    with app.app_context():
+        try:
+            log_dir = os.path.join(app.root_path, 'logs')
+            log_file_path = os.path.join(log_dir, 'jellywall.log')
+
+            if not os.path.exists(log_file_path):
+                return
+
+            # 计算昨天的日期字符串，例如 '2026-06-17'
+            yesterday = datetime.now() - timedelta(days=1)
+            date_str = yesterday.strftime('%Y-%m-%d')
+
+            temp_log_name = f"jellywall_{date_str}.log"
+            temp_log_path = os.path.join(log_dir, temp_log_name)
+            zip_file_path = os.path.join(log_dir, f"jellywall_{date_str}.zip")
+
+            # 如果压缩包已存在，说明今天已经成功打包过了，直接跳过
+            if os.path.exists(zip_file_path):
+                return
+
+            yesterday_lines = []
+            is_yesterday = False
+
+            # 正则匹配日志开头的日期戳，兼容业务日志和底层 HTTP 日志
+            date_pattern = re.compile(r'\[(\d{4}-\d{2}-\d{2})\s')
+
+            # 遍历原始日志文件
+            with open(log_file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    match = date_pattern.search(line)
+                    if match:
+                        log_date = match.group(1)
+                        if log_date == date_str:
+                            is_yesterday = True
+                            yesterday_lines.append(line)
+                        else:
+                            is_yesterday = False
+                    else:
+                        # 核心防断层：如果这一行没有时间戳（比如报错的详细堆栈），它跟随上一行的归属状态
+                        if is_yesterday:
+                            yesterday_lines.append(line)
+
+            # 如果昨天没产生任何日志，直接退出
+            if not yesterday_lines:
+                return
+
+            # 将提取出的昨日日志写入临时文件
+            with open(temp_log_path, 'w', encoding='utf-8') as temp_f:
+                temp_f.writelines(yesterday_lines)
+
+            # 将临时文件打入 ZIP 压缩包 (采用最高压缩率 ZIP_DEFLATED)
+            with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                zipf.write(temp_log_path, arcname=temp_log_name)
+
+            # 销毁过河拆桥用的临时文件
+            os.remove(temp_log_path)
+
+            logger.info(f"[系统任务] 🎉 成功抽取并打包归档昨日日志: {zip_file_path}")
+
+        except Exception as e:
+            logger.error(f"[系统任务] 归档日志失败: {str(e)}")
+
+
 def refresh_scheduler_jobs():
     """读取所有用户的配置，动态刷新定时任务"""
     scheduler.remove_all_jobs()
+    # ====== ✨ 新增：挂载全局系统级任务 (每天 09:30 打包日志) ======
+    try:
+        scheduler.add_job(
+            archive_yesterday_logs,
+            trigger=CronTrigger(hour=9, minute=30),
+            id="system_log_archive_job",
+            replace_existing=True
+        )
+        logger.info("[调度引擎] 已挂载系统级定时任务: 每天 09:30 自动压缩归档昨日日志")
+    except Exception as e:
+        logger.error(f"挂载系统日志打包任务失败: {e}")
+    # ==========================================================
     users = load_users()
     for uid, udata in users.items():
         if udata.get('sync_enabled') and udata.get('sync_cron'):
@@ -1703,11 +1782,13 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
     else:
         updated = False
 
-        # ====== ✨ 修复 2：如果记录存在但已被软删除，则将其“复活”并更新时间 ======
+        # ====== ✨ 修复 2：智能“复活”逻辑 ======
         if getattr(record, 'is_deleted', False):
-            record.is_deleted = False
-            record.date_played = dt_local
-            updated = True
+            # 只有当 Jellyfin 传来的时间比本地更新时（说明用户在 Jellyfin 里二刷了），才将其复活
+            if dt_local > record.date_played:
+                record.is_deleted = False
+                record.date_played = dt_local
+                updated = True
 
         # ====== 如果没被删，且 Jellyfin 那边传来的时间比本地新，则只更新时间 ======
         elif dt_local > record.date_played:
@@ -1827,11 +1908,12 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
         db.session.add(poster_record)
         synced_names.add(display_title)
     else:
-        # ====== ✨ 修复 2：如果海报记录已被软删除，将其“复活”并更新时间 ======
+        # ====== ✨ 修复 2：如果海报记录已被软删除，同样执行智能判断 ======
         if getattr(poster_record, 'is_deleted', False):
-            poster_record.is_deleted = False
-            poster_record.last_watched_date = dt_local
-            synced_names.add(display_title)  # 复活的记录也加到提示列表里
+            if dt_local > poster_record.last_watched_date:
+                poster_record.is_deleted = False
+                poster_record.last_watched_date = dt_local
+                synced_names.add(display_title)  # 复活的记录也加到提示列表里
 
         # ====== 如果没被删，且 Jellyfin 那边有更新的观看时间，则只更新时间 ======
         elif dt_local > poster_record.last_watched_date:

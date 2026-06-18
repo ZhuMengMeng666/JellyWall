@@ -92,6 +92,7 @@
     <button class="nav-pill" onclick="scrollToCard('card-proxy', this)">代理设置</button>
     <button class="nav-pill" onclick="scrollToCard('card-tmdb', this)">TMDB</button>
     <button class="nav-pill" onclick="scrollToCard('card-autosync', this)">自动同步</button>
+    <button class="nav-pill" onclick="scrollToCard('card-system', this)">系统安全</button>
     <button class="nav-pill" onclick="scrollToCard('card-port', this)">访问端口</button>
 </div>
 
@@ -289,6 +290,32 @@
     </form>
 </div>
 
+<div class="config-card" id="card-system">
+    <div class="config-title"><i data-lucide="shield-check"></i> 系统安全设置</div>
+    <form method="POST" action="{{ url_for('config') }}">
+        <input type="hidden" name="form_type" value="system_settings">
+
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; background: color-mix(in srgb, var(--sidebar-bg) 50%, var(--bg-color)); padding: 15px 20px; border-radius: 10px; border: 1px solid var(--border-color);">
+            <div>
+                <div style="font-size: 15px; font-weight: bold; color: var(--text-main); margin-bottom: 4px;">开放用户注册</div>
+                <div style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">开启后，任何人都可以通过注册页面创建新账号。如果仅限个人/内部使用，建议关闭此项。</div>
+            </div>
+
+            <label style="position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; margin-left: 15px;">
+                <input type="checkbox" name="allow_registration" id="allow_registration" style="opacity: 0; width: 0; height: 0;" {% if allow_registration %}checked{% endif %} onchange="toggleRegInput()">
+                <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: {% if allow_registration %}var(--primary-color){% else %}var(--border-color){% endif %}; transition: .4s; border-radius: 24px;" id="reg-toggle-bg"></span>
+                <span style="position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; transform: {% if allow_registration %}translateX(20px){% else %}translateX(0){% endif %};" id="reg-toggle-dot"></span>
+            </label>
+        </div>
+
+        <div class="btn-group">
+            <button type="submit" class="submit-btn">
+                <i data-lucide="save"></i> 保存系统设置
+            </button>
+        </div>
+    </form>
+</div>
+
 <div class="config-card" id="card-port">
     <div class="config-title"><i data-lucide="plug"></i> 网页访问端口配置</div>
     <form method="POST" action="{{ url_for('config') }}">
@@ -363,7 +390,22 @@
             }
         });
     }
+    // ==========================================
+    // ✨ 新增：开放注册开关动画逻辑
+    // ==========================================
+    function toggleRegInput() {
+        const isChecked = document.getElementById('allow_registration').checked;
+        const bg = document.getElementById('reg-toggle-bg');
+        const dot = document.getElementById('reg-toggle-dot');
 
+        if (isChecked) {
+            bg.style.backgroundColor = 'var(--primary-color)';
+            dot.style.transform = 'translateX(20px)';
+        } else {
+            bg.style.backgroundColor = 'var(--border-color)';
+            dot.style.transform = 'translateX(0)';
+        }
+    }
     // ==========================================
     // 自动化同步 Cron 逻辑
     // ==========================================

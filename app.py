@@ -479,6 +479,12 @@ def register():
     # 如果用户已经登录，直接跳回主页
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
+    # ====== ✨ 新增 1：检查系统是否允许注册 ======
+    sys_config = get_system_config()
+    if not sys_config.get('allow_registration', True):
+        flash('❌ 管理员已关闭新用户注册功能。')
+        return redirect(url_for('login'))
+    # ==========================================
 
     if request.method == 'POST':
         username = request.form.get('username')
@@ -704,6 +710,15 @@ def config():
 
         # 判断是保存 Jellyfin 配置还是保存代理配置
         form_type = request.form.get('form_type')
+        # ====== ✨ 新增 2：处理系统安全设置 ======
+        if form_type == 'system_settings':
+            allow_reg = 'allow_registration' in request.form
+            sys_config = get_system_config()
+            sys_config['allow_registration'] = allow_reg
+            save_system_config(sys_config)
+            flash("✅ 系统安全设置已更新！")
+            return redirect(url_for('config'))
+        # ==========================================
         # ====== ✨ 新增：处理自动化同步配置 ======
         if form_type == 'auto_sync_settings':
             sync_enabled = request.form.get('sync_enabled') == 'on'
@@ -821,7 +836,10 @@ def config():
 
         return redirect(url_for('config'))
 
-    return render_template('config.html', title="配置管理")
+    # ====== ✨ 新增 3：在渲染页面时，携带全局注册状态参数给前端 ======
+    sys_config = get_system_config()
+    return render_template('config.html', title="配置管理",
+                               allow_registration=sys_config.get('allow_registration', True))
 
 
 # ==========================================
@@ -2397,6 +2415,21 @@ def demo_preview():
     """纯静态体验版详情页"""
     return render_template('demo_detail.html', title="详情页预览")
 
+def get_system_config():
+    """获取系统全局配置，默认开启注册"""
+    config_path = os.path.join(app.root_path, 'config', 'system_config.json')
+    if os.path.exists(config_path):
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {"allow_registration": True}  # 默认值为开启
+
+def save_system_config(config_data):
+    """保存系统全局配置"""
+    config_dir = os.path.join(app.root_path, 'config')
+    os.makedirs(config_dir, exist_ok=True)
+    config_path = os.path.join(config_dir, 'system_config.json')
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(config_data, f, indent=4)
 
 if __name__ == '__main__':
     # 1. 保持你原有的数据库表结构自动创建逻辑

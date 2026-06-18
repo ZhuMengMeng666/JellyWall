@@ -135,24 +135,35 @@
     /* ====== ✨ 响应式防挤压修复 ====== */
     @media (max-width: 768px)
     {
+        /* 顶部提示框与控制按钮适配 */
         .alert-box { flex-direction: column !important; align-items: flex-start !important; gap: 15px; }
         .alert-box a, .alert-box a button { width: 100%; justify-content: center; }
         .view-controls { flex-direction: column; align-items: flex-start; gap: 15px; }
         .view-controls > div { width: 100%; justify-content: space-between; }
 
-        /* ✨ 修复底部悬浮窗在手机端露个边的问题 */
+        /* 修复底部悬浮窗在手机端露边的问题 */
         .floating-action-bar {
             flex-direction: column;
             width: 90%;
             border-radius: 20px;
             padding: 15px;
             text-align: center;
-            bottom: -250px !important; /* 加深隐藏位置，彻底藏进屏幕底部 */
+            bottom: -250px !important; /* 加深隐藏位置 */
         }
-        .floating-action-bar.show {
-            bottom: 20px !important; /* 激活时弹出的位置 */
-        }
+        .floating-action-bar.show { bottom: 20px !important; }
         .floating-action-bar button { width: 100%; justify-content: center; }
+
+        /* ====== ✨ 新增：强制手机端海报模式下也是一行 3 个 ====== */
+        #library-container.view-mode-poster .poster-container {
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 12px;
+            padding: 10px 5px;
+        }
+
+        /* 缩小海报内的信息字号和边距以适应狭窄空间 */
+        .poster-info { padding: 15px 5px 8px 5px; }
+        .poster-title { font-size: 11px; }
+        .poster-time { font-size: 10px; }
     }
 </style>
 

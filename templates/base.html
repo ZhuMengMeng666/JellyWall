@@ -149,7 +149,8 @@
         /* 移动端专属遮罩层（默认隐藏） */
         .sidebar-overlay {
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(0, 0, 0, 0.5); z-index: 998;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 9998; /* ✨ 赋予极高层级防遮盖 */
             opacity: 0; visibility: hidden; transition: all 0.3s ease;
         }
         .sidebar-overlay.active { opacity: 1; visibility: visible; }
@@ -160,7 +161,8 @@
         @media (max-width: 768px) {
             /* 侧边栏变为悬浮抽屉 */
             .sidebar {
-                position: fixed; top: 0; left: 0; height: 100vh; z-index: 999;
+                position: fixed; top: 0; left: 0; height: 100vh;
+                z-index: 9999; /* ✨ 赋予最高层级确保不被覆盖 */
                 transform: translateX(-100%);
                 width: 260px !important; /* 强制展开宽度 */
                 box-shadow: 4px 0 15px rgba(0,0,0,0.3);
@@ -178,7 +180,7 @@
             .mobile-menu-btn { display: flex; } /* 显示手机端菜单按钮 */
 
             /* ==========================================
-               ✨ 修复问题 1：优化顶部主题色选择器
+               ✨ 优化顶部主题色选择器
                ========================================== */
             .color-picker-container { overflow-x: auto; max-width: 65vw; padding: 8px; }
             .color-picker-container > span { display: none; } /* 隐藏"主题色:"文字 */

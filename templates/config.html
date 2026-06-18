@@ -61,6 +61,27 @@
     .test-btn { background-color: transparent; color: var(--primary-color); border: 1px solid var(--primary-color); }
     .test-btn:hover { background-color: color-mix(in srgb, var(--primary-color) 10%, transparent); }
     .test-btn:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
+
+    /* ==================================
+       ✨ 响应式防挤压深度适配 (Mobile & Tablet)
+       ================================== */
+    @media (max-width: 768px) {
+        .config-card { padding: 20px 15px; }
+        .sticky-nav { padding: 12px 15px; margin-bottom: 20px; }
+
+        /* 1. 表单上下堆叠，解决绑定服务器与密码框的拥挤问题 */
+        .form-row { flex-direction: column; gap: 15px; }
+        .form-row .col, .form-row .col-auto, .form-row .col-port { width: 100% !important; max-width: 100%; flex: none; }
+
+        /* 2. 按钮在手机端占满全宽，方便手指点击 */
+        .btn-group { flex-direction: column; gap: 10px; }
+        .btn-group .submit-btn { width: 100%; justify-content: center; padding: 12px; }
+
+        /* 3. 自动同步的快捷周期按钮适配 */
+        .cron-wrapper { flex-direction: column !important; align-items: stretch !important; }
+        .cron-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+        .cron-buttons button { flex: 1 1 calc(33.333% - 8px); padding: 8px 4px !important; font-size: 12px; justify-content: center; }
+    }
 </style>
 
 <div class="sticky-nav" id="top-nav">
@@ -83,7 +104,7 @@
                     <i data-lucide="check-circle-2" style="width: 14px; height: 14px;"></i> 已连接
                 </span>
             </div>
-            <div style="color: var(--text-main); font-size: 15px;">
+            <div style="color: var(--text-main); font-size: 15px; word-break: break-all;">
                 <strong>接口地址：</strong> <span style="font-family: monospace; color: var(--primary-color);">{{ current_user.jellyfin_url }}</span>
             </div>
             <div style="color: var(--text-muted); font-size: 14px;">
@@ -146,7 +167,7 @@
             </div>
             <div class="form-group col">
                 <label>服务器 IP 或域名</label>
-                <input type="text" name="host" class="custom-input" placeholder="例如: 192.168.1.100 或 media.example.com" required>
+                <input type="text" name="host" class="custom-input" placeholder="例如: 192.168.1.100" required>
             </div>
             <div class="form-group col-port">
                 <label>端口</label>
@@ -182,7 +203,7 @@
                 <input type="text" name="proxy_url" id="proxy_url" class="custom-input"
                        placeholder="例如: 127.0.0.1" value="{{ current_user.proxy_url or '' }}">
             </div>
-            <div class="form-group" style="width: 120px;">
+            <div class="form-group col-port">
                 <label>端口</label>
                 <input type="text" name="proxy_port" id="proxy_port" class="custom-input"
                        placeholder="7890" value="{{ current_user.proxy_port or '' }}">
@@ -229,10 +250,10 @@
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; background: color-mix(in srgb, var(--sidebar-bg) 50%, var(--bg-color)); padding: 15px 20px; border-radius: 10px; border: 1px solid var(--border-color);">
             <div>
                 <div style="font-size: 15px; font-weight: bold; color: var(--text-main); margin-bottom: 4px;">开启定时后台同步</div>
-                <div style="font-size: 13px; color: var(--text-muted);">启用后，JellyWall 将在后台静默执行媒体库拉取，无需手动干预。</div>
+                <div style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">启用后，JellyWall 将在后台静默执行媒体库拉取，无需手动干预。</div>
             </div>
 
-            <label style="position: relative; display: inline-block; width: 44px; height: 24px;">
+            <label style="position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; margin-left: 15px;">
                 <input type="checkbox" name="sync_enabled" id="sync_enabled" style="opacity: 0; width: 0; height: 0;" {% if current_user.sync_enabled %}checked{% endif %} onchange="toggleCronInput()">
                 <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border-color); transition: .4s; border-radius: 24px;" id="toggle-bg"></span>
                 <span style="position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%;" id="toggle-dot"></span>
@@ -242,18 +263,20 @@
         <div id="cron-setup-area" style="transition: opacity 0.3s; {% if not current_user.sync_enabled %}opacity: 0.4; pointer-events: none;{% endif %}">
             <div class="form-group">
                 <label>执行周期 (Cron 表达式)</label>
-                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                    <input type="text" name="sync_cron" id="sync_cron" class="custom-input" style="font-family: monospace; font-size: 16px; font-weight: bold; color: var(--primary-color); letter-spacing: 2px; min-width: 200px; flex: 1;"
+                <div class="cron-wrapper" style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" name="sync_cron" id="sync_cron" class="custom-input" style="font-family: monospace; font-size: 16px; font-weight: bold; color: var(--primary-color); letter-spacing: 2px; flex: 1;"
                            value="{{ current_user.sync_cron or '0 * * * *' }}" required oninput="translateCron()">
 
-                    <button type="button" class="submit-btn test-btn" style="padding: 10px 15px;" onclick="setCron('0 * * * *')">每小时</button>
-                    <button type="button" class="submit-btn test-btn" style="padding: 10px 15px;" onclick="setCron('0 */6 * * *')">每6小时</button>
-                    <button type="button" class="submit-btn test-btn" style="padding: 10px 15px;" onclick="setCron('0 2 * * *')">每天凌晨2点</button>
+                    <div class="cron-buttons" style="display: flex; gap: 8px;">
+                        <button type="button" class="submit-btn test-btn" style="padding: 10px 15px;" onclick="setCron('0 * * * *')">每小时</button>
+                        <button type="button" class="submit-btn test-btn" style="padding: 10px 15px;" onclick="setCron('0 */6 * * *')">每6小时</button>
+                        <button type="button" class="submit-btn test-btn" style="padding: 10px 15px;" onclick="setCron('0 2 * * *')">凌晨2点</button>
+                    </div>
                 </div>
             </div>
 
             <div style="background: rgba(16, 185, 129, 0.1); border: 1px dashed rgba(16, 185, 129, 0.4); padding: 12px 15px; border-radius: 8px; display: flex; align-items: center; gap: 10px;">
-                <i data-lucide="bot" style="color: #10b981; width: 18px; height: 18px;"></i>
+                <i data-lucide="bot" style="color: #10b981; width: 18px; height: 18px; flex-shrink: 0;"></i>
                 <span id="cron-translation" style="color: #10b981; font-size: 14px; font-weight: 600;">每小时的第 0 分钟触发</span>
             </div>
         </div>
@@ -277,8 +300,8 @@
                    placeholder="例如: 5000" value="{{ current_user.web_port or '' }}" required>
         </div>
 
-        <div style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px; display: flex; align-items: center; gap: 6px;">
-            <i data-lucide="alert-triangle" style="width: 14px; height: 14px; color: #f59e0b;"></i>
+        <div style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px; display: flex; align-items: flex-start; gap: 6px;">
+            <i data-lucide="alert-triangle" style="width: 14px; height: 14px; color: #f59e0b; flex-shrink: 0; margin-top: 2px;"></i>
             <span>提示：修改此端口后，需重启后端服务方可生效。</span>
         </div>
 
@@ -301,11 +324,7 @@
     function scrollToCard(id, btn) {
         const target = document.getElementById(id);
         if(target && mainContent) {
-            // target.offsetTop 是元素距离 mainContent 顶部的距离
-            // 减去 80px 的余量，防止被导航栏遮挡
             const y = target.offsetTop - 80;
-
-            // 触发 mainContent 的滚动，而不是 window
             mainContent.scrollTo({top: y, behavior: 'smooth'});
 
             document.querySelectorAll('.nav-pill').forEach(el => el.classList.remove('active'));
@@ -319,16 +338,12 @@
             const cards = document.querySelectorAll('.config-card');
 
             cards.forEach(card => {
-                // getBoundingClientRect().top 是相对浏览器视口顶部的距离
                 const rect = card.getBoundingClientRect();
-
-                // 当卡片的顶部进入视口上半部分（0 ~ 250px 之间）时判定为当前卡片
                 if (rect.top >= 0 && rect.top < 250) {
                     currentId = card.getAttribute('id');
                 }
             });
 
-            // 兜底逻辑：如果存在占地面积很大的卡片，导致顶部在视口外，底部还在视口内
             if (!currentId) {
                 cards.forEach(card => {
                     const rect = card.getBoundingClientRect();

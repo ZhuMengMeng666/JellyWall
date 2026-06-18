@@ -1322,6 +1322,24 @@ def api_mark_watched():
                         ensure_episode_detail(s_num, e_num, ep.get('name'), ep.get('overview'), ep.get('still_path'))
 
         db.session.commit()
+        # ====== ✨ 新增：人性化的业务操作日志记录 ======
+        log_msg = f"用户 {current_user.username} 通过探索页手动补录了"
+        if scope == 'movie':
+            log_msg += f"电影《{title}》"
+        elif scope == 'series':
+            log_msg += f"整部剧集《{title}》"
+        elif scope == 'season':
+            season_str = f"第 {target_season} 季" if target_season != 0 else "特别篇"
+            log_msg += f"剧集《{title}》{season_str}"
+        elif scope == 'episode':
+            season_str = f"第 {target_season} 季" if target_season != 0 else "特别篇"
+            log_msg += f"剧集《{title}》{season_str} 第 {target_episode} 集"
+        elif scope == 'episode_batch':
+            ep_count = len(req_data.get('episodes_list', []))
+            log_msg += f"剧集《{title}》中的 {ep_count} 个单集"
+
+        logger.info(f"{log_msg}的观看足迹。")
+        # ===============================================
         return jsonify({"success": True, "message": "已成功同步并下载本地海报与元数据！"})
 
     except Exception as e:
@@ -2157,6 +2175,52 @@ def delete_history():
         db.session.rollback()
         return jsonify({'success': False, 'message': f'删除失败: {str(e)}'})
 
+@app.route('/api/update_history_date', methods=['POST'])
+@login_required
+def update_history_date():
+    """批量修改观看记录的时间，并级联更新海报墙缓存"""
+    data = request.json
+    record_ids = data.get('record_ids', [])
+    new_date_str = data.get('new_date')
+
+    if not record_ids or not new_date_str:
+        return jsonify({'success': False, 'message': '未选择记录或未提供时间'})
+
+    try:
+        # 转换前端传来的 HTML5 datetime-local 字符串 (格式: YYYY-MM-DDTHH:MM)
+        new_date = datetime.strptime(new_date_str, '%Y-%m-%dT%H:%M')
+
+        records = WatchRecord.query.filter(WatchRecord.id.in_(record_ids), WatchRecord.user_id == current_user.id).all()
+
+        movies_to_update = set()
+        series_to_update = set()
+
+        # 1. 更新流水账记录的时间
+        for r in records:
+            r.date_played = new_date
+            if r.item_type == 'Movie':
+                movies_to_update.add(r.title)
+            else:
+                series_to_update.add(getattr(r, 'series_name', r.title))
+
+        db.session.flush()
+
+        # 2. 级联更新海报墙的最后观看时间，让海报墙也能按新时间正确排序
+        for m_title in movies_to_update:
+            for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Movie', display_title=m_title).all():
+                p.last_watched_date = new_date
+
+        for s_name in series_to_update:
+            for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=s_name).all():
+                p.last_watched_date = new_date
+
+        db.session.commit()
+        logger.info(f"用户 {current_user.username} 批量修改了 {len(records)} 条观影足迹的时间。")
+        return jsonify({'success': True, 'message': f'成功修改了 {len(records)} 项的时间！'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'修改失败: {str(e)}'})
+
 
 # ==========================================
 # 🌟 日志管理面板路由及文件写入逻辑
@@ -2196,18 +2260,47 @@ def log_stream():
 
     def generate():
         with open(log_file_path, 'r', encoding='utf-8') as f:
-            # ✨ 1. 先读取历史记录，把最后 100 行吐给前端
             lines = f.readlines()
-            for line in lines[-100:]:
-                if line.strip():
-                    yield f"data: {line.strip()}\n\n"
 
-            # ✨ 2. 进入死循环，监听新写入的内容
+            # ====== ✨ 核心优化：双通道回溯算法 ======
+            indexed_lines = []
+            biz_count = 0
+            sys_count = 0
+
+            # 从文件的最后一行开始，倒序往上找
+            for i in range(len(lines) - 1, -1, -1):
+                line = lines[i]
+                if not line.strip():
+                    continue
+
+                # 如果是业务日志
+                if '[System-HTTP]' not in line:
+                    if biz_count < 100:
+                        indexed_lines.append((i, line))
+                        biz_count += 1
+                # 如果是系统请求日志
+                else:
+                    if sys_count < 100:
+                        indexed_lines.append((i, line))
+                        sys_count += 1
+
+                # 当两种日志都各自攒够 100 条时，停止回溯
+                if biz_count >= 100 and sys_count >= 100:
+                    break
+
+            # 因为是倒序收集的，所以要按照它们在文件里的原始行号(i)重新正向排序
+            indexed_lines.sort(key=lambda x: x[0])
+
+            # 将收集好的历史记录吐给前端
+            for _, line in indexed_lines:
+                yield f"data: {line.strip()}\n\n"
+
+            # ====== 2. 进入死循环，监听新写入的内容 ======
             while True:
                 line = f.readline()
                 if not line:
                     time.sleep(0.5)
-                    # 极其关键：清除 EOF 标志，强制 Python 重新检查文件末尾
+                    # 清除 EOF 标志，强制 Python 重新检查文件末尾
                     f.seek(0, 1)
                     continue
 

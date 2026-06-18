@@ -77,9 +77,13 @@
     }
     .floating-action-bar.show { bottom: 40px; }
 
-    .btn-danger { background: #ef4444; color: white; border: none; padding: 10px 24px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s; display: flex; align-items: center; gap: 6px;}
+    /* ✨ 新增：操作按钮组样式 */
+    .action-buttons { display: flex; gap: 10px; align-items: center; }
+    .btn-danger { background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px;}
     .btn-danger:hover { background: #dc2626; }
-    .btn-cancel { background: transparent; color: #bbb; border: 1px solid #bbb; padding: 10px 24px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: all 0.2s;}
+    .btn-primary { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px;}
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-cancel { background: transparent; color: #bbb; border: 1px solid #bbb; padding: 10px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
     .btn-cancel:hover { background: rgba(255,255,255,0.1); color: #fff; }
 
     /* ====== ✨ 同步实时弹窗 (跟随主题色 + 简约环形动画) ====== */
@@ -132,38 +136,30 @@
     .sync-title { font-size: 16px; color: var(--text-main); font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;}
     .sync-subtitle { font-size: 13px; color: var(--text-muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 
+    /* ====== ✨ 时间修改弹窗专属输入框 ====== */
+    .datetime-input { width: 100%; padding: 12px 15px; border-radius: 8px; background-color: var(--bg-color); color: var(--text-main); border: 1px solid var(--border-color); outline: none; font-size: 15px; font-family: monospace; box-sizing: border-box; transition: 0.3s; }
+    .datetime-input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 20%, transparent); }
+
     /* ====== ✨ 响应式防挤压修复 ====== */
-    @media (max-width: 768px)
-    {
-        /* 顶部提示框与控制按钮适配 */
+    @media (max-width: 768px) {
         .alert-box { flex-direction: column !important; align-items: flex-start !important; gap: 15px; }
         .alert-box a, .alert-box a button { width: 100%; justify-content: center; }
         .view-controls { flex-direction: column; align-items: flex-start; gap: 15px; }
         .view-controls > div { width: 100%; justify-content: space-between; }
 
-        /* 修复底部悬浮窗在手机端露边的问题 */
-        .floating-action-bar {
-            flex-direction: column;
-            width: 90%;
-            border-radius: 20px;
-            padding: 15px;
-            text-align: center;
-            bottom: -250px !important; /* 加深隐藏位置 */
-        }
+        /* 修复悬浮窗结构，容纳3个按钮 */
+        .floating-action-bar { flex-direction: column; width: 92%; border-radius: 20px; padding: 15px; text-align: center; bottom: -280px !important; gap: 12px; }
         .floating-action-bar.show { bottom: 20px !important; }
-        .floating-action-bar button { width: 100%; justify-content: center; }
+        .action-buttons { flex-direction: column; width: 100%; gap: 10px; }
+        .action-buttons button { width: 100%; padding: 12px; }
 
-        /* ====== ✨ 新增：强制手机端海报模式下也是一行 3 个 ====== */
-        #library-container.view-mode-poster .poster-container {
-            grid-template-columns: repeat(3, 1fr) !important;
-            gap: 12px;
-            padding: 10px 5px;
-        }
-
-        /* 缩小海报内的信息字号和边距以适应狭窄空间 */
+        /* 强制手机端海报模式下也是一行 3 个 */
+        #library-container.view-mode-poster .poster-container { grid-template-columns: repeat(3, 1fr) !important; gap: 12px; padding: 10px 5px; }
         .poster-info { padding: 15px 5px 8px 5px; }
         .poster-title { font-size: 11px; }
         .poster-time { font-size: 10px; }
+
+        .sync-modal-box { width: 90%; padding: 20px; }
     }
 </style>
 
@@ -336,11 +332,16 @@
 </div>
 
 <div class="floating-action-bar" id="delete-bar">
-    <span style="color: #fff; font-size: 15px;">已选择 <b id="sel-count" style="color: var(--primary-color); font-size: 18px; margin: 0 4px;">0</b> 项记录</span>
-    <button class="btn-cancel" onclick="toggleEditMode()">取消</button>
-    <button class="btn-danger" onclick="confirmDelete()">
-        <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i> 移除选中记录
-    </button>
+    <span style="color: #fff; font-size: 15px; white-space: nowrap;">已选择 <b id="sel-count" style="color: var(--primary-color); font-size: 18px; margin: 0 4px;">0</b> 项记录</span>
+    <div class="action-buttons">
+        <button class="btn-cancel" onclick="toggleEditMode()">取消</button>
+        <button class="btn-primary" onclick="openDateModal()">
+            <i data-lucide="calendar-clock" style="width: 16px; height: 16px;"></i> 修改时间
+        </button>
+        <button class="btn-danger" onclick="confirmDelete()">
+            <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i> 移除
+        </button>
+    </div>
 </div>
 
 <div id="sync-modal-overlay" class="sync-overlay">
@@ -357,6 +358,20 @@
                 <div class="sync-title">同步中,请勿关闭/重启此项目</div>
                 <div class="sync-subtitle" id="sync-status-sub">正在连接服务器...</div>
             </div>
+        </div>
+    </div>
+</div>
+
+<div id="date-modal-overlay" class="sync-overlay">
+    <div class="sync-modal-box">
+        <div class="sync-modal-header">
+            <span>修改观看时间</span>
+            <button class="sync-close-btn" onclick="closeDateModal()"><i data-lucide="x" style="width: 14px; height: 14px;"></i></button>
+        </div>
+        <div class="sync-modal-body" style="flex-direction: column; align-items: stretch; gap: 15px;">
+            <label style="color: var(--text-muted); font-size: 13px;">请选择新的完成观看时间：</label>
+            <input type="datetime-local" id="new-watch-date" class="datetime-input">
+            <button onclick="confirmDateChange()" style="width: 100%; padding: 12px; border-radius: 8px; background: var(--primary-color); color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 5px; font-size: 15px; transition: 0.2s;">确认保存</button>
         </div>
     </div>
 </div>
@@ -408,7 +423,7 @@
         }
     };
 
-    // ====== ✨ 核心升级：基于 SSE 的实时流同步监听 ======
+    // ====== 基于 SSE 的实时流同步监听 ======
     window.handleSyncClick = function(linkElement, event) {
         event.preventDefault(); // 阻止原先的直接页面跳转
 
@@ -453,7 +468,7 @@
         window.currentSyncStream = eventSource;
     };
 
-    // ====== ✨ 绑定右上角 X 按钮的取消事件 ======
+    // ====== 绑定右上角 X 按钮的取消事件 ======
     window.cancelSync = function() {
         if (window.currentSyncStream) {
             window.currentSyncStream.close(); // 掐断前端接收
@@ -520,6 +535,66 @@
         document.getElementById('sel-count').innerText = count;
     };
 
+    // ====== ✨ 新增：修改时间相关逻辑 ======
+    window.openDateModal = function() {
+        const selected = document.querySelectorAll('.chk-episode:checked');
+        if (selected.length === 0) {
+            window.showToast("⚠️ 请先勾选要修改时间的记录");
+            return;
+        }
+
+        const overlay = document.getElementById('date-modal-overlay');
+        overlay.style.display = 'flex';
+        void overlay.offsetWidth;
+        overlay.style.opacity = '1';
+        overlay.querySelector('.sync-modal-box').style.transform = 'scale(1)';
+
+        // 默认将时间选择器填为当前设备时间
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset()); // 修正时区偏移
+        document.getElementById('new-watch-date').value = now.toISOString().slice(0,16);
+    };
+
+    window.closeDateModal = function() {
+        const overlay = document.getElementById('date-modal-overlay');
+        overlay.style.opacity = '0';
+        setTimeout(() => { overlay.style.display = 'none'; }, 300);
+    };
+
+    window.confirmDateChange = async function() {
+        const selected = document.querySelectorAll('.chk-episode:checked');
+        const newDateStr = document.getElementById('new-watch-date').value;
+
+        if (!newDateStr) {
+            window.showToast("⚠️ 请选择一个有效的时间");
+            return;
+        }
+
+        const recordIds = Array.from(selected).map(chk => parseInt(chk.value)).filter(id => !isNaN(id));
+
+        try {
+            window.showToast("⏳ 正在更新时间...");
+            const response = await fetch('/api/update_history_date', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ record_ids: recordIds, new_date: newDateStr })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                window.showToast("✅ " + result.message);
+                closeDateModal();
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                window.showToast("❌ 修改失败: " + result.message);
+            }
+        } catch (error) {
+            window.showToast("❌ 网络请求异常");
+        }
+    };
+
+
+    // ====== 软删除记录 ======
     window.confirmDelete = async function() {
         const selected = document.querySelectorAll('.chk-episode:checked');
         if (selected.length === 0) {

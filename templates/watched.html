@@ -52,6 +52,20 @@
     @media (max-width: 768px) {
         .toolbar { flex-direction: column; align-items: flex-start; gap: 15px; }
         .export-btn { width: 100%; justify-content: center; }
+        /* 强制手机端海报墙一行 3 个 */
+        #poster-wall {
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 12px;
+            padding: 15px 10px;
+        }
+
+        /* 缩小海报内的信息字号和边距以适应狭窄空间 */
+        .info-overlay { padding: 15px 5px 8px 5px; }
+        .info-title { font-size: 11px; }
+        .info-meta { font-size: 10px; }
+
+        /* 右上角的角标也稍微缩小一点 */
+        .type-badge { transform: scale(0.8); transform-origin: top right; }
     }
 </style>
 

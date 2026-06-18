@@ -131,6 +131,16 @@
     .sync-text-box { display: flex; flex-direction: column; overflow: hidden; flex: 1; }
     .sync-title { font-size: 16px; color: var(--text-main); font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;}
     .sync-subtitle { font-size: 13px; color: var(--text-muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+
+    /* ====== ✨ 响应式防挤压修复 ====== */
+    @media (max-width: 768px) {
+        .alert-box { flex-direction: column !important; align-items: flex-start !important; gap: 15px; }
+        .alert-box a, .alert-box a button { width: 100%; justify-content: center; }
+        .view-controls { flex-direction: column; align-items: flex-start; gap: 15px; }
+        .view-controls > div { width: 100%; justify-content: space-between; }
+        .floating-action-bar { flex-direction: column; width: 90%; border-radius: 20px; padding: 15px; text-align: center; }
+        .floating-action-bar button { width: 100%; justify-content: center; }
+    }
 </style>
 
 <script>
@@ -151,7 +161,7 @@
     })();
 </script>
 
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background-color: var(--sidebar-bg); padding: 15px 20px; border-radius: 10px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+<div class="alert-box" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background-color: var(--sidebar-bg); padding: 15px 20px; border-radius: 10px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
     <div style="color: var(--text-muted); font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 10px;">
         <i data-lucide="lightbulb" style="color: var(--primary-color); flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px;"></i>
         <div>

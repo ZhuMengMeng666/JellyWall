@@ -118,6 +118,88 @@
         border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; vertical-align: middle;
     }
     .action-btn-inline:hover { background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.4); }
+
+    /* ==========================================
+       ✨ 响应式防挤压深度适配 (Mobile & Tablet)
+       ========================================== */
+    @media (max-width: 768px) {
+        /* 1. 顶部返回按钮与主容器 */
+        .back-btn { top: 15px; left: 15px; padding: 6px 12px; font-size: 13px; }
+        .detail-header {
+            flex-direction: column; /* 核心：改为上下排列 */
+            padding: 30px 20px;
+            align-items: center;
+            text-align: center; /* 手机端居中更好看 */
+            gap: 20px;
+            margin-top: 40px;
+            margin-bottom: 25px;
+        }
+        .detail-poster {
+            width: 55%; /* 海报不再写死，按比例缩放 */
+            max-width: 200px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        .detail-title { font-size: 26px; justify-content: center; flex-wrap: wrap; }
+        .detail-title .year { font-size: 20px; }
+        .detail-meta { justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
+
+        /* 处理标签组，去掉左边距，让其自然居中 */
+        .detail-meta > span { margin-left: 0 !important; }
+
+        .overview-title { font-size: 18px; text-align: left; }
+        .overview-content { font-size: 14px; text-align: left; }
+
+        /* 2. 季列表折叠栏 */
+        .section-title { font-size: 22px; margin-bottom: 15px; }
+        .season-header { padding: 15px; }
+        .season-poster { width: 80px; margin-right: 15px; border-radius: 6px; } /* 缩小季海报 */
+        .season-info { padding-right: 25px; }
+        .season-title { font-size: 17px; margin-bottom: 6px; flex-wrap: wrap; line-height: 1.4;}
+        .season-overview { font-size: 13px; -webkit-line-clamp: 2; }
+        .expand-icon { right: 15px; font-size: 16px; }
+
+        /* 3. 单集剧照与详情 (核心重构区) */
+        .episodes-container { padding: 10px 15px 15px; }
+        .episode-item {
+            flex-direction: column; /* 核心：单集剧照和文字改为上下堆叠 */
+            gap: 15px;
+            padding: 20px 0;
+        }
+        .episode-still-wrapper {
+            width: 100%; /* 剧照占满全宽 */
+            height: auto;
+            aspect-ratio: 16 / 9; /* 保持16:9比例 */
+        }
+        .episode-title { font-size: 16px; margin-bottom: 6px; }
+        .episode-overview { font-size: 13px; }
+
+        /* 4. 单集底部操作栏 */
+        .episode-info > div:last-child {
+            flex-direction: column;
+            align-items: flex-start !important;
+            gap: 12px;
+        }
+        .episode-actions { width: 100%; }
+
+        .action-btn-inline, .action-btn-mini {
+            width: 100%;
+            justify-content: center;
+            padding: 10px;
+            box-sizing: border-box;
+            margin-left: 0 !important;
+        }
+
+        /* 5. 底部悬浮批量入库栏 */
+        #batchActionBar {
+            width: 90%;
+            flex-direction: column;
+            padding: 15px;
+            gap: 12px;
+            border-radius: 20px;
+            bottom: 20px;
+        }
+        #batchActionBar button { width: 100%; }
+    }
 </style>
 
 <a href="javascript:history.back()" class="back-btn">

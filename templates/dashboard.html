@@ -152,7 +152,7 @@
     .heatmap-legend { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--text-muted); margin-top: 15px; }
     .legend-box { width: 11px; height: 11px; border-radius: 2px; }
 
-    /* ✨ 核心：独立的全局 Tooltip 样式，直接挂载在 Body 下，绝对不会被遮挡 */
+    /* 全局 Tooltip 样式，直接挂载在 Body 下，绝对不会被遮挡 */
     .global-heatmap-tooltip {
         position: absolute; background: #222; color: #fff; padding: 6px 12px; border-radius: 6px;
         font-size: 12px; white-space: nowrap; pointer-events: none; opacity: 0; z-index: 10000;
@@ -162,6 +162,22 @@
     .global-heatmap-tooltip::after {
         content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
         border-width: 5px; border-style: solid; border-color: #222 transparent transparent transparent;
+    }
+
+    /* ==================================
+       6. 移动端防挤压适配优化
+       ================================== */
+    @media (max-width: 768px) {
+        .panel-card, .heatmap-card, .stat-card { padding: 15px; }
+        .section-title { font-size: 18px; margin-bottom: 15px; }
+
+        /* 修复时间线横向撑破容器问题 */
+        .timeline-card { padding: 12px 10px; gap: 10px; }
+        .timeline-poster { width: 40px; height: 60px; }
+        .timeline-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+        .timeline-title-wrapper { width: 100%; }
+        .timeline-title { font-size: 15px; }
+        .timeline-time { margin-left: 0; font-size: 11px; opacity: 0.8; }
     }
 </style>
 

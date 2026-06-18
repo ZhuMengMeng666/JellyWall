@@ -149,6 +149,14 @@
     /* ✨ 新增：针对系统 HTTP 访问日志的专属样式与隐藏逻辑 */
     .log-sys-http { color: var(--term-btn-text); opacity: 0.7; }
     .terminal-body.hide-sys-logs .log-sys-http { display: none; }
+
+    /* ====== ✨ 响应式防挤压修复 ====== */
+    @media (max-width: 768px) {
+        .terminal-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+        .terminal-actions { flex-wrap: wrap; width: 100%; justify-content: space-between; gap: 8px; }
+        .btn-terminal { flex: 1 1 calc(50% - 6px); justify-content: center; white-space: nowrap; font-size: 12px; padding: 8px 4px; }
+        #btn-autoscroll { flex: 1 1 100%; } /* 第三个按钮独占一整行 */
+    }
 </style>
 
 <div class="terminal-wrapper">

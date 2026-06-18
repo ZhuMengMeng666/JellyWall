@@ -2,6 +2,7 @@
 <html lang="zh" data-theme="dark">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }} - JellyWall</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/logo.svg') }}">
     <style>
@@ -141,6 +142,68 @@
         .toast-body ul::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 4px; }
 
         i[data-lucide] { display: inline-block; width: 20px; height: 20px; }
+
+        /* ==========================================
+           5. 响应式布局 (Mobile & Tablet 适配)
+           ========================================== */
+        /* 移动端专属遮罩层（默认隐藏） */
+        .sidebar-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.5); z-index: 998;
+            opacity: 0; visibility: hidden; transition: all 0.3s ease;
+        }
+        .sidebar-overlay.active { opacity: 1; visibility: visible; }
+
+        /* 移动端顶部呼出按钮（默认隐藏） */
+        .mobile-menu-btn { display: none; margin-right: auto; }
+
+        @media (max-width: 768px) {
+            /* 侧边栏变为悬浮抽屉 */
+            .sidebar {
+                position: fixed; top: 0; left: 0; height: 100vh; z-index: 999;
+                transform: translateX(-100%);
+                width: 260px !important; /* 强制展开宽度 */
+                box-shadow: 4px 0 15px rgba(0,0,0,0.3);
+            }
+            .sidebar.mobile-open { transform: translateX(0); }
+
+            /* 隐藏原本侧边栏里的折叠文字，确保手机上看到的是完整菜单 */
+            .sidebar.collapsed .text { display: inline; }
+            .sidebar.collapsed .logo-container { display: flex; }
+            .sidebar.collapsed .sidebar-header { justify-content: space-between; padding: 25px 20px; }
+
+            /* 主内容区调整 */
+            .main-content { padding: 15px; }
+            .top-navbar { padding-bottom: 15px; }
+            .mobile-menu-btn { display: flex; } /* 显示手机端菜单按钮 */
+
+            /* ==========================================
+               ✨ 修复问题 1：优化顶部主题色选择器
+               ========================================== */
+            .color-picker-container { overflow-x: auto; max-width: 65vw; padding: 8px; }
+            .color-picker-container > span { display: none; } /* 隐藏"主题色:"文字 */
+            .color-picker-container::-webkit-scrollbar { display: none; } /* 隐藏丑陋的滚动条 */
+            .color-dot { flex-shrink: 0; }
+
+            /* 弹窗在手机上宽度占满 */
+            .toast-overlay { left: 15px; right: 15px; top: 15px; align-items: center; }
+            .toast { width: 100%; box-sizing: border-box; transform: translateY(-120%); }
+            .toast.show { transform: translateY(0); }
+
+            /* 隐藏主题切换按钮的文字说明 */
+            .theme-switch .mode-text {
+                display: none;
+            }
+
+            /* 稍微调整按钮的内边距，让纯图标按钮显得更协调精致 */
+            .theme-switch {
+                padding: 8px;
+                width: 34px;
+                height: 34px;
+                justify-content: center;
+                border-radius: 50%;
+            }
+        }
     </style>
 
     <script>
@@ -178,7 +241,7 @@
             {% endif %}
         {% endwith %}
     </div>
-
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
     <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="logo-container">
@@ -211,6 +274,10 @@
 
     <div class="main-content">
         <div class="top-navbar">
+            <button class="toggle-btn mobile-menu-btn" onclick="toggleSidebar()">
+                <i data-lucide="menu"></i>
+            </button>
+
             <button class="theme-switch" onclick="toggleDarkMode(event)" id="mode-btn">
                 <i data-lucide="moon" class="icon-dark"></i>
                 <i data-lucide="sun" class="icon-light"></i>
@@ -233,7 +300,20 @@
     </div>
 
     <script>
-        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+        // 智能响应式侧边栏切换逻辑
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+
+            // 判断当前屏幕宽度是否小于等于 768px (移动端/平板竖屏)
+            if (window.innerWidth <= 768) {
+                sidebar.classList.toggle('mobile-open');
+                overlay.classList.toggle('active');
+            } else {
+                // PC 端保持原有的缩放折叠逻辑
+                sidebar.classList.toggle('collapsed');
+            }
+        }
 
         function triggerRippleAnimation(event, actionCallback) {
             const x = event ? event.clientX : window.innerWidth / 2;

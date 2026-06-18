@@ -143,11 +143,65 @@
     .episode-title { font-size: 18px; font-weight: 800; color: var(--text-main); margin: 0 0 12px 0; transition: color 0.3s;}
     .episode-item:hover .episode-title { color: var(--primary-color); }
     .episode-overview { font-size: 15px; color: var(--text-muted); line-height: 1.6; }
+
+    /* ==========================================
+       ✨ 响应式防挤压深度适配 (Mobile & Tablet)
+       ========================================== */
+    @media (max-width: 768px) {
+        /* 1. 顶部返回按钮与主容器 */
+        .back-btn { top: 15px; left: 15px; padding: 6px 12px; font-size: 13px; }
+        .detail-header {
+            flex-direction: column; /* 核心：改为上下排列 */
+            padding: 30px 20px;
+            align-items: center;
+            text-align: center; /* 手机端居中更好看 */
+            gap: 20px;
+            margin-top: 40px;
+            margin-bottom: 25px;
+        }
+        .detail-poster {
+            width: 55%; /* 海报不再写死，按比例缩放 */
+            max-width: 200px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        .detail-title { font-size: 26px; justify-content: center; flex-wrap: wrap; }
+        .detail-title .year { font-size: 20px; }
+        .detail-meta { justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
+
+        /* 处理标签组，去掉左边距，让其自然居中 */
+        .detail-meta > span { margin-left: 0 !important; }
+
+        .overview-title { font-size: 18px; text-align: left; }
+        .overview-content { font-size: 14px; text-align: left; }
+
+        /* 2. 季列表折叠栏 */
+        .section-title { font-size: 22px; margin-bottom: 15px; }
+        .season-header { padding: 15px; }
+        .season-poster { width: 80px; margin-right: 15px; border-radius: 6px; } /* 缩小季海报 */
+        .season-info { padding-right: 25px; }
+        .season-title { font-size: 17px; margin-bottom: 6px; flex-wrap: wrap; line-height: 1.4;}
+        .season-overview { font-size: 13px; -webkit-line-clamp: 2; }
+        .expand-icon { right: 15px; font-size: 16px; }
+
+        /* 3. 单集剧照与详情 (核心重构区) */
+        .episodes-container { padding: 10px 15px 15px; }
+        .episode-item {
+            flex-direction: column; /* 核心：单集剧照和文字改为上下堆叠 */
+            gap: 15px;
+            padding: 20px 0;
+        }
+        .episode-still-wrapper {
+            width: 100%; /* 剧照占满全宽 */
+            height: auto;
+            aspect-ratio: 16 / 9; /* 保持16:9比例 */
+        }
+        .episode-title { font-size: 16px; margin-bottom: 6px; }
+        .episode-overview { font-size: 13px; }
+    }
 </style>
 
 {% set final_bg_path = poster.background_image_path or poster.backdrop_image_path or 'images/logo.png' %}
 {% set main_poster_path = poster.series_image_path or poster.local_image_path or 'images/logo.png' %}
-
 
 <a href="javascript:history.back()" class="back-btn">
     <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor;"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>

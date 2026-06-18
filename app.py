@@ -275,6 +275,8 @@ def background_sync_task(user_id):
         backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
         tmdb_search_cache = {}
         synced_names = set()
+        # ✨ 新增：初始化去重集合
+        processed_ids = set()
 
         try:
             views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
@@ -291,6 +293,12 @@ def background_sync_task(user_id):
                 if items_resp.status_code != 200: continue
 
                 for item in items_resp.json().get("Items", []):
+                    # ====== ✨ 新增防重逻辑 ======
+                    item_id = item["Id"]
+                    if item_id in processed_ids:
+                        continue
+                    processed_ids.add(item_id)
+                    # ==============================
                     dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
                     if not dt_local: continue
 
@@ -1823,6 +1831,8 @@ def sync_history():
         os.makedirs(d, exist_ok=True)
 
     sync_count, synced_names, tmdb_search_cache = 0, set(), {}
+    # ✨ 新增：初始化去重集合
+    processed_ids = set()
     try:
         views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
         if views_resp.status_code != 200:
@@ -1840,6 +1850,12 @@ def sync_history():
             if items_resp.status_code != 200: continue
 
             for item in items_resp.json().get("Items", []):
+                # ====== ✨ 新增防重逻辑 ======
+                item_id = item["Id"]
+                if item_id in processed_ids:
+                    continue
+                processed_ids.add(item_id)
+                # ==============================
                 dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
                 if not dt_local: continue
 
@@ -1889,6 +1905,8 @@ def api_sync_stream():
         sync_count = 0
         synced_names = set()
         tmdb_search_cache = {}
+        # ✨ 新增：初始化去重集合
+        processed_ids = set()
 
         try:
             logger.info(f"用户 {current_user.username} 触发了前端实时全量同步流...")
@@ -1913,6 +1931,12 @@ def api_sync_stream():
                 if items_resp.status_code != 200: continue
 
                 for item in items_resp.json().get("Items", []):
+                    # ====== ✨ 新增防重逻辑 ======
+                    item_id = item["Id"]
+                    if item_id in processed_ids:
+                        continue
+                    processed_ids.add(item_id)
+                    # ==============================
                     dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
                     if not dt_local: continue
 

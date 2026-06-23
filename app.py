@@ -33,6 +33,10 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'jellywall_super_secret_key_2026'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///project.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+#遇到数据库锁时，让其排队等待 20 秒，而不是立刻报错崩溃
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'connect_args': {'timeout': 20}
+}
 
 import logging
 import os
@@ -274,49 +278,59 @@ def background_sync_task(user_id):
         poster_dir = os.path.join(app.root_path, 'static', 'posters')
         still_dir = os.path.join(app.root_path, 'static', 'stills')
         backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
+
+        sync_count = 0  # ✨ 新增：初始化同步计数器
         tmdb_search_cache = {}
         synced_names = set()
-        # ✨ 新增：初始化去重集合
         processed_ids = set()
+        poster_cache = {}  # ✨ 新增：初始化内存海报字典
 
         try:
-            views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
-            if views_resp.status_code != 200: return
+            with db.session.no_autoflush:
+                views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
+                if views_resp.status_code != 200: return
 
-            for view in views_resp.json().get("Items", []):
-                items_resp = requests.get(
-                    f"{base_user_url}/Items", headers=headers,
-                    params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
-                            "Recursive": "true", "Limit": 2000,
-                            "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
-                    timeout=15
-                )
-                if items_resp.status_code != 200: continue
+                for view in views_resp.json().get("Items", []):
+                    items_resp = requests.get(
+                        f"{base_user_url}/Items", headers=headers,
+                        params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
+                                "Recursive": "true", "Limit": 2000,
+                                "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
+                        timeout=15
+                    )
+                    if items_resp.status_code != 200: continue
 
-                for item in items_resp.json().get("Items", []):
-                    # ====== ✨ 新增防重逻辑 ======
-                    item_id = item["Id"]
-                    if item_id in processed_ids:
-                        continue
-                    processed_ids.add(item_id)
-                    # ==============================
-                    dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
-                    if not dt_local: continue
+                    for item in items_resp.json().get("Items", []):
+                        item_id = item["Id"]
+                        if item_id in processed_ids:
+                            continue
+                        processed_ids.add(item_id)
 
-                    master_tmdb_id = get_tmdb_id_smart(user, item, item["Type"], tmdb_search_cache)
+                        dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
+                        if not dt_local: continue
 
-                    # ✨ 依然使用你之前设计的全局锁保护 SQLite
-                    with db_lock:
-                        if update_watch_record(user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
-                            update_watch_poster(user.id, user.jellyfin_user_id, item, item["Type"], dt_local,
-                                                jf_url, headers, poster_dir, backdrop_dir, synced_names, master_tmdb_id)
+                        master_tmdb_id = get_tmdb_id_smart(user, item, item["Type"], tmdb_search_cache)
 
-                        if item["Type"] == "Episode":
-                            update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
+                        with db_lock:
+                            if update_watch_record(user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
+                                sync_count += 1  # ✨ 新增：记录同步数量
+                                update_watch_poster(user.id, user.jellyfin_user_id, item, item["Type"], dt_local,
+                                                    jf_url, headers, poster_dir, backdrop_dir, synced_names,
+                                                    master_tmdb_id, poster_cache)
+
+                            if item["Type"] == "Episode":
+                                update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
 
             with db_lock:
                 db.session.commit()
-            logger.info(f"[Auto-Sync] 用户 {user.username} 定时同步完成！")
+
+            # ====== ✨ 核心修改：将具体同步了哪些内容写入系统日志 ======
+            if sync_count > 0:
+                names_str = ", ".join(sorted(synced_names))
+                logger.info(
+                    f"[Auto-Sync] 用户 {user.username} 定时同步完成！新增/更新了 {sync_count} 项记录: {names_str}")
+            else:
+                logger.info(f"[Auto-Sync] 用户 {user.username} 定时同步完成！本地记录已是最新，无新增。")
 
         except Exception as e:
             logger.error(f"[Auto-Sync] 定时同步失败: {e}")
@@ -371,16 +385,14 @@ def archive_yesterday_logs():
             if not yesterday_lines:
                 return
 
-            # 将提取出的昨日日志写入临时文件
-            with open(temp_log_path, 'w', encoding='utf-8') as temp_f:
-                temp_f.writelines(yesterday_lines)
+            # ====== ✨ 修复：改用内存直写，彻底杜绝并发抢占临时文件 ======
+            # 直接将内存中的日志列表合并为字符串
+            yesterday_content = "".join(yesterday_lines)
 
-            # 将临时文件打入 ZIP 压缩包 (采用最高压缩率 ZIP_DEFLATED)
+            # 使用 writestr 直接把字符串当作文件写入 ZIP，无需在磁盘上创建临时文件
             with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                zipf.write(temp_log_path, arcname=temp_log_name)
-
-            # 销毁过河拆桥用的临时文件
-            os.remove(temp_log_path)
+                zipf.writestr(temp_log_name, yesterday_content)
+            # ==========================================================
 
             logger.info(f"[系统任务] 🎉 成功抽取并打包归档昨日日志: {zip_file_path}")
 
@@ -1820,7 +1832,7 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
 # 辅助函数 3：写入/更新【海报墙双缓存表】
 # ==========================================
 def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, headers, poster_dir, backdrop_dir,
-                        synced_names, tmdb_id):
+                        synced_names, tmdb_id, poster_cache):  # ✨ 新增 poster_cache 参数
     if item_type == "Movie":
         target_id = item["Id"]
         display_title = item["Name"]
@@ -1842,8 +1854,13 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
     else:
         return
 
-    # ====== ✨ 修复 1：去掉 is_deleted=False 的过滤，将被软删除的海报记录也捞出来 ======
-    poster_record = WatchPoster.query.filter_by(user_id=user_id, target_id=target_id).first()
+    # ====== ✨ 修复：优先查本地内存笔记本，防止 no_autoflush 导致重复创建 ======
+    cache_key = f"{user_id}_{target_id}"
+
+    if cache_key in poster_cache:
+        poster_record = poster_cache[cache_key]
+    else:
+        poster_record = WatchPoster.query.filter_by(user_id=user_id, target_id=target_id).first()
 
     if not poster_record:
         series_relative_path = "images/logo.png"
@@ -1925,7 +1942,13 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
         )
         db.session.add(poster_record)
         synced_names.add(display_title)
+
+        # ✨ 新建成功后，立马把它记到小本本上
+        poster_cache[cache_key] = poster_record
     else:
+        # ✨ 如果查到了（无论是从缓存里还是数据库里），也塞进小本本，方便后续集数复用
+        poster_cache[cache_key] = poster_record
+
         # ====== ✨ 修复 2：如果海报记录已被软删除，同样执行智能判断 ======
         if getattr(poster_record, 'is_deleted', False):
             if dt_local > poster_record.last_watched_date:
@@ -1936,6 +1959,7 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
         # ====== 如果没被删，且 Jellyfin 那边有更新的观看时间，则只更新时间 ======
         elif dt_local > poster_record.last_watched_date:
             poster_record.last_watched_date = dt_local
+
 
 @app.route('/sync_history')
 @login_required
@@ -1951,50 +1975,60 @@ def sync_history():
     sync_count, synced_names, tmdb_search_cache = 0, set(), {}
     # ✨ 新增：初始化去重集合
     processed_ids = set()
+    poster_cache = {}  # ✨ 新增：初始化内存海报字典
     try:
-        views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
-        if views_resp.status_code != 200:
-            flash("无法获取媒体库列表，同步失败。")
-            return redirect(url_for('watched_list'))
+        # ====== ✨ 修复：开启 no_autoflush，防止查询触发高频写入引发死锁 ======
+        with db.session.no_autoflush:
+            views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
+            if views_resp.status_code != 200:
+                flash("无法获取媒体库列表，同步失败。")
+                return redirect(url_for('watched_list'))
 
-        for view in views_resp.json().get("Items", []):
-            items_resp = requests.get(
-                f"{base_user_url}/Items", headers=headers,
-                params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
-                        "Recursive": "true", "Limit": 2000,
-                        "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
-                timeout=15
-            )
-            if items_resp.status_code != 200: continue
+            for view in views_resp.json().get("Items", []):
+                items_resp = requests.get(
+                    f"{base_user_url}/Items", headers=headers,
+                    params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
+                            "Recursive": "true", "Limit": 2000,
+                            "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
+                    timeout=15
+                )
+                if items_resp.status_code != 200: continue
 
-            for item in items_resp.json().get("Items", []):
-                # ====== ✨ 新增防重逻辑 ======
-                item_id = item["Id"]
-                if item_id in processed_ids:
-                    continue
-                processed_ids.add(item_id)
-                # ==============================
-                dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
-                if not dt_local: continue
+                for item in items_resp.json().get("Items", []):
+                    # ====== ✨ 新增防重逻辑 ======
+                    item_id = item["Id"]
+                    if item_id in processed_ids:
+                        continue
+                    processed_ids.add(item_id)
+                    # ==============================
+                    dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
+                    if not dt_local: continue
 
-                master_tmdb_id = get_tmdb_id_smart(current_user, item, item["Type"], tmdb_search_cache)
-                if update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
-                    sync_count += 1
+                    master_tmdb_id = get_tmdb_id_smart(current_user, item, item["Type"], tmdb_search_cache)
 
-                    update_watch_poster(current_user.id, current_user.jellyfin_user_id, item, item["Type"], dt_local,
-                                        jf_url, headers, poster_dir, backdrop_dir, synced_names, master_tmdb_id)
+                    if update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
+                        sync_count += 1
 
-                if item["Type"] == "Episode":
-                    update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
+                        update_watch_poster(current_user.id, current_user.jellyfin_user_id, item, item["Type"],
+                                            dt_local,
+                                            jf_url, headers, poster_dir, backdrop_dir, synced_names, master_tmdb_id, poster_cache)
 
-        # ✨ 单线程排队处理完后，最后统一提交到数据库
+                    if item["Type"] == "Episode":
+                        update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
+
+        # ✨ 退出 no_autoflush 作用域后，最后统一平滑提交到数据库
         db.session.commit()
 
+        # ====== ✨ 核心修改：追加控制台日志写入 ======
         if sync_count > 0:
+            names_str = ", ".join(sorted(synced_names))
+            logger.info(f"用户 {current_user.username} 手动同步完成！新增/更新了 {sync_count} 项记录: {names_str}")
+
             names_html = "<ul style='margin: 10px 0 0 0; padding-left: 20px; text-align: left; max-height: 150px; overflow-y: auto; color: var(--text-main);'>" + "".join(
                 [f"<li style='margin-bottom: 6px;'>{n}</li>" for n in sorted(synced_names)]) + "</ul>"
             flash(f"🎉 同步成功！已处理明细并缓存海报/剧照/背景图：{names_html}")
         else:
+            logger.info(f"用户 {current_user.username} 手动同步完成！本地记录已是最新，无新增。")
             flash("✨ 同步完成！本地海报及历史记录已是最新。")
 
     except Exception as e:
@@ -2025,67 +2059,79 @@ def api_sync_stream():
         tmdb_search_cache = {}
         # ✨ 新增：初始化去重集合
         processed_ids = set()
+        poster_cache = {}  # ✨ 新增：初始化内存海报字典
 
         try:
             logger.info(f"用户 {current_user.username} 触发了前端实时全量同步流...")
             yield f"data: {json.dumps({'status': 'syncing', 'name': '正在请求媒体库列表...'})}\n\n"
-            views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
 
-            if views_resp.status_code != 200:
-                yield f"data: {json.dumps({'status': 'error', 'message': '无法获取媒体库列表'})}\n\n"
-                return
+            # ====== ✨ 修复：开启 no_autoflush，防止查询触发高频写入引发死锁 ======
+            with db.session.no_autoflush:
+                views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
 
-            for view in views_resp.json().get("Items", []):
-                view_name = view.get('Name', '未知库')
-                yield f"data: {json.dumps({'status': 'syncing', 'name': f'准备扫描库: {view_name}'})}\n\n"
+                if views_resp.status_code != 200:
+                    yield f"data: {json.dumps({'status': 'error', 'message': '无法获取媒体库列表'})}\n\n"
+                    return
 
-                items_resp = requests.get(
-                    f"{base_user_url}/Items", headers=headers,
-                    params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
-                            "Recursive": "true", "Limit": 2000,
-                            "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
-                    timeout=15
-                )
-                if items_resp.status_code != 200: continue
+                for view in views_resp.json().get("Items", []):
+                    view_name = view.get('Name', '未知库')
+                    yield f"data: {json.dumps({'status': 'syncing', 'name': f'准备扫描库: {view_name}'})}\n\n"
 
-                for item in items_resp.json().get("Items", []):
-                    # ====== ✨ 新增防重逻辑 ======
-                    item_id = item["Id"]
-                    if item_id in processed_ids:
-                        continue
-                    processed_ids.add(item_id)
-                    # ==============================
-                    dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
-                    if not dt_local: continue
+                    items_resp = requests.get(
+                        f"{base_user_url}/Items", headers=headers,
+                        params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
+                                "Recursive": "true", "Limit": 2000,
+                                "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
+                        timeout=15
+                    )
+                    if items_resp.status_code != 200: continue
 
-                    # 提取优雅的展示名称推送给前端
-                    display_name = item.get("Name", "未知")
-                    if item["Type"] == "Episode":
-                        series_name = item.get("SeriesName", "未知剧集")
-                        display_name = f"{series_name} - {display_name}"
+                    for item in items_resp.json().get("Items", []):
+                        # ====== ✨ 新增防重逻辑 ======
+                        item_id = item["Id"]
+                        if item_id in processed_ids:
+                            continue
+                        processed_ids.add(item_id)
+                        # ==============================
+                        dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
+                        if not dt_local: continue
 
-                    # ✨ 核心：在这里把正在处理的名字实时通过流吐给前端！
-                    yield f"data: {json.dumps({'status': 'syncing', 'name': display_name})}\n\n"
-
-                    # 核心刮削与入库逻辑
-                    master_tmdb_id = get_tmdb_id_smart(current_user, item, item["Type"], tmdb_search_cache)
-
-                    # 使用线程锁，防止 SQLite 疯狂并发写入导致 "database is locked"
-                    with db_lock:
-                        if update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local,
-                                               master_tmdb_id):
-                            sync_count += 1
-                            update_watch_poster(current_user.id, current_user.jellyfin_user_id, item, item["Type"],
-                                                dt_local,
-                                                jf_url, headers, poster_dir, backdrop_dir, synced_names, master_tmdb_id)
-
+                        # 提取优雅的展示名称推送给前端
+                        display_name = item.get("Name", "未知")
                         if item["Type"] == "Episode":
-                            update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
+                            series_name = item.get("SeriesName", "未知剧集")
+                            display_name = f"{series_name} - {display_name}"
 
-            # 扫描完毕后，统一提交数据库
+                        # ✨ 核心：在这里把正在处理的名字实时通过流吐给前端！
+                        yield f"data: {json.dumps({'status': 'syncing', 'name': display_name})}\n\n"
+
+                        # 核心刮削与入库逻辑
+                        master_tmdb_id = get_tmdb_id_smart(current_user, item, item["Type"], tmdb_search_cache)
+
+                        # 使用线程锁，防止 SQLite 疯狂并发写入导致 "database is locked"
+                        with db_lock:
+                            if update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local,
+                                                   master_tmdb_id):
+                                sync_count += 1
+                                update_watch_poster(current_user.id, current_user.jellyfin_user_id, item, item["Type"],
+                                                    dt_local,
+                                                    jf_url, headers, poster_dir, backdrop_dir, synced_names,
+                                                    master_tmdb_id, poster_cache)
+
+                            if item["Type"] == "Episode":
+                                update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
+
+            # 扫描完毕后，退出 no_autoflush 作用域，统一提交数据库
             with db_lock:
                 db.session.commit()
-                logger.info(f"手动全量同步完成！共入库/更新 {sync_count} 条记录。")
+
+                # ====== ✨ 核心修改：在提交后打印具体的同步清单 ======
+                if sync_count > 0:
+                    names_str = ", ".join(sorted(synced_names))
+                    logger.info(
+                        f"用户 {current_user.username} 实时同步完成！共入库/更新了 {sync_count} 项: {names_str}")
+                else:
+                    logger.info(f"用户 {current_user.username} 实时同步完成！本地记录已是最新，无新增。")
 
             # 通知前端：全部搞定，可以刷新页面了
             yield f"data: {json.dumps({'status': 'done'})}\n\n"
@@ -2096,7 +2142,6 @@ def api_sync_stream():
 
     # ✨ 使用 stream_with_context，确保 current_user 和 db.session 在生成器迭代时依然存活
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
-
 
 @app.route('/watched_list')
 @login_required

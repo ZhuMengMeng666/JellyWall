@@ -2476,22 +2476,27 @@ def save_system_config(config_data):
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(config_data, f, indent=4)
 
+
 if __name__ == '__main__':
+    # ====== ✨ 修复：提早声明 Debug 状态，杜绝双重进程问题 ======
+    app.debug = True
+
     # 1. 保持你原有的数据库表结构自动创建逻辑
     with app.app_context():
         db.create_all()
 
-    # ✨ 启动前，加载一次所有定时任务
-    refresh_scheduler_jobs()
-    scheduler.start()
+    import os
+
+    # ✨ 核心修复：只有当环境是 Werkzeug 的真正工作子进程，或者关闭了 debug 时，才启动调度器引擎
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+        refresh_scheduler_jobs()
+        scheduler.start()
 
     # 2. 设置一个保底的默认端口
     run_port = 5000
 
     # 3. 在项目启动前，主动去扒一遍 config/users.json，找出你配置的自定义端口
     try:
-
-
         config_path = os.path.join(app.root_path, 'config', 'users.json')
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -2506,6 +2511,8 @@ if __name__ == '__main__':
 
     # 4. 把读出来的端口喂给 Flask，让它监听所有 IP (0.0.0.0)
     logger.info(f"JellyWall 即将启动，运行端口: {run_port}")
-    app.run(host='0.0.0.0', port=run_port, debug=True)
+
+    # ⚠️ 注意：这里去掉了 debug=True 的入参，因为它已经在代码最顶部被全局激活了
+    app.run(host='0.0.0.0', port=run_port)
 
 

@@ -2143,14 +2143,16 @@ def api_sync_stream():
     # ✨ 使用 stream_with_context，确保 current_user 和 db.session 在生成器迭代时依然存活
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
+
 @app.route('/watched_list')
 @login_required
 def watched_list():
-    """历史记录展示路由：支持列表与海报双视图渲染"""
+    """历史记录展示路由：支持列表与海报双视图渲染，新增按类型分组支持"""
 
     # ====== 1. 获取数据库记录 ======
     # 提取当前用户的所有播放流水记录 (按时间倒序)
-    records = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(WatchRecord.date_played.desc()).all()
+    records = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
+        WatchRecord.date_played.desc()).all()
 
     # 提取当前用户所有的海报缓存数据
     posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).all()
@@ -2165,8 +2167,12 @@ def watched_list():
             # 剧集墙展示整部剧的主海报即可
             series_poster_map[p.series_name] = p.series_image_path or p.local_image_path
 
-    # ====== 3. 组装供前端渲染的复杂数据字典 ======
-    library_data = {}
+    # ====== 3. 组装供前端渲染的两套复杂数据字典 ======
+    library_data = {}  # 原有的按媒体库分组
+    type_data = {  # 新增的按媒体类型分组
+        '电影区': {'episodes_tree': {}, 'movies': [], 'series_posters': {}},
+        '剧集区': {'episodes_tree': {}, 'movies': [], 'series_posters': {}}
+    }
 
     for record in records:
         lib_name = record.library_name or "未分类媒体库"
@@ -2183,43 +2189,60 @@ def watched_list():
 
         # [分支 A：处理电影]
         if item_type == "Movie":
-            library_data[lib_name]['movies'].append({
-                'id': record.id,  # ✨ 新增：传入电影足迹在数据库中的真实 ID
+            movie_node = {
+                'id': record.id,  # 新增：传入电影足迹在数据库中的真实 ID
                 'name': record.title,
                 'date': date_played_str,
                 # 塞入电影海报路径，若无则使用 logo 兜底
                 'poster_path': movie_poster_map.get(record.title, "images/logo.png")
-            })
+            }
+            # 同时将数据塞入两套字典
+            library_data[lib_name]['movies'].append(movie_node)
+            type_data['电影区']['movies'].append(movie_node)
 
-            # [分支 B：处理剧集]
+        # [分支 B：处理剧集]
         else:
             series_name = getattr(record, 'series_name', record.title)
 
-            # ✨ 修复 3：直接读取数据库中已经清洗好的 season_name，杜绝强行算作第1季
+            # 修复 3：直接读取数据库中已经清洗好的 season_name，杜绝强行算作第1季
             season_name = getattr(record, 'season_name')
             if not season_name:
                 season_name = "第 1 季"
 
             episode_name = record.title
+            poster_img = series_poster_map.get(series_name, "images/logo.png")
 
-            # 顺手把该剧的海报映射存进去
-            library_data[lib_name]['series_posters'][series_name] = series_poster_map.get(series_name,
-                                                                                          "images/logo.png")
-
-            # 构建原有的剧集折叠树结构
-            if series_name not in library_data[lib_name]['episodes_tree']:
-                library_data[lib_name]['episodes_tree'][series_name] = {}
-
-            if season_name not in library_data[lib_name]['episodes_tree'][series_name]:
-                library_data[lib_name]['episodes_tree'][series_name][season_name] = []
-
-            library_data[lib_name]['episodes_tree'][series_name][season_name].append({
+            # 构建单集节点
+            ep_node = {
                 'id': record.id,
                 'episode': episode_name,
                 'date': date_played_str
-            })
+            }
 
-    return render_template('watched_list.html', library_data=library_data)
+            # --- 1. 组装进 library_data (按媒体库) ---
+            library_data[lib_name]['series_posters'][series_name] = poster_img
+            if series_name not in library_data[lib_name]['episodes_tree']:
+                library_data[lib_name]['episodes_tree'][series_name] = {}
+            if season_name not in library_data[lib_name]['episodes_tree'][series_name]:
+                library_data[lib_name]['episodes_tree'][series_name][season_name] = []
+            library_data[lib_name]['episodes_tree'][series_name][season_name].append(ep_node)
+
+            # --- 2. 组装进 type_data (按类型) ---
+            type_data['剧集区']['series_posters'][series_name] = poster_img
+            if series_name not in type_data['剧集区']['episodes_tree']:
+                type_data['剧集区']['episodes_tree'][series_name] = {}
+            if season_name not in type_data['剧集区']['episodes_tree'][series_name]:
+                type_data['剧集区']['episodes_tree'][series_name][season_name] = []
+            type_data['剧集区']['episodes_tree'][series_name][season_name].append(ep_node)
+
+    # ====== 4. 剔除空类型数据，保持前端整洁 ======
+    final_type_data = {}
+    if type_data['电影区']['movies']:
+        final_type_data['电影区'] = type_data['电影区']
+    if type_data['剧集区']['episodes_tree']:
+        final_type_data['剧集区'] = type_data['剧集区']
+
+    return render_template('watched_list.html', library_data=library_data, type_data=final_type_data)
 
 
 @app.route('/detail/<media_type>/<path:title>')

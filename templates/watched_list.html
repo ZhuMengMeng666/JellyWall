@@ -4,8 +4,8 @@
 <script src="{{ url_for('static', filename='js/Sortable.min.js') }}" defer></script>
 
 <style>
-    /* ====== 一级折叠：媒体库 ====== */
-    #library-container { display: flex; flex-direction: column; }
+    /* ====== 一级折叠：容器与外框 ====== */
+    .group-container { display: flex; flex-direction: column; }
     .library-details { background-color: var(--sidebar-bg); border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid var(--border-color); }
     .library-summary { padding: 20px; font-size: 20px; font-weight: bold; color: var(--primary-color); background-color: rgba(128, 128, 128, 0.03); border-radius: 10px; list-style: none; transition: background-color 0.2s, color 0.3s; cursor: grab; display: flex; align-items: center; gap: 10px;}
     .library-summary:active { cursor: grabbing; }
@@ -30,7 +30,7 @@
     .season-summary::-webkit-details-marker { display: none; }
     .season-details[open] > .season-summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0;}
 
-    /* ====== ✨ 统一折叠箭头动画 ====== */
+    /* ====== 统一折叠箭头动画 ====== */
     .fold-icon { margin-left: auto; color: var(--text-muted); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
     details[open] > summary .fold-icon { transform: rotate(90deg); color: var(--primary-color); }
 
@@ -42,16 +42,40 @@
     .sub-title { color: var(--text-muted); font-size: 16px; margin-bottom: 10px; margin-top: 15px; display: flex; align-items: center; gap: 8px;}
 
     /* ====== 视图切换器样式 ====== */
-    .view-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 20px; padding: 0 5px;}
+    .view-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 20px; padding: 0 5px; flex-wrap: wrap; gap: 15px;}
     .view-toggle-btn { display: flex; background-color: color-mix(in srgb, var(--sidebar-bg) 50%, transparent); border-radius: 10px; padding: 4px; border: 1px solid var(--border-color); }
     .toggle-option { padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; color: var(--text-muted); transition: all 0.3s; display: flex; align-items: center; gap: 6px; }
     .toggle-option.active { background-color: var(--sidebar-bg); color: var(--primary-color); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
 
+    /* ====== 自定义下拉组件样式 ====== */
+    .custom-dropdown { position: relative; display: inline-block; width: 160px; z-index: 100; flex-shrink: 0; }
+    .dropdown-selected {
+        padding: 8px 12px; border-radius: 8px; background-color: var(--sidebar-bg); color: var(--text-main);
+        border: 1px solid var(--border-color); font-size: 14px; font-weight: bold; cursor: pointer;
+        display: flex; justify-content: space-between; align-items: center; transition: all 0.2s;
+        height: 38px; box-sizing: border-box;
+    }
+    .dropdown-selected:hover { border-color: var(--primary-color); }
+    .dropdown-options {
+        position: absolute; top: calc(100% + 6px); left: 0; right: 0; background-color: var(--sidebar-bg);
+        border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        display: none; flex-direction: column; overflow: hidden;
+        animation: fadeIn 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .dropdown-options.show { display: flex; }
+    .dropdown-option {
+        padding: 10px 12px; font-size: 14px; font-weight: bold; color: var(--text-muted);
+        cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px;
+    }
+    .dropdown-option:hover { background-color: rgba(128, 128, 128, 0.05); color: var(--text-main); }
+    .dropdown-option.active { color: var(--primary-color); background-color: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
     /* ====== 双模显示/隐藏控制 ====== */
-    #library-container.view-mode-list .poster-container { display: none; }
-    #library-container.view-mode-list .list-container { display: block; }
-    #library-container.view-mode-poster .list-container { display: none; }
-    #library-container.view-mode-poster .poster-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; padding: 10px 0; }
+    .group-container.view-mode-list .poster-container { display: none; }
+    .group-container.view-mode-list .list-container { display: block; }
+    .group-container.view-mode-poster .list-container { display: none; }
+    .group-container.view-mode-poster .poster-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; padding: 10px 0; }
 
     /* ====== 海报卡片样式 ====== */
     .poster-item { position: relative; border-radius: 12px; overflow: hidden; aspect-ratio: 2/3; box-shadow: 0 6px 15px rgba(0,0,0,0.1); transition: transform 0.3s, box-shadow 0.3s; background-color: #222; cursor: pointer; }
@@ -68,17 +92,10 @@
     .edit-btn { background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); padding: 6px 14px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
     .edit-btn:hover { background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
 
-    .floating-action-bar {
-        position: fixed; bottom: -100px; left: 50%; transform: translateX(-50%);
-        background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1);
-        padding: 12px 24px; border-radius: 50px; box-shadow: 0 10px 40px rgba(0,0,0,0.4);
-        display: flex; align-items: center; gap: 20px; z-index: 1000;
-        transition: bottom 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
+    .floating-action-bar { position: fixed; bottom: -100px; left: 50%; transform: translateX(-50%); background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); padding: 12px 24px; border-radius: 50px; box-shadow: 0 10px 40px rgba(0,0,0,0.4); display: flex; align-items: center; gap: 20px; z-index: 1000; transition: bottom 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
     .floating-action-bar.show { bottom: 40px; }
-
-    /* ✨ 新增：操作按钮组样式 */
     .action-buttons { display: flex; gap: 10px; align-items: center; }
+
     .btn-danger { background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px;}
     .btn-danger:hover { background: #dc2626; }
     .btn-primary { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px;}
@@ -86,118 +103,51 @@
     .btn-cancel { background: transparent; color: #bbb; border: 1px solid #bbb; padding: 10px 20px; border-radius: 30px; cursor: pointer; font-weight: bold; font-size: 14px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
     .btn-cancel:hover { background: rgba(255,255,255,0.1); color: #fff; }
 
-    /* ====== ✨ 同步实时弹窗 (跟随主题色 + 简约环形动画) ====== */
-    .sync-overlay {
-        display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-        background: rgba(0,0,0,0.6); z-index: 10000; align-items: center; justify-content: center;
-        backdrop-filter: blur(5px); opacity: 0; transition: opacity 0.3s ease;
-    }
-    .sync-modal-box {
-        background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 12px; width: 420px;
-        padding: 20px 24px; box-shadow: 0 25px 50px rgba(0,0,0,0.5);
-        transform: scale(0.95); transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); display: flex; flex-direction: column;
-    }
+    /* ====== 同步及时间弹窗 ====== */
+    .sync-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(5px); opacity: 0; transition: opacity 0.3s ease; }
+    .sync-modal-box { background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 12px; width: 420px; padding: 20px 24px; box-shadow: 0 25px 50px rgba(0,0,0,0.5); transform: scale(0.95); transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); display: flex; flex-direction: column; }
     .sync-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
     .sync-modal-header span { color: var(--text-main); font-size: 14px; font-weight: 700; letter-spacing: 0.5px; }
-
-    .sync-close-btn {
-        background: transparent; border: 1px solid var(--border-color); color: var(--text-muted); border-radius: 6px; padding: 4px;
-        cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;
-    }
-    .sync-close-btn:hover {
-        border-color: var(--primary-color); color: var(--primary-color);
-        background: color-mix(in srgb, var(--primary-color) 10%, transparent);
-    }
-
+    .sync-close-btn { background: transparent; border: 1px solid var(--border-color); color: var(--text-muted); border-radius: 6px; padding: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .sync-close-btn:hover { border-color: var(--primary-color); color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
     .sync-modal-body { display: flex; gap: 24px; align-items: center; padding-bottom: 10px;}
-
-    /* 左侧图标容器 (完美跟随主题色) */
-    .sync-spinner-box {
-        width: 50px; height: 50px;
-        background: color-mix(in srgb, var(--primary-color) 15%, transparent);
-        border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
-        border-radius: 14px;
-        display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    }
-
-    /* 简约无限循环转圈动画 */
-    .sync-spinner {
-        width: 24px; height: 24px;
-        border: 3px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
-        border-top-color: var(--primary-color);
-        border-radius: 50%;
-        animation: spin-ring 1s linear infinite;
-    }
-    @keyframes spin-ring {
-        to { transform: rotate(360deg); }
-    }
-
+    .sync-spinner-box { width: 50px; height: 50px; background: color-mix(in srgb, var(--primary-color) 15%, transparent); border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent); border-radius: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .sync-spinner { width: 24px; height: 24px; border: 3px solid color-mix(in srgb, var(--primary-color) 30%, transparent); border-top-color: var(--primary-color); border-radius: 50%; animation: spin-ring 1s linear infinite; }
+    @keyframes spin-ring { to { transform: rotate(360deg); } }
     .sync-text-box { display: flex; flex-direction: column; overflow: hidden; flex: 1; }
     .sync-title { font-size: 16px; color: var(--text-main); font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;}
     .sync-subtitle { font-size: 13px; color: var(--text-muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
-
-    /* ====== ✨ 时间修改弹窗专属输入框 ====== */
     .datetime-input { width: 100%; padding: 12px 15px; border-radius: 8px; background-color: var(--bg-color); color: var(--text-main); border: 1px solid var(--border-color); outline: none; font-size: 15px; font-family: monospace; box-sizing: border-box; transition: 0.3s; }
     .datetime-input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 20%, transparent); }
 
-    /* ====== ✨ 响应式防挤压修复 ====== */
+    /* ====== 响应式防挤压 ====== */
     @media (max-width: 768px) {
         .alert-box { flex-direction: column !important; align-items: flex-start !important; gap: 15px; }
         .alert-box a, .alert-box a button { width: 100%; justify-content: center; }
         .view-controls { flex-direction: column; align-items: flex-start; gap: 15px; }
-        .view-controls > div { width: 100%; justify-content: space-between; }
-
-        /* 修复悬浮窗结构，容纳3个按钮 */
+        .view-controls > div { width: 100%; justify-content: space-between; flex-wrap: wrap;}
         .floating-action-bar { flex-direction: column; width: 92%; border-radius: 20px; padding: 15px; text-align: center; bottom: -280px !important; gap: 12px; }
         .floating-action-bar.show { bottom: 20px !important; }
         .action-buttons { flex-direction: column; width: 100%; gap: 10px; }
         .action-buttons button { width: 100%; padding: 12px; }
-
-        /* 强制手机端海报模式下也是一行 3 个 */
-        #library-container.view-mode-poster .poster-container { grid-template-columns: repeat(3, 1fr) !important; gap: 12px; padding: 10px 5px; }
+        .group-container.view-mode-poster .poster-container { grid-template-columns: repeat(3, 1fr) !important; gap: 12px; padding: 10px 5px; }
         .poster-info { padding: 15px 5px 8px 5px; }
         .poster-title { font-size: 11px; }
         .poster-time { font-size: 10px; }
-
         .sync-modal-box { width: 90%; padding: 20px; }
     }
 </style>
-
-<script>
-    (function() {
-        const savedOrder = JSON.parse(localStorage.getItem('jellywall_library_order'));
-        if (savedOrder && Array.isArray(savedOrder)) {
-            let cssString = '';
-            savedOrder.forEach((id, index) => {
-                const safeId = CSS.escape(id);
-                cssString += `.library-details[data-id="${safeId}"] { order: ${index}; }\n`;
-            });
-            cssString += `.library-details { order: 9999; }`;
-
-            const style = document.createElement('style');
-            style.textContent = cssString;
-            document.head.appendChild(style);
-        }
-    })();
-</script>
 
 <div class="alert-box" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; background-color: var(--sidebar-bg); padding: 15px 20px; border-radius: 10px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
     <div style="color: var(--text-muted); font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 10px;">
         <i data-lucide="lightbulb" style="color: var(--primary-color); flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px;"></i>
         <div>
-            <span style="color: var(--primary-color); font-weight: bold;">提示：</span>首次同步可能需要较长时间，请耐心等待❤。<br>
+            <span style="color: var(--primary-color); font-weight: bold;">提示：</span>首次同步可能需要较长时间，请耐心等待。<br>
             如在 Jellyfin 中产生了新的观影记录，请点击右侧同步按钮拉取最新数据或配置定时任务自动同步。
         </div>
     </div>
-
     <a href="{{ url_for('sync_history') }}" style="text-decoration: none;" onclick="handleSyncClick(this, event)">
-        <button id="sync-btn" style="
-            padding: 10px 24px; font-size: 15px; font-weight: 600;
-            background-color: var(--primary-color); color: white;
-            border: none; border-radius: 8px; cursor: pointer;
-            display: inline-flex; align-items: center; gap: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            transition: transform 0.2s, filter 0.2s;">
+        <button id="sync-btn" style="padding: 10px 24px; font-size: 15px; font-weight: 600; background-color: var(--primary-color); color: white; border: none; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.2s, filter 0.2s;">
             <i data-lucide="refresh-cw" id="sync-icon" style="width: 16px; height: 16px;"></i>
             <span id="sync-text">同步最新记录</span>
         </button>
@@ -206,33 +156,53 @@
 
 <div class="view-controls">
     <div style="display: flex; align-items: center; gap: 15px;">
-        <h2 style="font-size: 20px; font-weight: 800; color: var(--text-main); margin: 0;">媒体库记录</h2>
+        <h2 style="font-size: 20px; font-weight: 800; color: var(--text-main); margin: 0;">观看历史记录</h2>
         <button class="edit-btn" id="edit-btn" onclick="toggleEditMode()">
             <i data-lucide="pencil" style="width: 16px; height: 16px;"></i> 进入编辑
         </button>
     </div>
-    <div class="view-toggle-btn">
-        <div class="toggle-option active" onclick="switchView('list')" id="btn-list">
-            <i data-lucide="list" style="width: 16px; height: 16px;"></i> 列表
+    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+
+        <div class="custom-dropdown" id="group-dropdown">
+            <div class="dropdown-selected" onclick="toggleGroupDropdown(event)">
+                <span id="group-dropdown-text">按媒体库分组</span>
+                <i data-lucide="chevron-down" style="width: 16px; height: 16px; transition: transform 0.3s;" id="group-dropdown-icon"></i>
+            </div>
+            <div class="dropdown-options" id="group-dropdown-options">
+                <div class="dropdown-option active" data-value="library" onclick="selectGroupOption('library', '按媒体库分组', event)">
+                    <i data-lucide="folder-tree" style="width: 14px; height: 14px;"></i> 按媒体库分组
+                </div>
+                <div class="dropdown-option" data-value="type" onclick="selectGroupOption('type', '按类型分组', event)">
+                    <i data-lucide="film" style="width: 14px; height: 14px;"></i> 按类型分组
+                </div>
+            </div>
         </div>
-        <div class="toggle-option" onclick="switchView('poster')" id="btn-poster">
-            <i data-lucide="layout-grid" style="width: 16px; height: 16px;"></i> 海报
+
+        <div class="view-toggle-btn">
+            <div class="toggle-option active" onclick="switchView('list')" id="btn-list">
+                <i data-lucide="list" style="width: 16px; height: 16px;"></i> 列表
+            </div>
+            <div class="toggle-option" onclick="switchView('poster')" id="btn-poster">
+                <i data-lucide="layout-grid" style="width: 16px; height: 16px;"></i> 海报
+            </div>
         </div>
     </div>
 </div>
 
-<div id="library-container" class="view-mode-list">
-    {% for lib_name, data in library_data.items() %}
-        <details class="library-details" data-id="{{ lib_name }}">
+{% macro render_data_blocks(dataset_dict, container_id) %}
+<div id="{{ container_id }}" class="group-container view-mode-list" style="display: none;">
+    {% for group_name, data in dataset_dict.items() %}
+        <details class="library-details" data-id="{{ group_name }}">
             <summary class="library-summary">
                 <span class="drag-handle"><i data-lucide="grip-vertical" style="width: 18px; height: 18px;"></i></span>
-                <i data-lucide="folder-open" style="width: 22px; height: 22px;"></i>
-                {{ lib_name }}
+                {% if '电影' in group_name %}<i data-lucide="clapperboard" style="width: 22px; height: 22px;"></i>
+                {% elif '剧集' in group_name %}<i data-lucide="tv" style="width: 22px; height: 22px;"></i>
+                {% else %}<i data-lucide="folder-open" style="width: 22px; height: 22px;"></i>{% endif %}
+                {{ group_name }}
                 <i data-lucide="chevron-right" class="fold-icon"></i>
             </summary>
 
             <div class="library-content">
-
                 <div class="list-container">
                     {% if data.episodes_tree %}
                         <div class="sub-title"><i data-lucide="tv" style="width: 18px; height: 18px;"></i> 包含剧集</div>
@@ -243,7 +213,6 @@
                                     {{ series_name }}
                                     <i data-lucide="chevron-right" class="fold-icon"></i>
                                 </summary>
-
                                 {% for season_name, episodes in seasons.items() %}
                                     <details class="season-details">
                                         <summary class="season-summary">
@@ -251,7 +220,6 @@
                                             {{ season_name }}
                                             <i data-lucide="chevron-right" class="fold-icon"></i>
                                         </summary>
-
                                         <table style="margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--border-color);">
                                             <thead><tr><th>单集详情</th><th>完成观看时间</th></tr></thead>
                                             <tbody>
@@ -320,16 +288,19 @@
                         {% endfor %}
                     {% endif %}
                 </div>
-
             </div>
         </details>
     {% else %}
         <div style="text-align: center; color: var(--text-muted); padding: 80px 20px; background-color: var(--sidebar-bg); border-radius: 10px; border: 1px solid var(--border-color);">
             <i data-lucide="package-open" style="width: 64px; height: 64px; margin: 0 auto 15px auto; display: block; opacity: 0.5;"></i>
-            <p style="font-size: 16px;">本地数据库暂无记录，请点击右上角进行初始同步。</p>
+            <p style="font-size: 16px;">本地数据库暂无记录，请点击上方按钮进行同步。</p>
         </div>
     {% endfor %}
 </div>
+{% endmacro %}
+
+{{ render_data_blocks(library_data, 'container-library') }}
+{{ render_data_blocks(type_data, 'container-type') }}
 
 <div class="floating-action-bar" id="delete-bar">
     <span style="color: #fff; font-size: 15px; white-space: nowrap;">已选择 <b id="sel-count" style="color: var(--primary-color); font-size: 18px; margin: 0 4px;">0</b> 项记录</span>
@@ -351,9 +322,7 @@
             <button class="sync-close-btn" onclick="cancelSync()"><i data-lucide="x" style="width: 14px; height: 14px;"></i></button>
         </div>
         <div class="sync-modal-body">
-            <div class="sync-spinner-box">
-                <div class="sync-spinner"></div>
-            </div>
+            <div class="sync-spinner-box"><div class="sync-spinner"></div></div>
             <div class="sync-text-box">
                 <div class="sync-title">同步中,请勿关闭/重启此项目</div>
                 <div class="sync-subtitle" id="sync-status-sub">正在连接服务器...</div>
@@ -378,22 +347,38 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        const container = document.getElementById('library-container');
-
-        if (container) {
-            Sortable.create(container, {
-                animation: 150,
-                handle: '.library-summary',
-                ghostClass: 'sortable-ghost',
-                onEnd: function () {
-                    const currentOrder = Array.from(container.children).map(el => el.getAttribute('data-id')).filter(id => id);
-                    localStorage.setItem('jellywall_library_order', JSON.stringify(currentOrder));
+        // ====== 初始化双容器拖拽排序 ======
+        ['container-library', 'container-type'].forEach(containerId => {
+            const container = document.getElementById(containerId);
+            if (container) {
+                // 恢复保存的顺序
+                const savedOrder = JSON.parse(localStorage.getItem('jellywall_order_' + containerId));
+                if (savedOrder && Array.isArray(savedOrder)) {
+                    let cssString = '';
+                    savedOrder.forEach((id, index) => {
+                        cssString += `#${containerId} .library-details[data-id="${CSS.escape(id)}"] { order: ${index}; }\n`;
+                    });
+                    const style = document.createElement('style');
+                    style.textContent = cssString + `#${containerId} .library-details { order: 9999; }`;
+                    document.head.appendChild(style);
                 }
-            });
-        }
 
-        const savedMode = localStorage.getItem('historyViewMode') || 'list';
-        switchView(savedMode);
+                // 激活 Sortable
+                Sortable.create(container, {
+                    animation: 150, handle: '.library-summary', ghostClass: 'sortable-ghost',
+                    onEnd: function () {
+                        const currentOrder = Array.from(container.children).map(el => el.getAttribute('data-id')).filter(id => id);
+                        localStorage.setItem('jellywall_order_' + containerId, JSON.stringify(currentOrder));
+                    }
+                });
+            }
+        });
+
+        // 恢复用户设定的视图模式与分组模式
+        const savedViewMode = localStorage.getItem('historyViewMode') || 'list';
+        const savedGroupMode = localStorage.getItem('historyGroupMode') || 'library';
+        switchView(savedViewMode);
+        switchGroup(savedGroupMode);
 
         const allDetails = document.querySelectorAll('details');
         allDetails.forEach(detail => {
@@ -403,236 +388,222 @@
             detail.addEventListener('toggle', () => { sessionStorage.setItem(stateKey, detail.open); });
         });
 
-        // 确保页面加载时渲染所有 SVG 图标
         if (typeof lucide !== 'undefined') lucide.createIcons();
     });
 
+    // ====== 自定义下拉组件交互逻辑 ======
+    window.toggleGroupDropdown = function(e) {
+        e.stopPropagation();
+        const options = document.getElementById('group-dropdown-options');
+        const icon = document.getElementById('group-dropdown-icon');
+        options.classList.toggle('show');
+        icon.style.transform = options.classList.contains('show') ? 'rotate(180deg)' : 'rotate(0)';
+    };
+
+    window.selectGroupOption = function(value, text, e) {
+        e.stopPropagation();
+
+        // 更新显示文本
+        document.getElementById('group-dropdown-text').innerText = text;
+
+        // 更新选中高亮状态
+        document.querySelectorAll('.dropdown-option').forEach(el => el.classList.remove('active'));
+        e.currentTarget.classList.add('active');
+
+        // 收起面板
+        document.getElementById('group-dropdown-options').classList.remove('show');
+        document.getElementById('group-dropdown-icon').style.transform = 'rotate(0)';
+
+        // 触发数据容器切换
+        switchGroup(value);
+    };
+
+    // 点击页面其他空白区域时，自动收起下拉面板
+    document.addEventListener('click', function(e) {
+        const options = document.getElementById('group-dropdown-options');
+        if (options && options.classList.contains('show') && !e.target.closest('.custom-dropdown')) {
+            options.classList.remove('show');
+            document.getElementById('group-dropdown-icon').style.transform = 'rotate(0)';
+        }
+    });
+
+    // ====== 分组模式切换逻辑 ======
+    window.switchGroup = function(mode) {
+        const contLib = document.getElementById('container-library');
+        const contType = document.getElementById('container-type');
+
+        // 同步初始化时下拉框的文本和状态
+        const textSpan = document.getElementById('group-dropdown-text');
+        if (textSpan) {
+            textSpan.innerText = mode === 'type' ? '按类型分组' : '按媒体库分组';
+            document.querySelectorAll('.dropdown-option').forEach(el => {
+                if (el.getAttribute('data-value') === mode) {
+                    el.classList.add('active');
+                } else {
+                    el.classList.remove('active');
+                }
+            });
+        }
+
+        if (mode === 'type') {
+            contType.style.display = 'flex';
+            contLib.style.display = 'none';
+            localStorage.setItem('historyGroupMode', 'type');
+        } else {
+            contLib.style.display = 'flex';
+            contType.style.display = 'none';
+            localStorage.setItem('historyGroupMode', 'library');
+        }
+
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    };
+
+    // ====== 视图模式切换逻辑 ======
     window.switchView = function(mode) {
-        const container = document.getElementById('library-container');
+        const containers = document.querySelectorAll('.group-container');
         const listBtn = document.getElementById('btn-list');
         const posterBtn = document.getElementById('btn-poster');
 
         if (mode === 'poster') {
             posterBtn.classList.add('active'); listBtn.classList.remove('active');
-            container.classList.remove('view-mode-list'); container.classList.add('view-mode-poster');
+            containers.forEach(c => { c.classList.remove('view-mode-list'); c.classList.add('view-mode-poster'); });
             localStorage.setItem('historyViewMode', 'poster');
         } else {
             listBtn.classList.add('active'); posterBtn.classList.remove('active');
-            container.classList.remove('view-mode-poster'); container.classList.add('view-mode-list');
+            containers.forEach(c => { c.classList.remove('view-mode-poster'); c.classList.add('view-mode-list'); });
             localStorage.setItem('historyViewMode', 'list');
         }
     };
 
-    // ====== 基于 SSE 的实时流同步监听 ======
     window.handleSyncClick = function(linkElement, event) {
-        event.preventDefault(); // 阻止原先的直接页面跳转
-
+        event.preventDefault();
         const overlay = document.getElementById('sync-modal-overlay');
         const modal = overlay.querySelector('.sync-modal-box');
         const subText = document.getElementById('sync-status-sub');
-
-        // 丝滑弹出 Watcharr 风格窗口
-        overlay.style.display = 'flex';
-        void overlay.offsetWidth; // 触发重绘
-        overlay.style.opacity = '1';
-        modal.style.transform = 'scale(1)';
+        overlay.style.display = 'flex'; void overlay.offsetWidth; overlay.style.opacity = '1'; modal.style.transform = 'scale(1)';
         if (typeof lucide !== 'undefined') lucide.createIcons();
-
         subText.innerText = "正在建立流式连接...";
-
-        // 开启实时数据流 (SSE) 监听，我们将对接新的后端路由
         const eventSource = new EventSource('/api/sync_stream');
-
-        // 接收后端源源不断推送过来的实况数据
         eventSource.onmessage = function(event) {
             const data = JSON.parse(event.data);
-
-            if (data.status === 'syncing') {
-                subText.innerText = "正在同步：" + data.name; // 实时显示正在处理的名字
-            } else if (data.status === 'done') {
-                subText.innerText = "同步完毕，正在重载媒体库...";
-                eventSource.close();
-                setTimeout(() => window.location.reload(), 1000);
-            } else if (data.status === 'error') {
-                subText.innerText = "Error: " + data.message;
-                eventSource.close();
-            }
+            if (data.status === 'syncing') subText.innerText = "正在同步：" + data.name;
+            else if (data.status === 'done') { subText.innerText = "同步完毕，正在重载媒体库..."; eventSource.close(); setTimeout(() => window.location.reload(), 1000); }
+            else if (data.status === 'error') { subText.innerText = "Error: " + data.message; eventSource.close(); }
         };
-
-        eventSource.onerror = function(err) {
-            subText.innerText = "Error: 连接意外断开";
-            eventSource.close();
-        };
-
-        // 挂载到全局，方便点击右上角取消时强行掐断流
+        eventSource.onerror = function() { subText.innerText = "Error: 连接意外断开"; eventSource.close(); };
         window.currentSyncStream = eventSource;
     };
 
-    // ====== 绑定右上角 X 按钮的取消事件 ======
     window.cancelSync = function() {
-        if (window.currentSyncStream) {
-            window.currentSyncStream.close(); // 掐断前端接收
-        }
+        if (window.currentSyncStream) window.currentSyncStream.close();
         const overlay = document.getElementById('sync-modal-overlay');
-        overlay.style.opacity = '0';
-        setTimeout(() => { overlay.style.display = 'none'; }, 300);
+        overlay.style.opacity = '0'; setTimeout(() => { overlay.style.display = 'none'; }, 300);
     };
 
-
-    // ====== 编辑、级联勾选与软删除核心逻辑 ======
     let isEditMode = false;
-
     window.toggleEditMode = function() {
         isEditMode = !isEditMode;
-        const container = document.getElementById('library-container');
+        const containers = document.querySelectorAll('.group-container');
         const editBtn = document.getElementById('edit-btn');
         const deleteBar = document.getElementById('delete-bar');
 
         if (isEditMode) {
-            container.classList.add('edit-mode');
+            containers.forEach(c => c.classList.add('edit-mode'));
             editBtn.innerHTML = '<i data-lucide="x" style="width: 16px; height: 16px;"></i> 退出编辑';
             deleteBar.classList.add('show');
-
-            if (!document.getElementById('btn-list').classList.contains('active')) {
-                switchView('list');
-            }
+            if (!document.getElementById('btn-list').classList.contains('active')) switchView('list');
         } else {
-            container.classList.remove('edit-mode');
+            containers.forEach(c => c.classList.remove('edit-mode'));
             editBtn.innerHTML = '<i data-lucide="pencil" style="width: 16px; height: 16px;"></i> 进入编辑';
             deleteBar.classList.remove('show');
-
             document.querySelectorAll('.history-checkbox').forEach(chk => chk.checked = false);
             updateSelectedCount();
         }
-
         if (typeof lucide !== 'undefined') lucide.createIcons();
     };
 
+    // ====== 增强版级联勾选逻辑，让分组间的勾选状态同步 ======
     document.addEventListener('change', function(e) {
         if (!e.target.classList.contains('history-checkbox')) return;
-
         const isChecked = e.target.checked;
+        const val = e.target.value;
+
+        // 如果点的是某个单集，我们把它在另一个分组里对应的单集也勾上，保持状态统一
+        if (e.target.classList.contains('chk-episode')) {
+            document.querySelectorAll(`.chk-episode[value="${val}"]`).forEach(chk => chk.checked = isChecked);
+        }
 
         if (e.target.classList.contains('chk-series')) {
             const seriesId = e.target.dataset.seriesId;
-            document.querySelectorAll(`.history-checkbox[data-series-parent="${seriesId}"]`).forEach(chk => {
-                chk.checked = isChecked;
-            });
+            document.querySelectorAll(`.history-checkbox[data-series-parent="${seriesId}"]`).forEach(chk => chk.checked = isChecked);
         }
         else if (e.target.classList.contains('chk-season')) {
             const seasonId = e.target.dataset.seasonId;
             const seriesId = e.target.dataset.seriesParent;
             document.querySelectorAll(`.chk-episode[data-season-parent="${seasonId}"][data-series-parent="${seriesId}"]`).forEach(chk => {
-                chk.checked = isChecked;
+                const epVal = chk.value;
+                document.querySelectorAll(`.chk-episode[value="${epVal}"]`).forEach(c => c.checked = isChecked);
             });
         }
-
         updateSelectedCount();
     });
 
     window.updateSelectedCount = function() {
-        const count = document.querySelectorAll('.chk-episode:checked').length;
-        document.getElementById('sel-count').innerText = count;
+        // 由于有两个容器，同样的记录会渲染两次，我们需要使用 Set 去重计算选中的数量
+        const selectedIds = new Set();
+        document.querySelectorAll('.chk-episode:checked').forEach(chk => selectedIds.add(chk.value));
+        document.getElementById('sel-count').innerText = selectedIds.size;
     };
 
-    // ====== ✨ 新增：修改时间相关逻辑 ======
     window.openDateModal = function() {
         const selected = document.querySelectorAll('.chk-episode:checked');
-        if (selected.length === 0) {
-            window.showToast("⚠️ 请先勾选要修改时间的记录");
-            return;
-        }
-
+        if (selected.length === 0) { window.showToast("请先勾选要修改时间的记录"); return; }
         const overlay = document.getElementById('date-modal-overlay');
-        overlay.style.display = 'flex';
-        void overlay.offsetWidth;
-        overlay.style.opacity = '1';
-        overlay.querySelector('.sync-modal-box').style.transform = 'scale(1)';
-
-        // 默认将时间选择器填为当前设备时间
-        const now = new Date();
-        now.setMinutes(now.getMinutes() - now.getTimezoneOffset()); // 修正时区偏移
+        overlay.style.display = 'flex'; void overlay.offsetWidth; overlay.style.opacity = '1'; overlay.querySelector('.sync-modal-box').style.transform = 'scale(1)';
+        const now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
         document.getElementById('new-watch-date').value = now.toISOString().slice(0,16);
     };
 
     window.closeDateModal = function() {
         const overlay = document.getElementById('date-modal-overlay');
-        overlay.style.opacity = '0';
-        setTimeout(() => { overlay.style.display = 'none'; }, 300);
+        overlay.style.opacity = '0'; setTimeout(() => { overlay.style.display = 'none'; }, 300);
     };
 
     window.confirmDateChange = async function() {
-        const selected = document.querySelectorAll('.chk-episode:checked');
+        const selectedIds = new Set();
+        document.querySelectorAll('.chk-episode:checked').forEach(chk => selectedIds.add(parseInt(chk.value)));
         const newDateStr = document.getElementById('new-watch-date').value;
-
-        if (!newDateStr) {
-            window.showToast("⚠️ 请选择一个有效的时间");
-            return;
-        }
-
-        const recordIds = Array.from(selected).map(chk => parseInt(chk.value)).filter(id => !isNaN(id));
+        if (!newDateStr) { window.showToast("请选择一个有效的时间"); return; }
+        if (selectedIds.size === 0) return;
 
         try {
-            window.showToast("⏳ 正在更新时间...");
+            window.showToast("正在更新时间...");
             const response = await fetch('/api/update_history_date', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ record_ids: recordIds, new_date: newDateStr })
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ record_ids: Array.from(selectedIds), new_date: newDateStr })
             });
-
             const result = await response.json();
-            if (result.success) {
-                window.showToast("✅ " + result.message);
-                closeDateModal();
-                setTimeout(() => location.reload(), 1000);
-            } else {
-                window.showToast("❌ 修改失败: " + result.message);
-            }
-        } catch (error) {
-            window.showToast("❌ 网络请求异常");
-        }
+            if (result.success) { window.showToast(result.message); closeDateModal(); setTimeout(() => location.reload(), 1000); }
+            else window.showToast("修改失败: " + result.message);
+        } catch (error) { window.showToast("网络请求异常"); }
     };
 
-
-    // ====== 软删除记录 ======
     window.confirmDelete = async function() {
-        const selected = document.querySelectorAll('.chk-episode:checked');
-        if (selected.length === 0) {
-            window.showToast("⚠️ 请先勾选要移除的媒体记录");
-            return;
-        }
-
-        if (!confirm(`确定要从历史记录中移除这 ${selected.length} 项吗？\n\n（注意：这仅会在本地历史中隐藏，绝对不会删除您媒体服务器上的真实文件）`)) {
-            return;
-        }
-
-        const recordIds = Array.from(selected)
-            .map(chk => parseInt(chk.value))
-            .filter(id => !isNaN(id));
-
-        if (recordIds.length === 0) {
-            window.showToast("⚠️ 错误：未抓取到记录的有效 ID，请检查后端是否正确返回。");
-            return;
-        }
+        const selectedIds = new Set();
+        document.querySelectorAll('.chk-episode:checked').forEach(chk => selectedIds.add(parseInt(chk.value)));
+        if (selectedIds.size === 0) { window.showToast("请先勾选要移除的媒体记录"); return; }
+        if (!confirm(`确定要从历史记录中移除这 ${selectedIds.size} 项吗？\n\n（注意：这仅会在本地历史中隐藏，绝对不会删除您媒体服务器上的真实文件）`)) return;
 
         try {
-            window.showToast("⏳ 正在清理足迹...");
+            window.showToast("正在清理足迹...");
             const response = await fetch('/api/delete_history', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ record_ids: recordIds })
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ record_ids: Array.from(selectedIds) })
             });
-
             const result = await response.json();
-            if (result.success) {
-                window.showToast("✅ " + result.message);
-                setTimeout(() => location.reload(), 1000);
-            } else {
-                window.showToast("❌ 删除失败: " + result.message);
-            }
-        } catch (error) {
-            window.showToast("❌ 网络请求异常");
-        }
+            if (result.success) { window.showToast(result.message); setTimeout(() => location.reload(), 1000); }
+            else window.showToast("删除失败: " + result.message);
+        } catch (error) { window.showToast("网络请求异常"); }
     };
 </script>
 {% endblock %}

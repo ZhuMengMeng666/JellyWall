@@ -2533,32 +2533,15 @@ def restore_missing_images_task(app_context, user_id):
             f"[补全引擎] 任务结束：用户 {user.username} 的缺失图片扫描完毕，共成功下载补全了 {download_count} 张图片文件。")
 
 
-# ==========================================
-# 完善后的数据导出导入路由 (含日志记录)
-# ==========================================
 @app.route('/export_data')
 @login_required
 def export_data():
-    """将当前用户的所有配置、观看记录、海报及剧照缓存导出为 JSON 文件"""
+    """将当前用户的观看记录、海报及剧照缓存导出为 JSON 文件（不包含用户 API 与系统配置）"""
 
-    logger.info(f"[数据导出] 用户 {current_user.username} 发起了全量数据导出请求。")
+    logger.info(f"[数据导出] 用户 {current_user.username} 发起了纯净历史数据导出请求（排除配置信息）。")
 
     try:
-        # 1. 提取用户配置
-        users = load_users()
-        user_data = users.get(current_user.id, {})
-        safe_profile = {
-            "jellyfin_url": user_data.get("jellyfin_url"),
-            "jellyfin_api_key": user_data.get("jellyfin_api_key"),
-            "jellyfin_user_id": user_data.get("jellyfin_user_id"),
-            "proxy_url": user_data.get("proxy_url"),
-            "proxy_port": user_data.get("proxy_port"),
-            "tmdb_api_key": user_data.get("tmdb_api_key"),
-            "sync_enabled": user_data.get("sync_enabled"),
-            "sync_cron": user_data.get("sync_cron")
-        }
-
-        # 2. 提取观影记录
+        # 1. 提取观影记录
         records = WatchRecord.query.filter_by(user_id=current_user.id).all()
         records_list = []
         user_ep_item_ids = []
@@ -2578,7 +2561,7 @@ def export_data():
                 "is_deleted": r.is_deleted
             })
 
-        # 3. 提取海报缓存记录
+        # 2. 提取海报缓存记录
         posters = WatchPoster.query.filter_by(user_id=current_user.id).all()
         posters_list = []
         for p in posters:
@@ -2599,7 +2582,7 @@ def export_data():
                 "is_deleted": p.is_deleted
             })
 
-        # 4. 提取关联的剧照与剧情记录 (EpisodeDetail)
+        # 3. 提取关联的剧照与剧情记录 (EpisodeDetail)
         ep_details = EpisodeDetail.query.filter(
             EpisodeDetail.item_id.in_(user_ep_item_ids)).all() if user_ep_item_ids else []
         ep_details_list = []
@@ -2615,11 +2598,10 @@ def export_data():
                 "still_image_path": ed.still_image_path
             })
 
-        # 5. 组装导出
+        # 4. 组装导出
         export_dict = {
-            "version": "1.1",
+            "version": "1.2",
             "export_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            "user_profile": safe_profile,
             "watch_records": records_list,
             "watch_posters": posters_list,
             "episode_details": ep_details_list
@@ -2642,7 +2624,7 @@ def export_data():
 @app.route('/api/import_data', methods=['POST'])
 @login_required
 def import_data():
-    """解析上传的 JSON，合并至数据库，并挂载图片扫描补全线程"""
+    """解析上传的 JSON，仅合并历史记录及海报数据至数据库，不覆盖用户配置，并挂载图片扫描补全线程"""
     logger.info(f"[数据导入] 收到来自用户 {current_user.username} 的数据导入请求。")
 
     if 'file' not in request.files:
@@ -2658,22 +2640,9 @@ def import_data():
         data = json.loads(file.read().decode('utf-8'))
 
         logger.info(
-            f"[数据导入] 文件解析成功，准备为 {current_user.username} 合并 {len(data.get('watch_records', []))} 条观影记录。")
+            f"[数据导入] 文件解析成功，准备为 {current_user.username} 合并 {len(data.get('watch_records', []))} 条观影记录（跳过用户配置项，仅导入历史数据）。")
 
-        # --- 1. 恢复配置 ---
-        profile = data.get("user_profile", {})
-        if profile:
-            current_user.jellyfin_url = profile.get("jellyfin_url", current_user.jellyfin_url)
-            current_user.jellyfin_api_key = profile.get("jellyfin_api_key", current_user.jellyfin_api_key)
-            current_user.jellyfin_user_id = profile.get("jellyfin_user_id", current_user.jellyfin_user_id)
-            current_user.proxy_url = profile.get("proxy_url", current_user.proxy_url)
-            current_user.proxy_port = profile.get("proxy_port", current_user.proxy_port)
-            current_user.tmdb_api_key = profile.get("tmdb_api_key", current_user.tmdb_api_key)
-            current_user.sync_enabled = profile.get("sync_enabled", current_user.sync_enabled)
-            current_user.sync_cron = profile.get("sync_cron", current_user.sync_cron)
-            current_user.save()
-
-        # --- 2. 恢复流水记录 ---
+        # --- 1. 恢复流水记录 (已移除用户配置覆盖逻辑) ---
         for r_data in data.get("watch_records", []):
             item_id = r_data.get("item_id")
             if not item_id: continue
@@ -2694,7 +2663,7 @@ def import_data():
             rec.date_played = dt_played
             rec.is_deleted = r_data.get("is_deleted", False)
 
-        # --- 3. 恢复海报墙缓存 ---
+        # --- 2. 恢复海报墙缓存 ---
         for p_data in data.get("watch_posters", []):
             target_id = p_data.get("target_id")
             if not target_id: continue
@@ -2718,7 +2687,7 @@ def import_data():
             pos.last_watched_date = dt_last
             pos.is_deleted = p_data.get("is_deleted", False)
 
-        # --- 4. 恢复单集剧照与剧情 ---
+        # --- 3. 恢复单集剧照与剧情 ---
         for ed_data in data.get("episode_details", []):
             item_id = ed_data.get("item_id")
             if not item_id: continue
@@ -2735,14 +2704,14 @@ def import_data():
             ed.still_image_path = ed_data.get("still_image_path")
 
         db.session.commit()
-        refresh_scheduler_jobs()
 
-        logger.info(f"[数据导入] 数据库入库提交成功。已为 {current_user.username} 触发后台 TMDB 图片补全线程。")
+        logger.info(f"[数据导入] 数据库历史记录合并提交成功。已为 {current_user.username} 触发后台 TMDB 图片补全线程。")
 
         # 数据落库完毕后，丢到后台慢慢校验和下载图片
         threading.Thread(target=restore_missing_images_task, args=(app.app_context(), current_user.id)).start()
 
-        return jsonify({"success": True, "message": "导入完成！后台正在自动校验并补全缺失的图片..."})
+        return jsonify(
+            {"success": True, "message": "导入完成！系统仅合并了历史记录，后台正在自动校验并补全缺失的图片..."})
 
     except Exception as e:
         db.session.rollback()

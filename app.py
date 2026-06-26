@@ -2391,6 +2391,365 @@ def update_history_date():
 
 
 # ==========================================
+# 后台图片静默补全引擎
+# ==========================================
+def restore_missing_images_task(app_context, user_id):
+    """后台任务：遍历数据库校验本地图片文件，若丢失则通过 TMDB 补全下载，精确记录报错与成功节点"""
+    with app_context:
+        user = load_user(user_id)
+        if not user or not user.tmdb_api_key:
+            logger.warning(f"[补全引擎] 用户 {user.username} 未配置 TMDB API Key，自动跳过图片补全任务。")
+            return
+
+        logger.info(f"[补全引擎] 启动任务：开始为用户 {user.username} 扫描并补全丢失的本地海报和剧照...")
+        proxies = get_user_proxies(user)
+        static_dir = os.path.join(app.root_path, 'static')
+
+        download_count = 0
+        import time
+
+        # 带重试机制的稳健网络请求封装
+        def fetch_with_retry(url, params=None, timeout=30, retries=3):
+            for attempt in range(retries):
+                try:
+                    resp = requests.get(url, params=params, proxies=proxies, timeout=timeout)
+                    if resp.status_code == 200:
+                        return resp
+                except Exception as e:
+                    if attempt == retries - 1:
+                        raise e  # 最后一次重试依然失败，则抛出异常供外部精准捕获
+                    time.sleep(2)
+            return None
+
+        # 内部封装：指定绝对路径的原名下载
+        def download_exact(url, relative_path):
+            nonlocal download_count
+            if not url or not relative_path or relative_path == "images/logo.png": return False
+            filepath = os.path.join(static_dir, relative_path)
+            if os.path.exists(filepath): return False
+
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            resp = fetch_with_retry(url)
+            if resp:
+                with open(filepath, 'wb') as f:
+                    f.write(resp.content)
+                download_count += 1
+                return True
+            return False
+
+        # --- 1. 扫描并补全海报与背景图 ---
+        posters = WatchPoster.query.filter_by(user_id=user_id).all()
+        for p in posters:
+            if not p.tmdb_id: continue
+
+            needs_main = p.series_image_path and p.series_image_path != "images/logo.png" and not os.path.exists(
+                os.path.join(static_dir, p.series_image_path))
+            needs_local = p.local_image_path and p.local_image_path != "images/logo.png" and not os.path.exists(
+                os.path.join(static_dir, p.local_image_path))
+            needs_backdrop = p.backdrop_image_path and not os.path.exists(
+                os.path.join(static_dir, p.backdrop_image_path))
+
+            if not (needs_main or needs_local or needs_backdrop):
+                continue
+
+            # 提取精确的媒体名称
+            base_name = p.series_name if p.media_type == 'Series' and p.series_name else p.display_title
+            season_text = f"第 {p.season_num} 季" if p.season_num is not None and p.season_num > 0 else "特别篇"
+
+            tmdb_type = 'movie' if p.media_type == 'Movie' else 'tv'
+            url = f"https://api.themoviedb.org/3/{tmdb_type}/{p.tmdb_id}"
+
+            # 拉取基础元数据
+            try:
+                resp = fetch_with_retry(url, params={"api_key": user.tmdb_api_key, "language": "zh-CN"})
+                if not resp: continue
+                data = resp.json()
+            except Exception as e:
+                logger.error(f"[补全引擎] {base_name} 元数据拉取失败: {str(e)}")
+                continue
+
+            # 独立捕获：补全主海报
+            if needs_main:
+                try:
+                    remote = data.get('poster_path')
+                    if remote and download_exact(f"https://image.tmdb.org/t/p/w500{remote}", p.series_image_path):
+                        logger.info(f"[补全引擎] {base_name} 主海报补全下载成功")
+                except Exception as e:
+                    logger.error(f"[补全引擎] {base_name} 主海报补全失败: {str(e)}")
+
+            # 独立捕获：补全背景图
+            if needs_backdrop:
+                try:
+                    remote = data.get('backdrop_path')
+                    if remote and download_exact(f"https://image.tmdb.org/t/p/w1280{remote}", p.backdrop_image_path):
+                        logger.info(f"[补全引擎] {base_name} 背景图补全下载成功")
+                except Exception as e:
+                    logger.error(f"[补全引擎] {base_name} 背景图补全失败: {str(e)}")
+
+            # 独立捕获：补全季海报 / 电影本地海报
+            if needs_local:
+                try:
+                    if p.media_type == 'Movie':
+                        remote = data.get('poster_path')
+                        if remote and download_exact(f"https://image.tmdb.org/t/p/w500{remote}", p.local_image_path):
+                            logger.info(f"[补全引擎] {base_name} 主海报补全下载成功")
+                    elif p.season_num is not None:
+                        s_url = f"https://api.themoviedb.org/3/tv/{p.tmdb_id}/season/{p.season_num}"
+                        s_resp = fetch_with_retry(s_url, params={"api_key": user.tmdb_api_key, "language": "zh-CN"})
+                        if s_resp:
+                            remote = s_resp.json().get('poster_path')
+                            if remote and download_exact(f"https://image.tmdb.org/t/p/w500{remote}",
+                                                         p.local_image_path):
+                                logger.info(f"[补全引擎] {base_name} {season_text}海报补全下载成功")
+                except Exception as e:
+                    if p.media_type == 'Movie':
+                        logger.error(f"[补全引擎] {base_name} 主海报补全失败: {str(e)}")
+                    else:
+                        logger.error(f"[补全引擎] {base_name} {season_text}海报补全失败: {str(e)}")
+
+        # --- 2. 扫描并补全单集剧照 ---
+        user_ep_ids = [r.item_id for r in WatchRecord.query.filter_by(user_id=user_id, item_type='Episode').all()]
+        if user_ep_ids:
+            ep_details = EpisodeDetail.query.filter(EpisodeDetail.item_id.in_(user_ep_ids)).all()
+            for ed in ep_details:
+                if not ed.series_tmdb_id or ed.season_num is None or ed.episode_num is None: continue
+                if ed.still_image_path and ed.still_image_path != "images/logo.png" and not os.path.exists(
+                        os.path.join(static_dir, ed.still_image_path)):
+                    ep_url = f"https://api.themoviedb.org/3/tv/{ed.series_tmdb_id}/season/{ed.season_num}/episode/{ed.episode_num}"
+                    ep_season_text = f"第 {ed.season_num} 季" if ed.season_num > 0 else "特别篇"
+                    try:
+                        ep_resp = fetch_with_retry(ep_url, params={"api_key": user.tmdb_api_key, "language": "zh-CN"})
+                        if ep_resp:
+                            remote = ep_resp.json().get('still_path')
+                            if remote and download_exact(f"https://image.tmdb.org/t/p/w300{remote}",
+                                                         ed.still_image_path):
+                                logger.info(
+                                    f"[补全引擎] {ed.series_name} {ep_season_text} 第 {ed.episode_num} 集剧照补全下载成功")
+                    except Exception as e:
+                        logger.error(
+                            f"[补全引擎] {ed.series_name} {ep_season_text} 第 {ed.episode_num} 集剧照补全失败: {str(e)}")
+
+        logger.info(
+            f"[补全引擎] 任务结束：用户 {user.username} 的缺失图片扫描完毕，共成功下载补全了 {download_count} 张图片文件。")
+
+
+# ==========================================
+# 完善后的数据导出导入路由 (含日志记录)
+# ==========================================
+@app.route('/export_data')
+@login_required
+def export_data():
+    """将当前用户的所有配置、观看记录、海报及剧照缓存导出为 JSON 文件"""
+
+    logger.info(f"[数据导出] 用户 {current_user.username} 发起了全量数据导出请求。")
+
+    try:
+        # 1. 提取用户配置
+        users = load_users()
+        user_data = users.get(current_user.id, {})
+        safe_profile = {
+            "jellyfin_url": user_data.get("jellyfin_url"),
+            "jellyfin_api_key": user_data.get("jellyfin_api_key"),
+            "jellyfin_user_id": user_data.get("jellyfin_user_id"),
+            "proxy_url": user_data.get("proxy_url"),
+            "proxy_port": user_data.get("proxy_port"),
+            "tmdb_api_key": user_data.get("tmdb_api_key"),
+            "sync_enabled": user_data.get("sync_enabled"),
+            "sync_cron": user_data.get("sync_cron")
+        }
+
+        # 2. 提取观影记录
+        records = WatchRecord.query.filter_by(user_id=current_user.id).all()
+        records_list = []
+        user_ep_item_ids = []
+        for r in records:
+            if r.item_type == 'Episode': user_ep_item_ids.append(r.item_id)
+            records_list.append({
+                "item_id": r.item_id,
+                "item_type": r.item_type,
+                "library_name": r.library_name,
+                "title": r.title,
+                "series_name": r.series_name,
+                "season_name": r.season_name,
+                "episode_num": r.episode_num,
+                "source": r.source,
+                "tmdb_id": r.tmdb_id,
+                "date_played": r.date_played.strftime('%Y-%m-%d %H:%M:%S') if r.date_played else None,
+                "is_deleted": r.is_deleted
+            })
+
+        # 3. 提取海报缓存记录
+        posters = WatchPoster.query.filter_by(user_id=current_user.id).all()
+        posters_list = []
+        for p in posters:
+            posters_list.append({
+                "target_id": p.target_id,
+                "media_type": p.media_type,
+                "display_title": p.display_title,
+                "series_name": p.series_name,
+                "season_num": p.season_num,
+                "tmdb_id": p.tmdb_id,
+                "local_image_path": p.local_image_path,
+                "series_image_path": p.series_image_path,
+                "backdrop_image_path": p.backdrop_image_path,
+                "background_image_path": p.background_image_path,
+                "overview": p.overview,
+                "season_overview": p.season_overview,
+                "last_watched_date": p.last_watched_date.strftime('%Y-%m-%d %H:%M:%S') if p.last_watched_date else None,
+                "is_deleted": p.is_deleted
+            })
+
+        # 4. 提取关联的剧照与剧情记录 (EpisodeDetail)
+        ep_details = EpisodeDetail.query.filter(
+            EpisodeDetail.item_id.in_(user_ep_item_ids)).all() if user_ep_item_ids else []
+        ep_details_list = []
+        for ed in ep_details:
+            ep_details_list.append({
+                "item_id": ed.item_id,
+                "series_name": ed.series_name,
+                "season_num": ed.season_num,
+                "episode_num": ed.episode_num,
+                "episode_name": ed.episode_name,
+                "overview": ed.overview,
+                "series_tmdb_id": ed.series_tmdb_id,
+                "still_image_path": ed.still_image_path
+            })
+
+        # 5. 组装导出
+        export_dict = {
+            "version": "1.1",
+            "export_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "user_profile": safe_profile,
+            "watch_records": records_list,
+            "watch_posters": posters_list,
+            "episode_details": ep_details_list
+        }
+
+        json_str = json.dumps(export_dict, ensure_ascii=False, indent=2)
+        filename = f"jellywall_export_{current_user.username}_{datetime.now().strftime('%Y%m%d%H%M')}.json"
+
+        logger.info(
+            f"[数据导出] 成功提取用户 {current_user.username} 的 {len(records_list)} 条足迹，{len(posters_list)} 张海报记录及 {len(ep_details_list)} 集详情。")
+        return Response(json_str, mimetype="application/json",
+                        headers={"Content-disposition": f"attachment; filename={filename}"})
+
+    except Exception as e:
+        logger.error(f"[数据导出] 用户 {current_user.username} 数据提取异常: {str(e)}")
+        flash("系统数据打包时发生错误，请联系管理员或查看日志。")
+        return redirect(url_for('config'))
+
+
+@app.route('/api/import_data', methods=['POST'])
+@login_required
+def import_data():
+    """解析上传的 JSON，合并至数据库，并挂载图片扫描补全线程"""
+    logger.info(f"[数据导入] 收到来自用户 {current_user.username} 的数据导入请求。")
+
+    if 'file' not in request.files:
+        logger.warning(f"[数据导入] 用户 {current_user.username} 上传失败：未收到文件流。")
+        return jsonify({"success": False, "message": "未找到上传的文件"})
+
+    file = request.files['file']
+    if file.filename == '':
+        logger.warning(f"[数据导入] 用户 {current_user.username} 上传失败：提交了空文件。")
+        return jsonify({"success": False, "message": "未选择文件"})
+
+    try:
+        data = json.loads(file.read().decode('utf-8'))
+
+        logger.info(
+            f"[数据导入] 文件解析成功，准备为 {current_user.username} 合并 {len(data.get('watch_records', []))} 条观影记录。")
+
+        # --- 1. 恢复配置 ---
+        profile = data.get("user_profile", {})
+        if profile:
+            current_user.jellyfin_url = profile.get("jellyfin_url", current_user.jellyfin_url)
+            current_user.jellyfin_api_key = profile.get("jellyfin_api_key", current_user.jellyfin_api_key)
+            current_user.jellyfin_user_id = profile.get("jellyfin_user_id", current_user.jellyfin_user_id)
+            current_user.proxy_url = profile.get("proxy_url", current_user.proxy_url)
+            current_user.proxy_port = profile.get("proxy_port", current_user.proxy_port)
+            current_user.tmdb_api_key = profile.get("tmdb_api_key", current_user.tmdb_api_key)
+            current_user.sync_enabled = profile.get("sync_enabled", current_user.sync_enabled)
+            current_user.sync_cron = profile.get("sync_cron", current_user.sync_cron)
+            current_user.save()
+
+        # --- 2. 恢复流水记录 ---
+        for r_data in data.get("watch_records", []):
+            item_id = r_data.get("item_id")
+            if not item_id: continue
+            rec = WatchRecord.query.filter_by(user_id=current_user.id, item_id=item_id).first()
+            dt_played = datetime.strptime(r_data["date_played"], '%Y-%m-%d %H:%M:%S') if r_data.get(
+                "date_played") else datetime.now()
+            if not rec:
+                rec = WatchRecord(user_id=current_user.id, item_id=item_id)
+                db.session.add(rec)
+            rec.item_type = r_data.get("item_type")
+            rec.library_name = r_data.get("library_name", "导入数据")
+            rec.title = r_data.get("title", "未知")
+            rec.series_name = r_data.get("series_name")
+            rec.season_name = r_data.get("season_name")
+            rec.episode_num = r_data.get("episode_num")
+            rec.source = r_data.get("source", "import")
+            rec.tmdb_id = r_data.get("tmdb_id")
+            rec.date_played = dt_played
+            rec.is_deleted = r_data.get("is_deleted", False)
+
+        # --- 3. 恢复海报墙缓存 ---
+        for p_data in data.get("watch_posters", []):
+            target_id = p_data.get("target_id")
+            if not target_id: continue
+            pos = WatchPoster.query.filter_by(user_id=current_user.id, target_id=target_id).first()
+            dt_last = datetime.strptime(p_data["last_watched_date"], '%Y-%m-%d %H:%M:%S') if p_data.get(
+                "last_watched_date") else datetime.now()
+            if not pos:
+                pos = WatchPoster(user_id=current_user.id, target_id=target_id)
+                db.session.add(pos)
+            pos.media_type = p_data.get("media_type")
+            pos.display_title = p_data.get("display_title", "未知")
+            pos.series_name = p_data.get("series_name")
+            pos.season_num = p_data.get("season_num")
+            pos.tmdb_id = p_data.get("tmdb_id")
+            pos.local_image_path = p_data.get("local_image_path", "images/logo.png")
+            pos.series_image_path = p_data.get("series_image_path")
+            pos.backdrop_image_path = p_data.get("backdrop_image_path")
+            pos.background_image_path = p_data.get("background_image_path")
+            pos.overview = p_data.get("overview")
+            pos.season_overview = p_data.get("season_overview")
+            pos.last_watched_date = dt_last
+            pos.is_deleted = p_data.get("is_deleted", False)
+
+        # --- 4. 恢复单集剧照与剧情 ---
+        for ed_data in data.get("episode_details", []):
+            item_id = ed_data.get("item_id")
+            if not item_id: continue
+            ed = EpisodeDetail.query.filter_by(item_id=item_id).first()
+            if not ed:
+                ed = EpisodeDetail(item_id=item_id)
+                db.session.add(ed)
+            ed.series_name = ed_data.get("series_name")
+            ed.season_num = ed_data.get("season_num")
+            ed.episode_num = ed_data.get("episode_num")
+            ed.episode_name = ed_data.get("episode_name")
+            ed.overview = ed_data.get("overview")
+            ed.series_tmdb_id = ed_data.get("series_tmdb_id")
+            ed.still_image_path = ed_data.get("still_image_path")
+
+        db.session.commit()
+        refresh_scheduler_jobs()
+
+        logger.info(f"[数据导入] 数据库入库提交成功。已为 {current_user.username} 触发后台 TMDB 图片补全线程。")
+
+        # 数据落库完毕后，丢到后台慢慢校验和下载图片
+        threading.Thread(target=restore_missing_images_task, args=(app.app_context(), current_user.id)).start()
+
+        return jsonify({"success": True, "message": "导入完成！后台正在自动校验并补全缺失的图片..."})
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[数据导入] 用户 {current_user.username} 文件结构解析失败或入库异常: {str(e)}")
+        return jsonify({"success": False, "message": f"导入失败，数据格式可能不正确: {str(e)}"})
+
+# ==========================================
 # 🌟 日志管理面板路由及文件写入逻辑
 # ==========================================
 
@@ -2476,6 +2835,8 @@ def log_stream():
                     yield f"data: {line.strip()}\n\n"
 
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
+
 
 @app.route('/demo')
 @login_required

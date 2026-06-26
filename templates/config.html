@@ -92,6 +92,7 @@
     <button class="nav-pill" onclick="scrollToCard('card-proxy', this)">代理设置</button>
     <button class="nav-pill" onclick="scrollToCard('card-tmdb', this)">TMDB</button>
     <button class="nav-pill" onclick="scrollToCard('card-autosync', this)">自动同步</button>
+    <button class="nav-pill" onclick="scrollToCard('card-data', this)">数据管理</button>
     <button class="nav-pill" onclick="scrollToCard('card-system', this)">系统安全</button>
     <button class="nav-pill" onclick="scrollToCard('card-port', this)">访问端口</button>
 </div>
@@ -288,6 +289,28 @@
             </button>
         </div>
     </form>
+</div>
+
+<div class="config-card" id="card-data">
+    <div class="config-title"><i data-lucide="database"></i>导出\导入</div>
+
+    <div style="background: color-mix(in srgb, var(--sidebar-bg) 50%, var(--bg-color)); padding: 15px 20px; border-radius: 10px; border: 1px solid var(--border-color); margin-bottom: 20px;">
+        <div style="font-size: 14px; color: var(--text-muted); line-height: 1.6;">
+            你可以将当前绑定的 Jellyfin 密钥、TMDB 密钥、代理设置，以及完整的观影足迹和海报墙数据导出为 JSON 文件进行备份。<br>
+            导入文件时，系统会采用<b>增量合并</b>的方式更新数据库，不会覆盖您当前账号的登录名与密码。
+        </div>
+    </div>
+
+    <div class="btn-group" style="display: flex; gap: 15px; flex-wrap: wrap;">
+        <a href="{{ url_for('export_data') }}" class="submit-btn" style="text-decoration: none;">
+            <i data-lucide="upload"></i> 导出用户数据 (JSON)
+        </a>
+
+        <button type="button" class="submit-btn test-btn" onclick="document.getElementById('import-file').click()">
+            <i data-lucide="download"></i> 导入数据文件
+        </button>
+        <input type="file" id="import-file" style="display: none;" accept=".json" onchange="handleImportData(this)">
+    </div>
 </div>
 
 <div class="config-card" id="card-system">
@@ -517,5 +540,41 @@
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }
     }
+    // ==========================================
+    // 数据导入上传逻辑
+    // ==========================================
+    window.handleImportData = async function(input) {
+        if (!input.files || input.files.length === 0) return;
+        const file = input.files[0];
+
+        if (!confirm(`确定要导入数据文件：${file.name} 吗？\n\n注意：导入过程将覆盖您目前的各项 API 配置，并向数据库中注入历史记录。`)) {
+            input.value = '';
+            return;
+        }
+
+        window.showToast("正在处理导入数据，请稍候...");
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await fetch('/api/import_data', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+
+            if (result.success) {
+                window.showToast(result.message);
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                window.showToast(result.message);
+            }
+        } catch (error) {
+            window.showToast("网络请求异常，文件上传失败。");
+        } finally {
+            // 清空 input 状态，允许重复上传同一个文件
+            input.value = '';
+        }
+    };
 </script>
 {% endblock %}

@@ -279,11 +279,11 @@ def background_sync_task(user_id):
         still_dir = os.path.join(app.root_path, 'static', 'stills')
         backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
 
-        sync_count = 0  # ✨ 新增：初始化同步计数器
+        sync_count = 0  # 初始化同步计数器
         tmdb_search_cache = {}
-        synced_names = set()
+        synced_names = set()  # 初始化收集名称的集合
         processed_ids = set()
-        poster_cache = {}  # ✨ 新增：初始化内存海报字典
+        poster_cache = {}  # 初始化内存海报字典
 
         try:
             with db.session.no_autoflush:
@@ -313,7 +313,26 @@ def background_sync_task(user_id):
 
                         with db_lock:
                             if update_watch_record(user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
-                                sync_count += 1  # ✨ 新增：记录同步数量
+                                sync_count += 1
+
+                                # 针对剧集和电影分别格式化日志显示的名称
+                                if item["Type"] == "Episode":
+                                    series_name = item.get("SeriesName", item.get("Name", "未知剧集"))
+                                    try:
+                                        # 尝试获取季数和集数并格式化为 SxxExx
+                                        s_num = int(item.get("ParentIndexNumber", 1))  # Jellyfin 通常为空时代表第1季
+                                        e_num = int(item.get("IndexNumber", 0))
+                                        display_name = f"{series_name} S{s_num:02d}E{e_num:02d}"
+                                    except (ValueError, TypeError):
+                                        # 获取失败的安全兜底
+                                        display_name = f"{series_name} (特殊集)"
+                                else:
+                                    # 电影直接使用 Name
+                                    display_name = item.get("Name", "未知电影")
+
+                                if display_name:
+                                    synced_names.add(display_name)
+
                                 update_watch_poster(user.id, user.jellyfin_user_id, item, item["Type"], dt_local,
                                                     jf_url, headers, poster_dir, backdrop_dir, synced_names,
                                                     master_tmdb_id, poster_cache)
@@ -324,11 +343,11 @@ def background_sync_task(user_id):
             with db_lock:
                 db.session.commit()
 
-            # ====== ✨ 核心修改：将具体同步了哪些内容写入系统日志 ======
+            # 将具体同步了哪些内容写入系统日志，使用换行符进行列表排版
             if sync_count > 0:
-                names_str = ", ".join(sorted(synced_names))
+                names_str = "\n" + "\n".join([f"  - {name}" for name in sorted(synced_names)])
                 logger.info(
-                    f"[Auto-Sync] 用户 {user.username} 定时同步完成！新增/更新了 {sync_count} 项记录: {names_str}")
+                    f"[Auto-Sync] 用户 {user.username} 定时同步完成！新增/更新了 {sync_count} 项记录:{names_str}")
             else:
                 logger.info(f"[Auto-Sync] 用户 {user.username} 定时同步完成！本地记录已是最新，无新增。")
 

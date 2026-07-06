@@ -1,15 +1,15 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify,stream_with_context
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify, stream_with_context
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from datetime import datetime, timedelta
-from werkzeug.security import generate_password_hash  # 确保顶部引入了加密库
+from werkzeug.security import generate_password_hash
 import threading
-import uuid  # 确保文件顶部有引入此模块，用于生成用户的独立 ID
+import uuid
 from werkzeug.security import check_password_hash
 from flask_login import login_user
 import re
 import json
-import sys  # ✨ 确保引入 sys 模块
+import sys
 import requests
 from datetime import datetime
 from flask import request, jsonify
@@ -19,21 +19,22 @@ import time
 from flask import stream_with_context, Response
 import zipfile
 
-
-
-# ====== ✨ 新增：TMDB 搜索短时缓存池 (存放格式: {query: {timestamp: float, data: list}}) ======
+# TMDB 搜索结果的短时缓存池，格式为 {query: {timestamp: float, data: list}}
 TMDB_SEARCH_CACHE = {}
+# TMDB 详情缓存
 TMDB_DETAIL_CACHE = {}
-TMDB_TV_EP_COUNT_CACHE = {}  # ✨ 新增：专门缓存剧集的官方总集数
+# 专门用来缓存剧集的官方总集数
+TMDB_TV_EP_COUNT_CACHE = {}
+# 缓存存活时间
 CACHE_TTL = 3600
-# ====== ✨ 新增：全局数据库锁，防止多线程把 SQLite 写死机 ======
+# 全局数据库锁，为了防止多线程把 SQLite 并发写入卡死
 db_lock = threading.Lock()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'jellywall_super_secret_key_2026'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///project.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-#遇到数据库锁时，让其排队等待 20 秒，而不是立刻报错崩溃
+# 遇到数据库锁时，排队等20秒，防止直接报错崩溃
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'connect_args': {'timeout': 20}
 }
@@ -43,61 +44,59 @@ import os
 import re
 import sys
 
-# ... (你的其他 app 代码) ...
-
 # ==========================================
-# 🌟 核心：接管日志引擎 (区分系统 HTTP 与 业务日志)
+# 核心：接管日志引擎 (区分系统 HTTP 与 业务日志)
 # ==========================================
 log_dir = os.path.join(app.root_path, 'logs')
 os.makedirs(log_dir, exist_ok=True)
 log_file_path = os.path.join(log_dir, 'jellywall.log')
 
 
-# 自定义智能日志格式化器
 class SmartFileFormatter(logging.Formatter):
+    """
+    自定义的智能日志格式化器。
+    专门用来区分系统底层的 HTTP 请求和我们自己写的业务日志，顺便把控制台的颜色代码清理掉，保证存入文件的日志干干净净。
+    """
+
     def format(self, record):
-        # 统一获取标准时间
         record.asctime = self.formatTime(record, self.datefmt)
 
-        # 判断日志来源
         if record.name == 'werkzeug':
-            # 1. 如果是底层 HTTP 请求日志：清洗原生时间戳，加上 [System-HTTP] 前缀
+            # 如果是底层 HTTP 请求日志，清洗掉原生自带的时间戳，加上咱们的标识前缀
             clean_msg = re.sub(r'\[\d{2}/[A-Za-z]{3}/\d{4} \d{2}:\d{2}:\d{2}\]\s*', '', record.getMessage())
             log_str = f"[System-HTTP] [{record.asctime}] {clean_msg}"
         else:
-            # 2. 如果是咱们自己的业务日志：加上 [INFO], [WARNING], [ERROR] 等级别前缀
+            # 如果是咱们自己的业务日志，按标准格式加上级别和时间
             log_str = f"[{record.levelname}] [{record.asctime}] {record.getMessage()}"
 
-        # 全局统一剔除控制台颜色乱码，保证写入文件的纯净
+        # 全局统一剔除控制台可能出现的颜色乱码
         log_str = re.sub(r'\x1b\[[0-9;]*m', '', log_str)
         return log_str
 
 
-# 1. 文件处理器 (输出给前端看的，挂载智能清洗器)
+# 文件处理器，输出给前端和文件保存用的
 file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
 formatter = SmartFileFormatter(datefmt='%Y-%m-%d %H:%M:%S')
 file_handler.setFormatter(formatter)
 
-# 2. 控制台处理器 (输出给 PyCharm 看的)
+# 控制台处理器，输出在 IDE 终端看
 console_handler = logging.StreamHandler(sys.stdout)
-# 为控制台也加一个基础的格式化器，这样你在 PyCharm 里也能清晰看到日志级别
 console_formatter = logging.Formatter('[%(levelname)s] %(message)s')
 console_handler.setFormatter(console_formatter)
 
-# 3. 拦截 Werkzeug 日志器
+# 拦截 Werkzeug 原生日志
 werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.setLevel(logging.INFO)
 werkzeug_logger.handlers.clear()
 werkzeug_logger.addHandler(file_handler)
 werkzeug_logger.addHandler(console_handler)
 
-# (可选) 接管 Flask 自身日志
 app.logger.handlers.clear()
 app.logger.addHandler(file_handler)
 app.logger.addHandler(console_handler)
 app.logger.setLevel(logging.INFO)
 
-# ====== 初始化业务专属 Logger ======
+# 初始化业务专属 Logger
 logger = logging.getLogger('jellywall')
 logger.setLevel(logging.INFO)
 logger.addHandler(file_handler)
@@ -107,28 +106,36 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# ====== ✨ 修改点：将 JSON 路径指向 config 文件夹 ======
+# 配置文件的存放路径
 CONFIG_DIR = os.path.join(app.root_path, 'config')
-# 自动检测并创建 config 文件夹（如果不存在的话）
 os.makedirs(CONFIG_DIR, exist_ok=True)
-
-# 指定 user.json 的完整路径
 USERS_FILE = os.path.join(CONFIG_DIR, 'users.json')
 
+
 def load_users():
+    """读取本地的 users.json 文件获取所有的用户列表。"""
     if not os.path.exists(USERS_FILE):
         return {}
     with open(USERS_FILE, 'r', encoding='utf-8') as f:
         return json.load(f)
 
+
 def save_users(users):
+    """把内存里的用户数据覆盖保存到本地的 users.json 里。"""
     with open(USERS_FILE, 'w', encoding='utf-8') as f:
         json.dump(users, f, ensure_ascii=False, indent=4)
 
-# ====== ✨ 重写：纯 Python 类的 User 模型 ======
+
 class User(UserMixin):
-    def __init__(self, id, username, password, jellyfin_url=None, jellyfin_api_key=None, jellyfin_user_id=None, proxy_url=None, proxy_port=None, tmdb_api_key=None, web_port=None, sync_enabled=False, sync_cron="0 * * * *"):
-        self.id = str(id)  # JSON 的 key 必须是字符串
+    """
+    用户模型。
+    这里没有存进 SQLite 数据库，而是直接用 Python 类来操作 JSON 文件里的用户数据。
+    """
+
+    def __init__(self, id, username, password, jellyfin_url=None, jellyfin_api_key=None, jellyfin_user_id=None,
+                 proxy_url=None, proxy_port=None, tmdb_api_key=None, web_port=None, sync_enabled=False,
+                 sync_cron="0 * * * *"):
+        self.id = str(id)
         self.username = username
         self.password = password
         self.jellyfin_url = jellyfin_url
@@ -137,53 +144,56 @@ class User(UserMixin):
         self.proxy_url = proxy_url
         self.proxy_port = proxy_port
         self.tmdb_api_key = tmdb_api_key
-        self.web_port = web_port  # ✨ 赋值给对象属性
+        self.web_port = web_port
         self.sync_enabled = sync_enabled
         self.sync_cron = sync_cron
 
-    # 将对象转为字典，方便存入 JSON
     def to_dict(self):
+        """把当前用户对象变成字典格式，方便后续转换成 JSON。"""
         return {
             "id": self.id, "username": self.username, "password": self.password,
             "jellyfin_url": self.jellyfin_url, "jellyfin_api_key": self.jellyfin_api_key,
             "jellyfin_user_id": self.jellyfin_user_id, "proxy_url": self.proxy_url,
             "proxy_port": self.proxy_port,
             "tmdb_api_key": self.tmdb_api_key,
-            "web_port": self.web_port,  # ✨ 保存到 JSON 时带上这个字段
-            "sync_enabled": self.sync_enabled,  # ✨ 保存到 JSON
-            "sync_cron": self.sync_cron  # ✨ 保存到 JSON
+            "web_port": self.web_port,
+            "sync_enabled": self.sync_enabled,
+            "sync_cron": self.sync_cron
         }
 
-    # 自带的保存方法，随时更新自己的信息到 JSON
     def save(self):
+        """保存当前用户的最新信息到本地配置文件。"""
         users = load_users()
         users[self.id] = self.to_dict()
         save_users(users)
 
+
 class WatchRecord(db.Model):
-    """本地观影记录明细表"""
+    """本地观影记录明细表，存用户看过的每一集或者每一部电影。"""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(50), nullable=False)
-    item_id = db.Column(db.String(100), nullable=False)  # Jellyfin 里的 ID 或其他平台生成的唯一ID
-    item_type = db.Column(db.String(50), nullable=False)  # 'Movie' 或 'Episode'
+    item_id = db.Column(db.String(100), nullable=False)
+    item_type = db.Column(db.String(50), nullable=False)
     library_name = db.Column(db.String(100), nullable=False)
 
     title = db.Column(db.String(200), nullable=False)
     series_name = db.Column(db.String(200))
     season_name = db.Column(db.String(100))
 
-    # ====== ✨ 新增字段 ======
-    episode_num = db.Column(db.Integer, nullable=True)  # 💥 专门记录具体是第几集的数字，方便后续排序和统计
-    source = db.Column(db.String(50), nullable=False, default='Jellyfin') # 💥 记录历史来源：Jellyfin, tmdb, watcharr
+    # 专门记录具体是第几集的数字，方便后续排序和统计
+    episode_num = db.Column(db.Integer, nullable=True)
+    # 记录历史来源，比如是查的 Jellyfin、还是手动 TMDB 添加的
+    source = db.Column(db.String(50), nullable=False, default='Jellyfin')
     tmdb_id = db.Column(db.String(50), nullable=True)
     date_played = db.Column(db.DateTime, nullable=False)
-    # ====== ✨ 新增：软删除标记 ======
+    # 软删除标记，用户点击删除时仅仅是打个标记，不做真实物理删除
     is_deleted = db.Column(db.Boolean, default=False)
 
     __table_args__ = (db.UniqueConstraint('user_id', 'item_id', name='_user_item_uc'),)
 
 
 class WatchPoster(db.Model):
+    """海报墙缓存表，用于持久化存储刮削回来的海报路径和电影剧集基本信息。"""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(50), nullable=False)
     target_id = db.Column(db.String(100), nullable=False)
@@ -197,33 +207,31 @@ class WatchPoster(db.Model):
     backdrop_image_path = db.Column(db.String(255), nullable=True)
     background_image_path = db.Column(db.String(255), nullable=True)
 
-    # ====== ✨ 剧集与季度的双重简介 ======
     overview = db.Column(db.Text, nullable=True)
     season_overview = db.Column(db.Text, nullable=True)
 
     last_watched_date = db.Column(db.DateTime, nullable=False)
-    # ====== ✨ 新增：软删除标记 ======
     is_deleted = db.Column(db.Boolean, default=False)
     __table_args__ = (db.UniqueConstraint('user_id', 'target_id', 'display_title', name='_user_poster_uc'),)
 
 
 class EpisodeDetail(db.Model):
-    """单集元数据与剧照缓存表"""
+    """单集元数据与剧照缓存表，专门存每一集的具体信息和截图。"""
     id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.String(100), unique=True, nullable=False)
 
-    item_id = db.Column(db.String(100), unique=True, nullable=False)  # Jellyfin/TMDB 的单集ID
+    series_name = db.Column(db.String(200))
+    season_num = db.Column(db.Integer)
+    episode_num = db.Column(db.Integer)
 
-    series_name = db.Column(db.String(200))  # 所属剧集名
-    season_num = db.Column(db.Integer)  # 第几季
-    episode_num = db.Column(db.Integer)  # 第几集
-
-    episode_name = db.Column(db.String(200))  # 单集专属名称
-    overview = db.Column(db.Text)  # 剧情内容介绍
+    episode_name = db.Column(db.String(200))
+    overview = db.Column(db.Text)
     series_tmdb_id = db.Column(db.String(50), nullable=True)
-    still_image_path = db.Column(db.String(255))  # 本地单集剧照路径
+    still_image_path = db.Column(db.String(255))
 
 
 def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id):
+    """下载并更新某一个特定单集的剧照和剧情简介到本地数据库。"""
     item_id = item["Id"]
     existing_detail = EpisodeDetail.query.filter_by(item_id=item_id).first()
     if existing_detail: return
@@ -231,7 +239,7 @@ def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id):
     series_name = item.get("SeriesName", "未知剧集")
     episode_name = item.get("Name", "未知集名")
 
-    # ✨ 修复 null 问题：用 or "" 强制转换 None 为空字符串
+    # 遇到没有简介的情况，强制转为空字符串
     overview = item.get("Overview") or ""
 
     try:
@@ -257,14 +265,13 @@ def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id):
 
 
 # ==========================================
-# 🤖 后台自动化同步引擎 (APScheduler)
+# 后台自动化同步引擎 (APScheduler)
 # ==========================================
 scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 
 
 def background_sync_task(user_id):
-    """脱离 Request 上下文的纯后台同步任务"""
-    # 必须手动推入 Flask 上下文才能操作数据库
+    """纯后台跑的定时同步任务，负责定期去 Jellyfin 拉取最新的观看进度并存入本地。"""
     with app.app_context():
         user = load_user(user_id)
         if not user or not user.jellyfin_url or not user.jellyfin_api_key:
@@ -279,11 +286,11 @@ def background_sync_task(user_id):
         still_dir = os.path.join(app.root_path, 'static', 'stills')
         backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
 
-        sync_count = 0  # 初始化同步计数器
+        sync_count = 0
         tmdb_search_cache = {}
-        synced_names = set()  # 初始化收集名称的集合
+        synced_names = set()
         processed_ids = set()
-        poster_cache = {}  # 初始化内存海报字典
+        poster_cache = {}
 
         try:
             with db.session.no_autoflush:
@@ -315,19 +322,15 @@ def background_sync_task(user_id):
                             if update_watch_record(user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
                                 sync_count += 1
 
-                                # 针对剧集和电影分别格式化日志显示的名称
                                 if item["Type"] == "Episode":
                                     series_name = item.get("SeriesName", item.get("Name", "未知剧集"))
                                     try:
-                                        # 尝试获取季数和集数并格式化为 SxxExx
-                                        s_num = int(item.get("ParentIndexNumber", 1))  # Jellyfin 通常为空时代表第1季
+                                        s_num = int(item.get("ParentIndexNumber", 1))
                                         e_num = int(item.get("IndexNumber", 0))
                                         display_name = f"{series_name} S{s_num:02d}E{e_num:02d}"
                                     except (ValueError, TypeError):
-                                        # 获取失败的安全兜底
                                         display_name = f"{series_name} (特殊集)"
                                 else:
-                                    # 电影直接使用 Name
                                     display_name = item.get("Name", "未知电影")
 
                                 if display_name:
@@ -343,7 +346,6 @@ def background_sync_task(user_id):
             with db_lock:
                 db.session.commit()
 
-            # 将具体同步了哪些内容写入系统日志，使用换行符进行列表排版
             if sync_count > 0:
                 names_str = "\n" + "\n".join([f"  - {name}" for name in sorted(synced_names)])
                 logger.info(
@@ -356,8 +358,7 @@ def background_sync_task(user_id):
 
 
 def archive_yesterday_logs():
-    """每天 9:30 触发：抽取昨天 0-24 点的日志并打包为 ZIP，原日志文件不动"""
-    # 脱离请求上下文的后台任务，需要手动推入 Flask 上下文获取路径
+    """每天早上 9 点半触发，把昨天的日志抽出来打包成 ZIP 文件压缩备份，原日志保留不变。"""
     with app.app_context():
         try:
             log_dir = os.path.join(app.root_path, 'logs')
@@ -366,25 +367,19 @@ def archive_yesterday_logs():
             if not os.path.exists(log_file_path):
                 return
 
-            # 计算昨天的日期字符串，例如 '2026-06-17'
             yesterday = datetime.now() - timedelta(days=1)
             date_str = yesterday.strftime('%Y-%m-%d')
 
             temp_log_name = f"jellywall_{date_str}.log"
-            temp_log_path = os.path.join(log_dir, temp_log_name)
             zip_file_path = os.path.join(log_dir, f"jellywall_{date_str}.zip")
 
-            # 如果压缩包已存在，说明今天已经成功打包过了，直接跳过
             if os.path.exists(zip_file_path):
                 return
 
             yesterday_lines = []
             is_yesterday = False
-
-            # 正则匹配日志开头的日期戳，兼容业务日志和底层 HTTP 日志
             date_pattern = re.compile(r'\[(\d{4}-\d{2}-\d{2})\s')
 
-            # 遍历原始日志文件
             with open(log_file_path, 'r', encoding='utf-8') as f:
                 for line in f:
                     match = date_pattern.search(line)
@@ -396,33 +391,27 @@ def archive_yesterday_logs():
                         else:
                             is_yesterday = False
                     else:
-                        # 核心防断层：如果这一行没有时间戳（比如报错的详细堆栈），它跟随上一行的归属状态
+                        # 对于没有时间戳的换行日志（比如报错堆栈），跟随上一行的状态
                         if is_yesterday:
                             yesterday_lines.append(line)
 
-            # 如果昨天没产生任何日志，直接退出
             if not yesterday_lines:
                 return
 
-            # ====== ✨ 修复：改用内存直写，彻底杜绝并发抢占临时文件 ======
-            # 直接将内存中的日志列表合并为字符串
             yesterday_content = "".join(yesterday_lines)
 
-            # 使用 writestr 直接把字符串当作文件写入 ZIP，无需在磁盘上创建临时文件
             with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 zipf.writestr(temp_log_name, yesterday_content)
-            # ==========================================================
 
-            logger.info(f"[系统任务] 🎉 成功抽取并打包归档昨日日志: {zip_file_path}")
+            logger.info(f"[系统任务] 成功抽取并打包归档昨日日志: {zip_file_path}")
 
         except Exception as e:
             logger.error(f"[系统任务] 归档日志失败: {str(e)}")
 
 
 def refresh_scheduler_jobs():
-    """读取所有用户的配置，动态刷新定时任务"""
+    """读取用户配置，动态清理并重新挂载所有的系统及用户定时任务。"""
     scheduler.remove_all_jobs()
-    # ====== ✨ 新增：挂载全局系统级任务 (每天 09:30 打包日志) ======
     try:
         scheduler.add_job(
             archive_yesterday_logs,
@@ -433,12 +422,11 @@ def refresh_scheduler_jobs():
         logger.info("[调度引擎] 已挂载系统级定时任务: 每天 09:30 自动压缩归档昨日日志")
     except Exception as e:
         logger.error(f"挂载系统日志打包任务失败: {e}")
-    # ==========================================================
+
     users = load_users()
     for uid, udata in users.items():
         if udata.get('sync_enabled') and udata.get('sync_cron'):
             try:
-                # 解析前端传来的 5 位标准 Cron (分 时 日 月 周)
                 trigger = CronTrigger.from_crontab(udata['sync_cron'])
                 scheduler.add_job(
                     background_sync_task,
@@ -451,8 +439,10 @@ def refresh_scheduler_jobs():
             except ValueError:
                 logger.warning(f"用户 {udata.get('username')} 的 Cron 表达式无效: {udata['sync_cron']}")
 
+
 @login_manager.user_loader
 def load_user(user_id):
+    """Flask-Login 框架的回调函数，用来加载用户的实例对象。"""
     users = load_users()
     if str(user_id) in users:
         return User(**users[str(user_id)])
@@ -463,6 +453,7 @@ def load_user(user_id):
 
 @app.route('/')
 def index():
+    """网站根路由，没登录去登录，没绑服务器去引导，弄好了就直接进仪表板。"""
     if not current_user.is_authenticated:
         return redirect(url_for('login'))
     if not current_user.jellyfin_url or not current_user.jellyfin_api_key:
@@ -470,13 +461,9 @@ def index():
     return redirect(url_for('dashboard'))
 
 
-
-
-
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    # 如果已经登录过，直接跳到仪表板
+    """处理用户登录的视图与逻辑校验。"""
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
 
@@ -484,67 +471,52 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
 
-        # 1. 在本地 JSON 中寻找这个用户
         users = load_users()
         user_data = next((u for u in users.values() if u.get('username') == username), None)
 
-        # 2. 验证用户存在，并且密码正确
         if user_data and check_password_hash(user_data['password'], password):
-            # 3. 记录登录状态 (将读取到的字典转换为 User 对象)
             login_user(User(**user_data))
             logger.info(f"用户登录成功: {username}")
-
-            # 👇 这里就是登录成功后跳转的页面！通常是 dashboard（仪表板）
             return redirect(url_for('dashboard'))
-
         else:
-            # 如果账号或密码错误，发送提示信息
             flash('用户名或密码错误，请重试。')
 
-    # 如果是 GET 请求，或者密码验证失败，就重新渲染并停留在登录页
     return render_template('login.html')
 
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    # 如果用户已经登录，直接跳回主页
+    """处理新用户注册，管理员可以在系统配置里随时关闭注册入口。"""
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
-    # ====== ✨ 新增 1：检查系统是否允许注册 ======
+
     sys_config = get_system_config()
     if not sys_config.get('allow_registration', True):
-        flash('❌ 管理员已关闭新用户注册功能。')
+        flash('管理员已关闭新用户注册功能。')
         return redirect(url_for('login'))
-    # ==========================================
 
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        jellyfin_url = request.form.get('jellyfin_url')  # 如果你注册时需要填这个
-        jellyfin_api_key = request.form.get('jellyfin_api_key')  # 同上
+        jellyfin_url = request.form.get('jellyfin_url')
+        jellyfin_api_key = request.form.get('jellyfin_api_key')
 
-        # 读取 JSON 数据检查用户名是否已存在
         users = load_users()
         if any(u.get('username') == username for u in users.values()):
             flash('该用户名已被注册，请换一个重试。')
             return redirect(url_for('register'))
 
-        # 创建新用户并哈希密码，分配全新生成的唯一 ID
         new_id = str(uuid.uuid4().hex)
         new_user = User(
             id=new_id,
             username=username,
             password=generate_password_hash(password),
-            # 如果你的数据库现在不需要绑 Jellyfin，这两行可以删掉，放到配置页再去绑
             jellyfin_url=jellyfin_url,
             jellyfin_api_key=jellyfin_api_key
         )
 
-        # 直接保存至 JSON 文件
         new_user.save()
-
         logger.info(f"新用户注册成功: {username}")
-
         flash('注册成功！请登录。')
         return redirect(url_for('login'))
 
@@ -554,6 +526,7 @@ def register():
 @app.route('/onboarding', methods=['GET', 'POST'])
 @login_required
 def onboarding():
+    """新手引导页，帮用户打通并绑定 Jellyfin 服务器账号。"""
     if request.method == 'POST':
         host = request.form.get('host').strip()
         port = request.form.get('port').strip()
@@ -584,10 +557,7 @@ def onboarding():
                 current_user.jellyfin_url = jellyfin_url
                 current_user.jellyfin_api_key = data.get('AccessToken')
                 current_user.jellyfin_user_id = data.get('User').get('Id')
-
-                # 触发自身的存入 JSON 方法
                 current_user.save()
-
                 return redirect(url_for('dashboard'))
             elif resp.status_code == 401:
                 flash('绑定失败：Jellyfin 用户名或密码错误。')
@@ -603,24 +573,21 @@ def onboarding():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    # ====== 1. 电影数据多维统计 ======
+    """仪表板页面，负责查询并聚合用户的各项观影数据，输出各种统计图表所需的数据。"""
     movies_query = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', is_deleted=False)
     movie_total = movies_query.count()
     movie_jf = movies_query.filter_by(source='Jellyfin').count()
     movie_tmdb = movie_total - movie_jf
 
-    # ====== 2. 剧集数据多维统计 ======
     eps_query = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode', is_deleted=False)
     ep_total = eps_query.count()
     ep_jf = eps_query.filter_by(source='Jellyfin').count()
     ep_tmdb = ep_total - ep_jf
 
-    # 按剧名去重，计算看了多少“部”剧
     unique_series = db.session.query(WatchRecord.series_name).filter_by(
         user_id=current_user.id, item_type='Episode', is_deleted=False
     ).distinct().count()
 
-    # ====== 3. 最近观看足迹 (带海报与格式化标签) ======
     recent_records_raw = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False) \
         .order_by(WatchRecord.date_played.desc()).limit(8).all()
 
@@ -655,8 +622,6 @@ def dashboard():
             'poster_path': poster_path
         })
 
-    # ====== ✨ 4. 观影热力图数据聚合 ======
-    # 计算一年前的时间点，减少数据库扫描压力
     one_year_ago = datetime.now() - timedelta(days=365)
     heatmap_records = WatchRecord.query.filter(
         WatchRecord.user_id == current_user.id,
@@ -666,14 +631,9 @@ def dashboard():
 
     heatmap_data = {}
     for r in heatmap_records:
-        # 将 datetime 格式化为纯日期字符串，例如 '2026-06-15'
         date_str = r.date_played.strftime('%Y-%m-%d')
-
-        # 初始化当天的字典结构
         if date_str not in heatmap_data:
             heatmap_data[date_str] = {'movies': 0, 'episodes': 0}
-
-        # 累加当天的观看数量
         if r.item_type == 'Movie':
             heatmap_data[date_str]['movies'] += 1
         else:
@@ -684,12 +644,13 @@ def dashboard():
                            ep_total=ep_total, ep_jf=ep_jf, ep_tmdb=ep_tmdb,
                            unique_series=unique_series,
                            recent_feed=recent_feed,
-                           heatmap_data=heatmap_data)  # ✨ 将处理好的字典喂给前端
+                           heatmap_data=heatmap_data)
 
 
 @app.route('/test_proxy', methods=['POST'])
 @login_required
 def test_proxy():
+    """测试用户填写的代理地址，看网络能不能通。"""
     data = request.json
     proxy_url = data.get('url')
     proxy_port = data.get('port')
@@ -703,54 +664,50 @@ def test_proxy():
     }
 
     try:
-        # 尝试通过代理访问一个高可用的地址进行测试
-        test_resp = requests.get("http://www.google.com", proxies=proxies, timeout=5)
+        test_resp = requests.get("[http://www.google.com](http://www.google.com)", proxies=proxies, timeout=5)
         if test_resp.status_code == 200:
-            return jsonify({"success": True, "message": "✅ 测试代理成功！网络已连通。"})
+            return jsonify({"success": True, "message": "测试代理成功！网络已连通。"})
         else:
-            return jsonify({"success": False, "message": f"❌ 测试失败：代理服务器返回状态码 {test_resp.status_code}"})
+            return jsonify({"success": False, "message": f"测试失败：代理服务器返回状态码 {test_resp.status_code}"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"❌ 连接代理失败：{str(e)}"})
+        return jsonify({"success": False, "message": f"连接代理失败：{str(e)}"})
 
 
 @app.route('/test_tmdb', methods=['POST'])
 @login_required
 def test_tmdb():
+    """测试 TMDB 的 API Key 是否有效。"""
     api_key = request.json.get('api_key')
     if not api_key:
         return jsonify({"success": False, "message": "请输入 TMDB API Key"})
 
     try:
-        url = f"https://api.themoviedb.org/3/authentication?api_key={api_key}"
-
-        # ✨ 完美接入已有的全局代理函数
+        url = f"[https://api.themoviedb.org/3/authentication?api_key=](https://api.themoviedb.org/3/authentication?api_key=){api_key}"
         resp = requests.get(url, proxies=get_user_proxies(current_user), timeout=8)
 
         if resp.status_code == 200:
-            return jsonify({"success": True, "message": "✅ 测试成功！已连通 TMDB。"})
+            return jsonify({"success": True, "message": "测试成功！已连通 TMDB。"})
         else:
-            return jsonify({"success": False, "message": f"❌ 验证失败：API Key 无效 (状态码 {resp.status_code})"})
+            return jsonify({"success": False, "message": f"验证失败：API Key 无效 (状态码 {resp.status_code})"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"❌ 连接 TMDB 失败，请检查网络或代理设置：{str(e)}"})
+        return jsonify({"success": False, "message": f"连接 TMDB 失败，请检查网络或代理设置：{str(e)}"})
 
 
 @app.route('/config', methods=['GET', 'POST'])
 @login_required
 def config():
+    """配置管理中心，用来统一处理包括代理、密钥、定时同步等各项设置的更新。"""
     if request.method == 'POST':
-
-        # 判断是保存 Jellyfin 配置还是保存代理配置
         form_type = request.form.get('form_type')
-        # ====== ✨ 新增 2：处理系统安全设置 ======
+
         if form_type == 'system_settings':
             allow_reg = 'allow_registration' in request.form
             sys_config = get_system_config()
             sys_config['allow_registration'] = allow_reg
             save_system_config(sys_config)
-            flash("✅ 系统安全设置已更新！")
+            flash("系统安全设置已更新！")
             return redirect(url_for('config'))
-        # ==========================================
-        # ====== ✨ 新增：处理自动化同步配置 ======
+
         if form_type == 'auto_sync_settings':
             sync_enabled = request.form.get('sync_enabled') == 'on'
             sync_cron = request.form.get('sync_cron').strip()
@@ -758,62 +715,50 @@ def config():
             current_user.sync_enabled = sync_enabled
             current_user.sync_cron = sync_cron
             current_user.save()
-
-            # 配置改变后，立马刷新调度器引擎
             refresh_scheduler_jobs()
 
-            flash("🎉 自动化同步配置已保存生效！")
+            flash("自动化同步配置已保存生效！")
             return redirect(url_for('config'))
+
         if form_type == 'proxy_settings':
             current_user.proxy_url = request.form.get('proxy_url').strip()
             current_user.proxy_port = request.form.get('proxy_port').strip()
-            # 写入 JSON
             current_user.save()
-            flash("🎉 代理配置保存成功！")
+            flash("代理配置保存成功！")
             return redirect(url_for('config'))
 
-        # 新增 TMDB 保存逻辑
         if form_type == 'tmdb_settings':
             current_user.tmdb_api_key = request.form.get('tmdb_api_key').strip()
-            # 写入 JSON
             current_user.save()
-            flash("🎉 TMDB 密钥保存成功！")
+            flash("TMDB 密钥保存成功！")
             return redirect(url_for('config'))
 
-        # ====== ✨ 新增：处理修改密码请求 ======
         if form_type == 'password_settings':
             old_password = request.form.get('old_password')
             new_password = request.form.get('new_password')
             confirm_password = request.form.get('confirm_password')
 
-            # 1. 验证原密码是否正确
             if not check_password_hash(current_user.password, old_password):
-                flash("❌ 原密码错误，请重试。")
-            # 2. 验证两次输入的新密码是否一致
+                flash("原密码错误，请重试。")
             elif new_password != confirm_password:
-                flash("❌ 两次输入的新密码不一致。")
-                # 3. 验证新密码长度（可选防呆设计）
+                flash("两次输入的新密码不一致。")
             elif len(new_password) < 6:
-                flash("⚠️ 新密码长度建议不少于 6 位。")
+                flash("新密码长度建议不少于 6 位。")
             else:
-                # 4. 生成新的哈希密码并保存
                 current_user.password = generate_password_hash(new_password)
                 logger.info(f"用户 {current_user.username} 成功修改了登录密码。")
-                current_user.save()  # 自动写入 config/users.json
+                current_user.save()
 
-                # ====== ✨ 核心改动：修改密码后立即注销当前用户，并踢回登录页 ======
                 logout_user()
-                flash("🎉 密码修改成功！请使用新密码重新登录。")
+                flash("密码修改成功！请使用新密码重新登录。")
                 return redirect(url_for('login'))
-
             return redirect(url_for('config'))
 
-        # ====== ✨ 新增：处理网页端口保存请求 ======
         if form_type == 'web_settings':
-           current_user.web_port = request.form.get('web_port').strip()
-           current_user.save()  # 自动写入 config/users.json
-           flash("🎉 网页项目访问端口保存成功！")
-           return redirect(url_for('config'))
+            current_user.web_port = request.form.get('web_port').strip()
+            current_user.save()
+            flash("网页项目访问端口保存成功！")
+            return redirect(url_for('config'))
 
         protocol = request.form.get('protocol')
         host = request.form.get('host').strip().rstrip('/')
@@ -821,17 +766,12 @@ def config():
         jf_username = request.form.get('jf_username')
         jf_password = request.form.get('jf_password')
 
-        # 如果用户直接在 host 里输入了 http://，做一下容错清理
         if host.startswith('http://') or host.startswith('https://'):
             host = host.split('://')[-1]
 
-        # 拼接出完整的 Jellyfin 基础 URL
         base_url = f"{protocol}://{host}:{port}"
-
-        # Jellyfin 标准的登录授权接口
         auth_url = f"{base_url}/Users/AuthenticateByName"
 
-        # 伪装成一个合法的客户端设备
         headers = {
             "X-Emby-Authorization": 'MediaBrowser Client="JellyWall", Device="JellyWall Web", DeviceId="JellyWall-V1", Version="1.0.0"',
             "Content-Type": "application/json"
@@ -846,19 +786,15 @@ def config():
 
             if resp.status_code == 200:
                 data = resp.json()
-                # 提取换回的 Token 和 UserId
                 access_token = data.get("AccessToken")
                 user_id = data.get("User", {}).get("Id")
 
-                # 保存到当前用户的名下
                 current_user.jellyfin_url = base_url
                 current_user.jellyfin_api_key = access_token
                 current_user.jellyfin_user_id = user_id
-
-                # 更新至 JSON 文件
                 current_user.save()
 
-                flash("🎉 Jellyfin 服务器绑定成功！现在可以去拉取数据了。")
+                flash("Jellyfin 服务器绑定成功！现在可以去拉取数据了。")
             else:
                 flash(f"绑定失败：Jellyfin 账号或密码错误 (错误码: {resp.status_code})")
 
@@ -867,41 +803,38 @@ def config():
 
         return redirect(url_for('config'))
 
-    # ====== ✨ 新增 3：在渲染页面时，携带全局注册状态参数给前端 ======
     sys_config = get_system_config()
     return render_template('config.html', title="配置管理",
-                               allow_registration=sys_config.get('allow_registration', True))
+                           allow_registration=sys_config.get('allow_registration', True))
 
 
 # ==========================================
-# 🔍 TMDB 探索检索中心 (名字层级碰撞深度对齐)
+# TMDB 探索检索中心 (名字层级碰撞深度对齐)
 # ==========================================
 @app.route('/explore')
 @login_required
 def explore():
-    """渲染探索搜索页面"""
+    """渲染探索搜索发现的主页面。"""
     return render_template('explore.html', title="探索发现")
 
 
 @app.route('/explore_detail/<media_type>/<int:item_id>')
 @login_required
 def explore_detail(media_type, item_id):
-    """TMDB 探索结果详情页路由 (完美支持类型、年龄分级、播放进度与具体时间打标)"""
-
+    """TMDB 探索结果详情页，展示电影和剧集的资料库信息，并跟本地 SQLite 里存的观看记录做详细比对碰撞。"""
     api_key = current_user.tmdb_api_key
     if not api_key:
-        flash("⚠️ 请先在配置管理中绑定 TMDB API Key！")
+        flash("请先在配置管理中绑定 TMDB API Key！")
         return redirect(url_for('explore'))
 
     if media_type not in ['movie', 'tv']:
-        flash("❌ 未知的媒体类型")
+        flash("未知的媒体类型")
         return redirect(url_for('explore'))
 
     cache_key = f"{media_type}_{item_id}"
     current_time = time.time()
     render_data = None
 
-    # ====== ✨ 1. 读取基础 TMDB 缓存 ======
     if cache_key in TMDB_DETAIL_CACHE:
         cached_item = TMDB_DETAIL_CACHE[cache_key]
         if current_time - cached_item['timestamp'] < CACHE_TTL:
@@ -909,10 +842,9 @@ def explore_detail(media_type, item_id):
         else:
             del TMDB_DETAIL_CACHE[cache_key]
 
-    # ====== ✨ 2. 如果没命中缓存，老老实实跨洋请求 TMDB ======
     if not render_data:
         try:
-            url = f"https://api.themoviedb.org/3/{media_type}/{item_id}"
+            url = f"[https://api.themoviedb.org/3/](https://api.themoviedb.org/3/){media_type}/{item_id}"
             params = {
                 "api_key": api_key,
                 "language": "zh-CN",
@@ -921,7 +853,7 @@ def explore_detail(media_type, item_id):
             resp = requests.get(url, params=params, proxies=get_user_proxies(current_user), timeout=10)
 
             if resp.status_code != 200:
-                flash(f"❌ 获取详情失败 (TMDB 状态码: {resp.status_code})")
+                flash(f"获取详情失败 (TMDB 状态码: {resp.status_code})")
                 return redirect(url_for('explore'))
 
             data = resp.json()
@@ -932,17 +864,16 @@ def explore_detail(media_type, item_id):
             year = date_str[:4] if date_str else "未知"
 
             poster_path = data.get('poster_path')
-            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else url_for('static',
-                                                                                                     filename='images/logo.png')
+            poster_url = f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){poster_path}" if poster_path else url_for(
+                'static',
+                filename='images/logo.png')
             backdrop_path = data.get('backdrop_path')
-            bg_url = f"https://image.tmdb.org/t/p/w1280{backdrop_path}" if backdrop_path else poster_url
+            bg_url = f"[https://image.tmdb.org/t/p/w1280](https://image.tmdb.org/t/p/w1280){backdrop_path}" if backdrop_path else poster_url
             display_type = 'series' if media_type == 'tv' else 'movie'
 
-            # 提取影视类型
             genres_list = [g.get('name') for g in data.get('genres', []) if g.get('name')]
             genres_str = ", ".join(genres_list) if genres_list else "未知类型"
 
-            # 提取年龄分级
             rating = "NR"
             if media_type == 'tv':
                 c_ratings = data.get('content_ratings', {}).get('results', [])
@@ -970,8 +901,7 @@ def explore_detail(media_type, item_id):
                     s_num = s.get('season_number')
                     if s_num is None: continue
 
-                    # 请求单季详细列表
-                    s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
+                    s_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){item_id}/season/{s_num}"
                     s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"},
                                           proxies=get_user_proxies(current_user), timeout=5)
 
@@ -982,7 +912,7 @@ def explore_detail(media_type, item_id):
                         formatted_episodes = []
                         for ep in episodes:
                             still_path = ep.get('still_path')
-                            full_still_url = f"https://image.tmdb.org/t/p/w300{still_path}" if still_path else url_for(
+                            full_still_url = f"[https://image.tmdb.org/t/p/w300](https://image.tmdb.org/t/p/w300){still_path}" if still_path else url_for(
                                 'static', filename='images/logo.png')
 
                             formatted_episodes.append({
@@ -996,7 +926,7 @@ def explore_detail(media_type, item_id):
                         seasons_data[s_num] = formatted_episodes
                         s_poster = s.get('poster_path')
                         season_poster_map[
-                            s_num] = f"https://image.tmdb.org/t/p/w300{s_poster}" if s_poster else poster_url
+                            s_num] = f"[https://image.tmdb.org/t/p/w300](https://image.tmdb.org/t/p/w300){s_poster}" if s_poster else poster_url
                         season_overview_map[s_num] = s.get('overview') or s_data.get('overview') or ""
 
             render_data = {
@@ -1013,36 +943,31 @@ def explore_detail(media_type, item_id):
                 'season_overview_map': season_overview_map
             }
 
-            # 存入缓存
             TMDB_DETAIL_CACHE[cache_key] = {
                 'timestamp': current_time,
                 'data': render_data
             }
         except Exception as e:
-            flash(f"❌ 网络请求失败: {str(e)}")
+            flash(f"网络请求失败: {str(e)}")
             return redirect(url_for('explore'))
 
-    # ====== ✨ 3. 核心大招：带着 TMDB 的名字，去你本地 SQLite 里查水表 ======
-    # 这段绝不缓存，确保每次点进来都是最新的观看记录
     is_movie_watched = False
-    is_series_watched = False  # ✨ 修复：初始化剧集全看完状态标识
+    is_series_watched = False
 
-    watched_episodes_dict = {}  # 记录单集及其观看时间
-    season_watch_status = {}  # 记录整季观看状态："full" 或 "partial"
-    has_watched_any = False  # 记录是否有观看过，用于显示顶部整体"正在追剧中"徽章
+    watched_episodes_dict = {}
+    season_watch_status = {}
+    has_watched_any = False
 
     import re
     title_to_check = render_data['title']
 
     if render_data['media_type'] == 'movie':
-        # 如果是电影，直接去海报缓存表里捞
         movie_exist = db.session.query(WatchPoster.id).filter_by(
             user_id=current_user.id, media_type='Movie', display_title=title_to_check, is_deleted=False
         ).first()
         if movie_exist:
             is_movie_watched = True
     else:
-        # 如果是剧集，去足迹明细表里把所有名字匹配的单集全捞出来
         ep_records = WatchRecord.query.filter_by(
             user_id=current_user.id, item_type='Episode', series_name=title_to_check, is_deleted=False
         ).all()
@@ -1055,42 +980,35 @@ def explore_detail(media_type, item_id):
             e_num = ep.episode_num
 
             if e_num is not None:
-                # 记录具体哪一季哪一集看过了，并提取播放时间
                 date_str = ep.date_played.strftime('%Y-%m-%d %H:%M') if ep.date_played else "未知时间"
                 watched_episodes_dict[f"{s_num}_{e_num}"] = date_str
 
-        # 核心算法：循环判断每一季的观看进度 VS TMDB 的总集数
         seasons_dict = render_data.get('seasons', {})
         for s_num, eps_list in seasons_dict.items():
             total_eps = len(eps_list)
             if total_eps == 0:
                 continue
 
-            # 统计这一季里，你的观看足迹命中了多少集
             watched_count = sum(
                 1 for ep_info in eps_list if f"{s_num}_{ep_info.get('episode_num')}" in watched_episodes_dict)
 
             if watched_count > 0:
                 has_watched_any = True
-                # 全部看完给 full，看了一部分给 partial
                 if watched_count >= total_eps:
                     season_watch_status[s_num] = "full"
                 else:
                     season_watch_status[s_num] = "partial"
 
-        # ====== ✨ 修复：新增剧集是否全看完的判断逻辑 ======
         if has_watched_any:
             is_series_watched = True
             valid_s_count = 0
             for s_num, eps_list in seasons_dict.items():
-                # 只判断正片（排除第0季特别篇的干扰）
                 if s_num > 0 and len(eps_list) > 0:
                     valid_s_count += 1
                     if season_watch_status.get(s_num) != "full":
                         is_series_watched = False
                         break
 
-            # 如果这部剧全都是特别篇，没有正片，则兜底判断特别篇
             if valid_s_count == 0:
                 for s_num, eps_list in seasons_dict.items():
                     if len(eps_list) > 0 and season_watch_status.get(s_num) != "full":
@@ -1099,20 +1017,18 @@ def explore_detail(media_type, item_id):
 
     return render_template('explore_detail.html',
                            is_movie_watched=is_movie_watched,
-                           is_series_watched=is_series_watched,  # ✨ 修复：传递新计算的状态给前端
+                           is_series_watched=is_series_watched,
                            watched_episodes_dict=watched_episodes_dict,
                            season_watch_status=season_watch_status,
                            has_watched_any=has_watched_any,
                            **render_data)
 
 
-
 def download_tmdb_image(url, folder, filename, user_proxies=None):
-    """辅助函数：安全下载 TMDB 影视图片到本地 static 目录"""
+    """辅助下载 TMDB 影视图片到本地存储区，防止一直去公网拉图片。如果本地已经有这个图了就直接跳过。"""
     try:
         os.makedirs(folder, exist_ok=True)
         filepath = os.path.join(folder, filename)
-        # 如果本地已存在该图片，直接复用，避免重复请求
         if os.path.exists(filepath):
             return filename
 
@@ -1129,18 +1045,18 @@ def download_tmdb_image(url, folder, filename, user_proxies=None):
 @app.route('/api/explore/mark_watched', methods=['POST'])
 @login_required
 def api_mark_watched():
-    """探索页专属 API：手动将 TMDB 数据逆向同步至本地 SQLite 观看历史并完整刮削季、集元数据"""
+    """在探索页面点击了添加观看记录后，手动把 TMDB 数据反向同步进本地数据库里，还会一起刮削集数信息。"""
     api_key = current_user.tmdb_api_key
     if not api_key:
         return jsonify({"success": False, "message": "未绑定 TMDB API Key"})
 
     req_data = request.json or {}
-    media_type = req_data.get('media_type')  # 'movie' 或 'series' / 'tv'
+    media_type = req_data.get('media_type')
     if media_type == 'tv':
         media_type = 'series'
 
     item_id = req_data.get('item_id')
-    scope = req_data.get('scope')  # 粒度范围: 'movie', 'series', 'season', 'episode', 'episode_batch'
+    scope = req_data.get('scope')
     target_season = req_data.get('season_num')
     target_episode = req_data.get('episode_num')
 
@@ -1151,9 +1067,8 @@ def api_mark_watched():
     now = datetime.now()
 
     try:
-        # 1. 实时向 TMDB 索取底层元数据，确保抓取到正确的官方中文名、海报路径及简介
         tmdb_type = 'movie' if media_type == 'movie' else 'tv'
-        url = f"https://api.themoviedb.org/3/{tmdb_type}/{item_id}"
+        url = f"[https://api.themoviedb.org/3/](https://api.themoviedb.org/3/){tmdb_type}/{item_id}"
         resp = requests.get(url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies, timeout=10)
         if resp.status_code != 200:
             return jsonify({"success": False, "message": "无法从 TMDB 拉取该影视的基础元数据"})
@@ -1166,10 +1081,9 @@ def api_mark_watched():
         if not title:
             return jsonify({"success": False, "message": "影视数据解析失败，未获取到有效名称"})
 
-        # 2. 同步下载主海报墙所需的图片到本地
         local_poster_name = None
         if poster_path:
-            remote_poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+            remote_poster_url = f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){poster_path}"
             local_poster_name = download_tmdb_image(
                 remote_poster_url,
                 os.path.join(app.root_path, 'static', 'posters'),
@@ -1178,7 +1092,6 @@ def api_mark_watched():
             )
         relative_main_poster_path = f"posters/{local_poster_name}" if local_poster_name else "images/logo.png"
 
-        # 3. 建立 TMDB 季元数据映射池
         tmdb_seasons_map = {}
         if media_type == 'series':
             for s in data.get('seasons', []):
@@ -1189,16 +1102,14 @@ def api_mark_watched():
                         'overview': s.get('overview') or ""
                     }
 
-        # 核心组件 A：动态创建/更新【季海报与季详情】记录的内部闭包函数
         def ensure_season_poster(s_num):
+            """内部闭包函数：保证某季的海报信息被创建或者更新。"""
             target_id = f"{item_id}_S{s_num}"
-            # ✨ 修复防撞：不再过滤 is_deleted=False，直接通过 target_id 捞取记录
             poster_record = WatchPoster.query.filter_by(
                 user_id=current_user.id, target_id=target_id
             ).first()
 
             if poster_record:
-                # ✨ 如果海报存在，直接将其“复活”并更新最后观看时间
                 poster_record.is_deleted = False
                 poster_record.last_watched_date = now
             else:
@@ -1209,7 +1120,7 @@ def api_mark_watched():
                 local_s_poster_name = None
                 if s_poster_path:
                     local_s_poster_name = download_tmdb_image(
-                        f"https://image.tmdb.org/t/p/w500{s_poster_path}",
+                        f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){s_poster_path}",
                         os.path.join(app.root_path, 'static', 'posters'),
                         f"tmdb_{item_id}_S{s_num}.jpg",
                         proxies
@@ -1233,8 +1144,8 @@ def api_mark_watched():
                 )
                 db.session.add(poster_record)
 
-        # 核心组件 B：动态创建【单集详情与剧照本地化】缓存的内部闭包函数
         def ensure_episode_detail(s_num, e_num, ep_name, ep_overview, ep_still_path):
+            """内部闭包函数：创建或者更新单集的剧情跟剧照。"""
             ep_item_id = f"{item_id}_{s_num}_{e_num}"
             existing_detail = EpisodeDetail.query.filter_by(item_id=ep_item_id).first()
             if not existing_detail:
@@ -1242,7 +1153,7 @@ def api_mark_watched():
                 if ep_still_path:
                     os.makedirs(os.path.join(app.root_path, 'static', 'stills'), exist_ok=True)
                     local_still_name = download_tmdb_image(
-                        f"https://image.tmdb.org/t/p/w300{ep_still_path}",
+                        f"[https://image.tmdb.org/t/p/w300](https://image.tmdb.org/t/p/w300){ep_still_path}",
                         os.path.join(app.root_path, 'static', 'stills'),
                         f"still_tmdb_{ep_item_id}.jpg",
                         proxies
@@ -1261,9 +1172,7 @@ def api_mark_watched():
                 )
                 db.session.add(new_detail)
 
-        # 4. 电影单独创建主海报记录
         if media_type == 'movie':
-            # ✨ 修复防撞：电影海报记录判断
             poster_record = WatchPoster.query.filter_by(
                 user_id=current_user.id, target_id=str(item_id)
             ).first()
@@ -1285,9 +1194,7 @@ def api_mark_watched():
                 )
                 db.session.add(poster_record)
 
-        # 5. 根据不同的 scope 进行多层级级联写入 WatchRecord 历史足迹表与单集缓存
         if scope == 'movie':
-            # ✨ 修复防撞：通过唯一的 item_id 查找，不限制 is_deleted
             exist = WatchRecord.query.filter_by(
                 user_id=current_user.id, item_id=str(item_id)
             ).first()
@@ -1310,7 +1217,7 @@ def api_mark_watched():
 
         elif scope == 'episode':
             ensure_season_poster(target_season)
-            ep_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{target_season}/episode/{target_episode}"
+            ep_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){item_id}/season/{target_season}/episode/{target_episode}"
             ep_resp = requests.get(ep_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies, timeout=8)
             ep_title = f"第 {target_episode} 集"
             ep_overview = ""
@@ -1324,7 +1231,6 @@ def api_mark_watched():
             season_str = f"第 {target_season} 季" if target_season != 0 else "特别篇"
             ep_item_id = f"{item_id}_{target_season}_{target_episode}"
 
-            # ✨ 修复防撞：单集复活
             exist = WatchRecord.query.filter_by(
                 user_id=current_user.id, item_id=ep_item_id
             ).first()
@@ -1360,7 +1266,7 @@ def api_mark_watched():
 
             for s_num, e_nums in batch_by_season.items():
                 ensure_season_poster(s_num)
-                s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
+                s_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){item_id}/season/{s_num}"
                 s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies,
                                       timeout=8)
                 ep_meta_map = {}
@@ -1376,7 +1282,6 @@ def api_mark_watched():
                     season_str = f"第 {s_num} 季" if s_num != 0 else "特别篇"
                     ep_item_id = f"{item_id}_{s_num}_{e_num}"
 
-                    # ✨ 修复防撞：批量选择时的单集复活
                     exist = WatchRecord.query.filter_by(
                         user_id=current_user.id, item_id=ep_item_id
                     ).first()
@@ -1410,7 +1315,7 @@ def api_mark_watched():
 
             for s_num in seasons_to_add:
                 ensure_season_poster(s_num)
-                s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
+                s_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){item_id}/season/{s_num}"
                 s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies,
                                       timeout=8)
                 if s_resp.status_code == 200:
@@ -1422,7 +1327,6 @@ def api_mark_watched():
                         season_str = f"第 {s_num} 季" if s_num != 0 else "特别篇"
                         ep_item_id = f"{item_id}_{s_num}_{e_num}"
 
-                        # ✨ 修复防撞：整部/整季勾选时的批量复活
                         exist = WatchRecord.query.filter_by(
                             user_id=current_user.id, item_id=ep_item_id
                         ).first()
@@ -1450,7 +1354,6 @@ def api_mark_watched():
                         ensure_episode_detail(s_num, e_num, ep.get('name'), ep.get('overview'), ep.get('still_path'))
 
         db.session.commit()
-        # ====== ✨ 新增：人性化的业务操作日志记录 ======
         log_msg = f"用户 {current_user.username} 通过探索页手动补录了"
         if scope == 'movie':
             log_msg += f"电影《{title}》"
@@ -1467,7 +1370,6 @@ def api_mark_watched():
             log_msg += f"剧集《{title}》中的 {ep_count} 个单集"
 
         logger.info(f"{log_msg}的观看足迹。")
-        # ===============================================
         return jsonify({"success": True, "message": "已成功同步并下载本地海报与元数据！"})
 
     except Exception as e:
@@ -1475,10 +1377,13 @@ def api_mark_watched():
         logger.error(f"反向同步操作失败 (用户: {current_user.username}): {str(e)}")
         return jsonify({"success": False, "message": f"反向同步操作失败: {str(e)}"})
 
+
 @app.route('/api/search_tmdb')
 @login_required
 def api_search_tmdb():
-    """TMDB 异步搜索接口：带内存缓存防限速，并与本地库进行实时碰撞对比"""
+    """
+    TMDB 的搜索接口，直接带内存缓存防限速，并且请求回来之后会和本地数据库比对，看这片子到底看没看过。
+    """
     query = request.args.get('q')
     if not query:
         return jsonify({"success": False, "message": "搜索词不能为空"})
@@ -1490,21 +1395,17 @@ def api_search_tmdb():
     current_time = time.time()
     raw_results = None
 
-    # ====== ✨ 核心逻辑 1：检查短时缓存 ======
     if query in TMDB_SEARCH_CACHE:
         cached_item = TMDB_SEARCH_CACHE[query]
-        # 判断缓存是否过期
         if current_time - cached_item['timestamp'] < CACHE_TTL:
             raw_results = cached_item['data']
             logger.info(f"命中搜索缓存: {query}")
         else:
-            # 缓存过期，清理掉
             del TMDB_SEARCH_CACHE[query]
 
-    # ====== ✨ 核心逻辑 2：缓存未命中，发起真实网络请求 ======
     if raw_results is None:
         try:
-            url = "https://api.themoviedb.org/3/search/multi"
+            url = "[https://api.themoviedb.org/3/search/multi](https://api.themoviedb.org/3/search/multi)"
             params = {
                 "api_key": api_key,
                 "query": query,
@@ -1519,7 +1420,6 @@ def api_search_tmdb():
                 data = resp.json()
                 raw_results = data.get('results', [])
 
-                # 请求成功，存入内存缓存
                 TMDB_SEARCH_CACHE[query] = {
                     'timestamp': current_time,
                     'data': raw_results
@@ -1531,11 +1431,9 @@ def api_search_tmdb():
         except Exception as e:
             return jsonify({"success": False, "message": f"网络请求失败，请检查代理配置: {str(e)}"})
 
-    # 如果网络请求成功但没数据，直接返回空
     if not raw_results:
         return jsonify({"success": True, "results": []})
 
-        # ====== ✨ 核心逻辑 3：本地数据库实时高匿碰撞 ======
     try:
         local_movies = db.session.query(WatchPoster.display_title) \
             .filter(WatchPoster.user_id == current_user.id, WatchPoster.media_type == 'Movie',
@@ -1560,7 +1458,6 @@ def api_search_tmdb():
                 poster_path = item.get('poster_path')
                 item_id = item.get('id')
 
-                    # ✨ 新增：三态判定 (none/watched/watching)
                 watch_status = 'none'
 
                 if media_type == 'movie':
@@ -1573,9 +1470,10 @@ def api_search_tmdb():
                             total_eps = TMDB_TV_EP_COUNT_CACHE[item_id]
                         else:
                             try:
-                                tv_resp = requests.get(f"https://api.themoviedb.org/3/tv/{item_id}",
-                                                       params={"api_key": api_key},
-                                                       proxies=get_user_proxies(current_user), timeout=3)
+                                tv_resp = requests.get(
+                                    f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){item_id}",
+                                    params={"api_key": api_key},
+                                    proxies=get_user_proxies(current_user), timeout=3)
                                 if tv_resp.status_code == 200:
                                     total_eps = tv_resp.json().get('number_of_episodes', 0)
                                     TMDB_TV_EP_COUNT_CACHE[item_id] = total_eps
@@ -1595,7 +1493,6 @@ def api_search_tmdb():
 
                         local_count = len(watched_normal_eps)
 
-                        # ✨ 修复：增加 local_count > 0 判断，防止 0 集时误判为 watching
                         if total_eps > 0 and local_count >= total_eps:
                             watch_status = 'watched'
                         elif local_count > 0:
@@ -1607,8 +1504,8 @@ def api_search_tmdb():
                     'media_type': media_type,
                     'title': tmdb_name,
                     'date': date[:4] if date else "未知年份",
-                    'poster_url': f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None,
-                    'watch_status': watch_status  # ✨ 传递新的三态变量
+                    'poster_url': f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){poster_path}" if poster_path else None,
+                    'watch_status': watch_status
                 })
 
         return jsonify({"success": True, "results": results})
@@ -1616,11 +1513,11 @@ def api_search_tmdb():
     except Exception as e:
         return jsonify({"success": False, "message": f"本地数据碰撞异常: {str(e)}"})
 
+
 @app.route('/watched')
 @login_required
 def watched():
-    """读取本地缓存：利用新增的纯剧集主海报与名字进行全局无重复渲染"""
-    # 保持时间升序：时间越新的记录越靠后遍历，从而在字典赋值时自动覆盖旧记录
+    """读取本地缓存：去重处理电影和剧集，用来渲染那个好看的方块海报墙。"""
     all_posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
         WatchPoster.last_watched_date.asc()).all()
 
@@ -1628,23 +1525,20 @@ def watched():
 
     for p in all_posters:
         if p.media_type == "Movie":
-            # ✨ 优化 1：电影优先使用 tmdb_id 聚合，防止多源头碰撞，无则使用 target_id 兜底
             key = f"movie_{p.tmdb_id}" if p.tmdb_id else f"movie_{p.target_id}"
             name = p.display_title
-            img_file = p.local_image_path  # 电影依然使用 local_image_path
+            img_file = p.local_image_path
         else:
-            # ✨ 优化 2：剧集放弃多平台不合群的 target_id，改用全局唯一的 tmdb_id 聚合，无则用剧集名兜底
-            # 这样无论记录来自 Jellyfin (UUID) 还是探索页 (TMDB数字ID)，都能完美合并为同一个方块！
             key = f"series_{p.tmdb_id}" if p.tmdb_id else f"series_{p.series_name}"
-            name = p.series_name  # 直接提取新字段：纯剧集名字
-            img_file = p.series_image_path or p.local_image_path  # 直接提取新字段：纯剧集主海报，防多季重复
+            name = p.series_name
+            img_file = p.series_image_path or p.local_image_path
 
-        # 时间靠后的最新足迹会自动覆盖字典中的旧足迹，从而锁定最新观看时间与最新的主海报图片
         aggregated_dict[key] = {
             "id": p.id,
             "name": name,
-            "type_icon": "🎬" if p.media_type == "Movie" else "📺",
-            "local_img_url": url_for('static', filename=img_file) if img_file else url_for('static', filename='images/logo.png'),
+            "type_icon": "M" if p.media_type == "Movie" else "S",
+            "local_img_url": url_for('static', filename=img_file) if img_file else url_for('static',
+                                                                                           filename='images/logo.png'),
             "date_actual": p.last_watched_date
         }
 
@@ -1667,6 +1561,7 @@ def watched():
 @app.route('/image/<item_id>')
 @login_required
 def proxy_image(item_id):
+    """代理获取 Jellyfin 的图片流，解决跨域或者直接访问受限的问题。"""
     img_url = f"{current_user.jellyfin_url}/Items/{item_id}/Images/Primary?fillHeight=450&fillWidth=300&quality=90"
     headers = {"X-Emby-Token": current_user.jellyfin_api_key}
     try:
@@ -1680,31 +1575,26 @@ def proxy_image(item_id):
 @app.route('/logout')
 @login_required
 def logout():
+    """处理用户退出登录并重定向。"""
     logout_user()
     return redirect(url_for('login'))
 
 
-# 辅助函数：格式化 Jellyfin 的 UTC 时间，并转换为东八区时间
 def format_jellyfin_date(date_str):
+    """把 Jellyfin 传过来的 UTC 时间转成咱们自己熟悉的东八区时间，用来页面显示。"""
     if not date_str:
         return "未知时间"
     try:
-        # Jellyfin 时间格式示例: 2026-05-20T14:30:00.0000000Z
-        date_str = date_str.split('.')[0]  # 截去尾部的毫秒和 Z
+        date_str = date_str.split('.')[0]
         dt = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%S")
-        dt_local = dt + timedelta(hours=8)  # 转换为东八区时间
+        dt_local = dt + timedelta(hours=8)
         return dt_local.strftime("%Y-%m-%d %H:%M")
     except Exception:
         return date_str
 
 
-
-
-# ==========================================
-# 辅助函数 1：时间解析
-# ==========================================
 def parse_jellyfin_date(date_raw):
-    """解析 Jellyfin 时间字符串为东八区 datetime 对象"""
+    """把 Jellyfin 时间字符串处理成 Python 的 datetime 对象用于存库对比。"""
     if not date_raw:
         return None
     date_str = date_raw.split('.')[0]
@@ -1715,11 +1605,8 @@ def parse_jellyfin_date(date_raw):
         return None
 
 
-# ==========================================
-# 辅助函数 2：图片下载引擎
-# ==========================================
 def download_image(url, headers, local_path):
-    """下载图片到本地，若已存在则跳过。返回下载是否成功的结果。"""
+    """一个通用的图片下载工具，如果在本地找到这张图了就跳过，省点带宽。"""
     if os.path.exists(local_path):
         return True
     try:
@@ -1733,40 +1620,31 @@ def download_image(url, headers, local_path):
     return False
 
 
-# ==========================================
-# 辅助函数：智能获取 TMDB ID (带内存缓存防频控)
-# ==========================================
 def get_tmdb_id_smart(user, item, item_type, tmdb_cache):
-    """优先从 Jellyfin 提取 TMDB ID，若无则跨洋向 TMDB 搜索兜底"""
-
-    # 1. 优先尝试从 Jellyfin 的原生数据中提取
+    """优先从 Jellyfin 刮削的数据里找 TMDB ID，要找不着就去 TMDB 官方接口里用中文名字再搜一遍兜底。"""
     if item_type == "Movie":
         tmdb_id = item.get("ProviderIds", {}).get("Tmdb")
         query_title = item.get("Name")
         search_type = "movie"
         year = item.get("ProductionYear")
     else:
-        # 对于剧集，Jellyfin 有时会把剧集的 ID 放在 SeriesProviderIds 里
         tmdb_id = item.get("SeriesProviderIds", {}).get("Tmdb")
         query_title = item.get("SeriesName")
         search_type = "tv"
-        year = None  # 单集较难直接获取剧集首播年份
+        year = None
 
     if tmdb_id:
         return str(tmdb_id)
 
-    # 2. 如果 Jellyfin 没刮削出 TMDB ID，准备兜底搜索
     if not query_title or not user.tmdb_api_key:
         return None
 
-    # 检查缓存，防止对同一部未刮削的剧集疯狂重复搜索
     cache_key = f"{search_type}_{query_title}"
     if cache_key in tmdb_cache:
         return tmdb_cache[cache_key]
 
-    # 3. 发起真实的 TMDB API 搜索请求
     try:
-        url = f"https://api.themoviedb.org/3/search/{search_type}"
+        url = f"[https://api.themoviedb.org/3/search/](https://api.themoviedb.org/3/search/){search_type}"
         params = {
             "api_key": user.tmdb_api_key,
             "query": query_title,
@@ -1779,26 +1657,25 @@ def get_tmdb_id_smart(user, item, item_type, tmdb_cache):
             else:
                 params['first_air_date_year'] = year
 
-        # 完美挂载用户配置的 HTTP 代理
         resp = requests.get(url, params=params, proxies=get_user_proxies(user), timeout=5)
         if resp.status_code == 200:
             results = resp.json().get('results', [])
             if results:
                 fetched_id = str(results[0].get('id'))
-                tmdb_cache[cache_key] = fetched_id  # 存入缓存
+                tmdb_cache[cache_key] = fetched_id
                 return fetched_id
     except Exception as e:
         logger.warning(f"TMDB ID 嗅探请求失败 (关键字: {query_title}): {str(e)}")
-        pass  # 搜索失败则静默放过
+        pass
 
-    tmdb_cache[cache_key] = None  # 标记为找不到，避免下次循环重复搜索
+    tmdb_cache[cache_key] = None
     return None
 
 
 def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
+    """写入或更新观看流水账记录。发现用户重新看了一遍被软删除过的记录时，会给它“复活”。"""
     item_id = item["Id"]
 
-    # ====== ✨ 修复 1：去掉 is_deleted=False 的过滤，将被软删除的记录也捞出来 ======
     record = WatchRecord.query.filter_by(user_id=user_id, item_id=item_id).first()
 
     if not record:
@@ -1810,7 +1687,6 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
             if item_type == "Episode":
                 record.series_name = item.get("SeriesName", "未知剧集")
 
-                # ✨ 修复 2：智能提取真实的季名称
                 p_index = item.get("ParentIndexNumber")
                 if item.get("SeasonName"):
                     record.season_name = item.get("SeasonName")
@@ -1831,15 +1707,11 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
     else:
         updated = False
 
-        # ====== ✨ 修复 2：智能“复活”逻辑 ======
         if getattr(record, 'is_deleted', False):
-            # 只有当 Jellyfin 传来的时间比本地更新时（说明用户在 Jellyfin 里二刷了），才将其复活
             if dt_local > record.date_played:
                 record.is_deleted = False
                 record.date_played = dt_local
                 updated = True
-
-        # ====== 如果没被删，且 Jellyfin 那边传来的时间比本地新，则只更新时间 ======
         elif dt_local > record.date_played:
             record.date_played = dt_local
             updated = True
@@ -1847,11 +1719,9 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
         return updated
 
 
-# ==========================================
-# 辅助函数 3：写入/更新【海报墙双缓存表】
-# ==========================================
 def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, headers, poster_dir, backdrop_dir,
-                        synced_names, tmdb_id, poster_cache):  # ✨ 新增 poster_cache 参数
+                        synced_names, tmdb_id, poster_cache):
+    """更新海报墙数据的双缓存，确保存下来的海报图和基本信息都是最新的。"""
     if item_type == "Movie":
         target_id = item["Id"]
         display_title = item["Name"]
@@ -1873,7 +1743,6 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
     else:
         return
 
-    # ====== ✨ 修复：优先查本地内存笔记本，防止 no_autoflush 导致重复创建 ======
     cache_key = f"{user_id}_{target_id}"
 
     if cache_key in poster_cache:
@@ -1885,7 +1754,6 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
         series_relative_path = "images/logo.png"
         season_relative_path = "images/logo.png"
 
-        # ====== 彻底修复：隔离单集简介，并使用正确的 Jellyfin UUID 抓取 ======
         if item_type == "Movie":
             overview = item.get("Overview") or ""
             season_overview = ""
@@ -1915,7 +1783,6 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
 
         bg_source_id = item.get("SeriesId") if item_type == "Episode" else item["Id"]
 
-        # 背景图下载
         backdrop_filename = f"{bg_source_id}_backdrop.jpg"
         backdrop_path = os.path.join(backdrop_dir, backdrop_filename)
         backdrop_relative_path = f"backdrops/{backdrop_filename}"
@@ -1929,7 +1796,6 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
                               background_path):
             background_relative_path = None
 
-        # 海报下载
         if item_type == "Movie":
             movie_path = os.path.join(poster_dir, f"{target_id}_main.jpg")
             series_relative_path = f"posters/{target_id}_main.jpg"
@@ -1962,20 +1828,16 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
         db.session.add(poster_record)
         synced_names.add(display_title)
 
-        # ✨ 新建成功后，立马把它记到小本本上
         poster_cache[cache_key] = poster_record
     else:
-        # ✨ 如果查到了（无论是从缓存里还是数据库里），也塞进小本本，方便后续集数复用
         poster_cache[cache_key] = poster_record
 
-        # ====== ✨ 修复 2：如果海报记录已被软删除，同样执行智能判断 ======
         if getattr(poster_record, 'is_deleted', False):
             if dt_local > poster_record.last_watched_date:
                 poster_record.is_deleted = False
                 poster_record.last_watched_date = dt_local
-                synced_names.add(display_title)  # 复活的记录也加到提示列表里
+                synced_names.add(display_title)
 
-        # ====== 如果没被删，且 Jellyfin 那边有更新的观看时间，则只更新时间 ======
         elif dt_local > poster_record.last_watched_date:
             poster_record.last_watched_date = dt_local
 
@@ -1983,6 +1845,7 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
 @app.route('/sync_history')
 @login_required
 def sync_history():
+    """手动触发一次对 Jellyfin 观看记录的全量拉取同步。"""
     jf_url, headers = current_user.jellyfin_url, {"X-Emby-Token": current_user.jellyfin_api_key}
     base_user_url = f"{jf_url}/Users/{current_user.jellyfin_user_id}"
     poster_dir = os.path.join(app.root_path, 'static', 'posters')
@@ -1992,11 +1855,9 @@ def sync_history():
         os.makedirs(d, exist_ok=True)
 
     sync_count, synced_names, tmdb_search_cache = 0, set(), {}
-    # ✨ 新增：初始化去重集合
     processed_ids = set()
-    poster_cache = {}  # ✨ 新增：初始化内存海报字典
+    poster_cache = {}
     try:
-        # ====== ✨ 修复：开启 no_autoflush，防止查询触发高频写入引发死锁 ======
         with db.session.no_autoflush:
             views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
             if views_resp.status_code != 200:
@@ -2014,12 +1875,10 @@ def sync_history():
                 if items_resp.status_code != 200: continue
 
                 for item in items_resp.json().get("Items", []):
-                    # ====== ✨ 新增防重逻辑 ======
                     item_id = item["Id"]
                     if item_id in processed_ids:
                         continue
                     processed_ids.add(item_id)
-                    # ==============================
                     dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
                     if not dt_local: continue
 
@@ -2030,25 +1889,24 @@ def sync_history():
 
                         update_watch_poster(current_user.id, current_user.jellyfin_user_id, item, item["Type"],
                                             dt_local,
-                                            jf_url, headers, poster_dir, backdrop_dir, synced_names, master_tmdb_id, poster_cache)
+                                            jf_url, headers, poster_dir, backdrop_dir, synced_names, master_tmdb_id,
+                                            poster_cache)
 
                     if item["Type"] == "Episode":
                         update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
 
-        # ✨ 退出 no_autoflush 作用域后，最后统一平滑提交到数据库
         db.session.commit()
 
-        # ====== ✨ 核心修改：追加控制台日志写入 ======
         if sync_count > 0:
             names_str = ", ".join(sorted(synced_names))
             logger.info(f"用户 {current_user.username} 手动同步完成！新增/更新了 {sync_count} 项记录: {names_str}")
 
             names_html = "<ul style='margin: 10px 0 0 0; padding-left: 20px; text-align: left; max-height: 150px; overflow-y: auto; color: var(--text-main);'>" + "".join(
                 [f"<li style='margin-bottom: 6px;'>{n}</li>" for n in sorted(synced_names)]) + "</ul>"
-            flash(f"🎉 同步成功！已处理明细并缓存海报/剧照/背景图：{names_html}")
+            flash(f"同步成功！已处理明细并缓存海报/剧照/背景图：{names_html}")
         else:
             logger.info(f"用户 {current_user.username} 手动同步完成！本地记录已是最新，无新增。")
-            flash("✨ 同步完成！本地海报及历史记录已是最新。")
+            flash("同步完成！本地海报及历史记录已是最新。")
 
     except Exception as e:
         logger.error(f"媒体库同步过程中发生网络异常: {str(e)}")
@@ -2060,7 +1918,7 @@ def sync_history():
 @app.route('/api/sync_stream')
 @login_required
 def api_sync_stream():
-    """SSE 实时同步流微服务接口"""
+    """配合前端弹窗做的实时的 SSE 接口，把同步进度一点一点地推送到网页上。"""
     jf_url = current_user.jellyfin_url
     headers = {"X-Emby-Token": current_user.jellyfin_api_key}
     base_user_url = f"{jf_url}/Users/{current_user.jellyfin_user_id}"
@@ -2076,15 +1934,13 @@ def api_sync_stream():
         sync_count = 0
         synced_names = set()
         tmdb_search_cache = {}
-        # ✨ 新增：初始化去重集合
         processed_ids = set()
-        poster_cache = {}  # ✨ 新增：初始化内存海报字典
+        poster_cache = {}
 
         try:
             logger.info(f"用户 {current_user.username} 触发了前端实时全量同步流...")
             yield f"data: {json.dumps({'status': 'syncing', 'name': '正在请求媒体库列表...'})}\n\n"
 
-            # ====== ✨ 修复：开启 no_autoflush，防止查询触发高频写入引发死锁 ======
             with db.session.no_autoflush:
                 views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
 
@@ -2106,32 +1962,43 @@ def api_sync_stream():
                     if items_resp.status_code != 200: continue
 
                     for item in items_resp.json().get("Items", []):
-                        # ====== ✨ 新增防重逻辑 ======
                         item_id = item["Id"]
                         if item_id in processed_ids:
                             continue
                         processed_ids.add(item_id)
-                        # ==============================
                         dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
                         if not dt_local: continue
 
-                        # 提取优雅的展示名称推送给前端
+                        # 这里是推送给前端显示的文本（显示集名）
                         display_name = item.get("Name", "未知")
                         if item["Type"] == "Episode":
                             series_name = item.get("SeriesName", "未知剧集")
                             display_name = f"{series_name} - {display_name}"
 
-                        # ✨ 核心：在这里把正在处理的名字实时通过流吐给前端！
                         yield f"data: {json.dumps({'status': 'syncing', 'name': display_name})}\n\n"
 
-                        # 核心刮削与入库逻辑
                         master_tmdb_id = get_tmdb_id_smart(current_user, item, item["Type"], tmdb_search_cache)
 
-                        # 使用线程锁，防止 SQLite 疯狂并发写入导致 "database is locked"
                         with db_lock:
                             if update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local,
                                                    master_tmdb_id):
                                 sync_count += 1
+
+                                # 这里是专门为后台日志提取带季数、集数的名字
+                                if item["Type"] == "Episode":
+                                    log_series_name = item.get("SeriesName", item.get("Name", "未知剧集"))
+                                    try:
+                                        s_num = int(item.get("ParentIndexNumber", 1))
+                                        e_num = int(item.get("IndexNumber", 0))
+                                        log_display_name = f"{log_series_name} S{s_num:02d}E{e_num:02d}"
+                                    except (ValueError, TypeError):
+                                        log_display_name = f"{log_series_name} (特殊集)"
+                                else:
+                                    log_display_name = item.get("Name", "未知电影")
+
+                                if log_display_name:
+                                    synced_names.add(log_display_name)
+
                                 update_watch_poster(current_user.id, current_user.jellyfin_user_id, item, item["Type"],
                                                     dt_local,
                                                     jf_url, headers, poster_dir, backdrop_dir, synced_names,
@@ -2140,55 +2007,44 @@ def api_sync_stream():
                             if item["Type"] == "Episode":
                                 update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
 
-            # 扫描完毕后，退出 no_autoflush 作用域，统一提交数据库
             with db_lock:
                 db.session.commit()
 
-                # ====== ✨ 核心修改：在提交后打印具体的同步清单 ======
+                # 把名字拼装成换行的列表格式写入日志
                 if sync_count > 0:
-                    names_str = ", ".join(sorted(synced_names))
+                    names_str = "\n" + "\n".join([f"  - {name}" for name in sorted(synced_names)])
                     logger.info(
-                        f"用户 {current_user.username} 实时同步完成！共入库/更新了 {sync_count} 项: {names_str}")
+                        f"用户 {current_user.username} 实时同步完成！共入库/更新了 {sync_count} 项:{names_str}")
                 else:
                     logger.info(f"用户 {current_user.username} 实时同步完成！本地记录已是最新，无新增。")
 
-            # 通知前端：全部搞定，可以刷新页面了
             yield f"data: {json.dumps({'status': 'done'})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
             logger.error(f"SSE 实时同步流异常终止: {str(e)}")
 
-    # ✨ 使用 stream_with_context，确保 current_user 和 db.session 在生成器迭代时依然存活
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
-
 
 @app.route('/watched_list')
 @login_required
 def watched_list():
-    """历史记录展示路由：支持列表与海报双视图渲染，新增按类型分组支持"""
-
-    # ====== 1. 获取数据库记录 ======
-    # 提取当前用户的所有播放流水记录 (按时间倒序)
+    """历史记录展示大全，这儿组装了双层级的字典结构送去渲染，能按照“媒体库”或者“媒体类型”来进行折叠显示。"""
     records = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
         WatchRecord.date_played.desc()).all()
 
-    # 提取当前用户所有的海报缓存数据
     posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).all()
 
-    # ====== 2. 建立海报映射字典 (规避 N+1 查询卡顿) ======
     movie_poster_map = {}
     series_poster_map = {}
     for p in posters:
         if p.media_type == "Movie":
             movie_poster_map[p.display_title] = p.local_image_path
         else:
-            # 剧集墙展示整部剧的主海报即可
             series_poster_map[p.series_name] = p.series_image_path or p.local_image_path
 
-    # ====== 3. 组装供前端渲染的两套复杂数据字典 ======
-    library_data = {}  # 原有的按媒体库分组
-    type_data = {  # 新增的按媒体类型分组
+    library_data = {}
+    type_data = {
         '电影区': {'episodes_tree': {}, 'movies': [], 'series_posters': {}},
         '剧集区': {'episodes_tree': {}, 'movies': [], 'series_posters': {}}
     }
@@ -2198,32 +2054,26 @@ def watched_list():
         item_type = record.item_type
         date_played_str = record.date_played.strftime('%Y-%m-%d %H:%M')
 
-        # 初始化当前媒体库的数据结构
         if lib_name not in library_data:
             library_data[lib_name] = {
                 'episodes_tree': {},
                 'movies': [],
-                'series_posters': {}  # 用来存放这个库里所有剧集的海报映射
+                'series_posters': {}
             }
 
-        # [分支 A：处理电影]
         if item_type == "Movie":
             movie_node = {
-                'id': record.id,  # 新增：传入电影足迹在数据库中的真实 ID
+                'id': record.id,
                 'name': record.title,
                 'date': date_played_str,
-                # 塞入电影海报路径，若无则使用 logo 兜底
                 'poster_path': movie_poster_map.get(record.title, "images/logo.png")
             }
-            # 同时将数据塞入两套字典
             library_data[lib_name]['movies'].append(movie_node)
             type_data['电影区']['movies'].append(movie_node)
 
-        # [分支 B：处理剧集]
         else:
             series_name = getattr(record, 'series_name', record.title)
 
-            # 修复 3：直接读取数据库中已经清洗好的 season_name，杜绝强行算作第1季
             season_name = getattr(record, 'season_name')
             if not season_name:
                 season_name = "第 1 季"
@@ -2231,14 +2081,12 @@ def watched_list():
             episode_name = record.title
             poster_img = series_poster_map.get(series_name, "images/logo.png")
 
-            # 构建单集节点
             ep_node = {
                 'id': record.id,
                 'episode': episode_name,
                 'date': date_played_str
             }
 
-            # --- 1. 组装进 library_data (按媒体库) ---
             library_data[lib_name]['series_posters'][series_name] = poster_img
             if series_name not in library_data[lib_name]['episodes_tree']:
                 library_data[lib_name]['episodes_tree'][series_name] = {}
@@ -2246,7 +2094,6 @@ def watched_list():
                 library_data[lib_name]['episodes_tree'][series_name][season_name] = []
             library_data[lib_name]['episodes_tree'][series_name][season_name].append(ep_node)
 
-            # --- 2. 组装进 type_data (按类型) ---
             type_data['剧集区']['series_posters'][series_name] = poster_img
             if series_name not in type_data['剧集区']['episodes_tree']:
                 type_data['剧集区']['episodes_tree'][series_name] = {}
@@ -2254,7 +2101,6 @@ def watched_list():
                 type_data['剧集区']['episodes_tree'][series_name][season_name] = []
             type_data['剧集区']['episodes_tree'][series_name][season_name].append(ep_node)
 
-    # ====== 4. 剔除空类型数据，保持前端整洁 ======
     final_type_data = {}
     if type_data['电影区']['movies']:
         final_type_data['电影区'] = type_data['电影区']
@@ -2267,23 +2113,29 @@ def watched_list():
 @app.route('/detail/<media_type>/<path:title>')
 @login_required
 def media_detail(media_type, title):
+    """本地观影记录的详情展示页，用于看一看追剧的明细进度和所有单集的横幅图。"""
     season_poster_map, season_overview_map = {}, {}
 
     if media_type == 'series':
-        poster_info = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=title, is_deleted=False).first()
-        for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=title, is_deleted=False).all():
+        poster_info = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=title,
+                                                  is_deleted=False).first()
+        for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=title,
+                                             is_deleted=False).all():
             if p.season_num:
                 season_poster_map[p.season_num] = p.local_image_path
                 season_overview_map[p.season_num] = p.season_overview or ""
     else:
-        poster_info = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Movie', display_title=title, is_deleted=False).first()
+        poster_info = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Movie', display_title=title,
+                                                  is_deleted=False).first()
 
     if not poster_info: poster_info = WatchPoster()
 
     seasons, movie_record = {}, None
 
     if media_type == 'series':
-        for ep in [r for r in WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode', is_deleted=False).all() if getattr(r, 'series_name', r.title) == title]:
+        for ep in [r for r in
+                   WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode', is_deleted=False).all() if
+                   getattr(r, 'series_name', r.title) == title]:
             ep_detail = EpisodeDetail.query.filter_by(item_id=ep.item_id).first()
             real_season_num = 1
             if ep_detail:
@@ -2301,24 +2153,28 @@ def media_detail(media_type, title):
             seasons[real_season_num].append(ep)
         seasons = dict(sorted(seasons.items()))
         for s in seasons:
-            # 按数据库里的真实集数 (episode_num) 从小到大排序。如果没拿到集数，就排到最后(9999)
             seasons[s].sort(key=lambda x: x.episode_num if x.episode_num is not None else 9999)
     else:
-        movie_record = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', title=title, is_deleted=False).first()
+        movie_record = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', title=title,
+                                                   is_deleted=False).first()
 
-    return render_template('detail.html', media_type=media_type, title=title, poster=poster_info, seasons=seasons, movie_record=movie_record, season_poster_map=season_poster_map, season_overview_map=season_overview_map)
+    return render_template('detail.html', media_type=media_type, title=title, poster=poster_info, seasons=seasons,
+                           movie_record=movie_record, season_poster_map=season_poster_map,
+                           season_overview_map=season_overview_map)
+
 
 def get_user_proxies(user):
+    """读取用户在系统里配置的代理选项，组装成可以喂给 requests 的代理参数格式。"""
     if user.proxy_url and user.proxy_port:
         proxy_addr = f"http://{user.proxy_url}:{user.proxy_port}"
         return {"http": proxy_addr, "https": proxy_addr}
     return None
-# 在请求时这样使用：
-# requests.get(url, headers=headers, proxies=get_user_proxies(current_user))
+
 
 @app.route('/api/delete_history', methods=['POST'])
 @login_required
 def delete_history():
+    """批量软删除指定的观影历史记录，并且会顺带做检测，如果某部剧看完的集数全被删了，就把对应的海报也给一起隐藏掉。"""
     data = request.json
     record_ids = data.get('record_ids', [])
     if not record_ids:
@@ -2337,10 +2193,8 @@ def delete_history():
             else:
                 series_to_check.add(getattr(r, 'series_name', r.title))
 
-        # 先将足迹的软删除状态刷入数据库，方便下面做统计
         db.session.flush()
 
-        # ✨ 新增：处理海报墙级联隐藏（如果电影/剧集的最后一条记录被删了，海报也跟着软删除）
         for m_title in movies_to_check:
             if not WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', title=m_title,
                                                is_deleted=False).first():
@@ -2362,10 +2216,11 @@ def delete_history():
         db.session.rollback()
         return jsonify({'success': False, 'message': f'删除失败: {str(e)}'})
 
+
 @app.route('/api/update_history_date', methods=['POST'])
 @login_required
 def update_history_date():
-    """批量修改观看记录的时间，并级联更新海报墙缓存"""
+    """接收前台的时间修改请求，批量修改观影记录的时间，并且联动着把海报墙的排序时间也顺手改一下。"""
     data = request.json
     record_ids = data.get('record_ids', [])
     new_date_str = data.get('new_date')
@@ -2374,7 +2229,6 @@ def update_history_date():
         return jsonify({'success': False, 'message': '未选择记录或未提供时间'})
 
     try:
-        # 转换前端传来的 HTML5 datetime-local 字符串 (格式: YYYY-MM-DDTHH:MM)
         new_date = datetime.strptime(new_date_str, '%Y-%m-%dT%H:%M')
 
         records = WatchRecord.query.filter(WatchRecord.id.in_(record_ids), WatchRecord.user_id == current_user.id).all()
@@ -2382,7 +2236,6 @@ def update_history_date():
         movies_to_update = set()
         series_to_update = set()
 
-        # 1. 更新流水账记录的时间
         for r in records:
             r.date_played = new_date
             if r.item_type == 'Movie':
@@ -2392,13 +2245,14 @@ def update_history_date():
 
         db.session.flush()
 
-        # 2. 级联更新海报墙的最后观看时间，让海报墙也能按新时间正确排序
         for m_title in movies_to_update:
-            for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Movie', display_title=m_title).all():
+            for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Movie',
+                                                 display_title=m_title).all():
                 p.last_watched_date = new_date
 
         for s_name in series_to_update:
-            for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=s_name).all():
+            for p in WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series',
+                                                 series_name=s_name).all():
                 p.last_watched_date = new_date
 
         db.session.commit()
@@ -2409,11 +2263,11 @@ def update_history_date():
         return jsonify({'success': False, 'message': f'修改失败: {str(e)}'})
 
 
-# ==========================================
-# 后台图片静默补全引擎
-# ==========================================
 def restore_missing_images_task(app_context, user_id):
-    """后台任务：遍历数据库校验本地图片文件，若丢失则通过 TMDB 补全下载，精确记录报错与成功节点"""
+    """
+    在后台默默跑的图片补全引擎。
+    每次导完数据后如果发现本地的 static 文件夹里丢图了，它就会自己去 TMDB 重新下载，遇到报错也会精准记录日志。
+    """
     with app_context:
         user = load_user(user_id)
         if not user or not user.tmdb_api_key:
@@ -2427,8 +2281,8 @@ def restore_missing_images_task(app_context, user_id):
         download_count = 0
         import time
 
-        # 带重试机制的稳健网络请求封装
         def fetch_with_retry(url, params=None, timeout=30, retries=3):
+            """内部下载工具封装，带重试机制，搞定网络时不时抽风的问题。"""
             for attempt in range(retries):
                 try:
                     resp = requests.get(url, params=params, proxies=proxies, timeout=timeout)
@@ -2436,12 +2290,12 @@ def restore_missing_images_task(app_context, user_id):
                         return resp
                 except Exception as e:
                     if attempt == retries - 1:
-                        raise e  # 最后一次重试依然失败，则抛出异常供外部精准捕获
+                        raise e
                     time.sleep(2)
             return None
 
-        # 内部封装：指定绝对路径的原名下载
         def download_exact(url, relative_path):
+            """判断图片是否存在并进行物理下载。"""
             nonlocal download_count
             if not url or not relative_path or relative_path == "images/logo.png": return False
             filepath = os.path.join(static_dir, relative_path)
@@ -2456,7 +2310,6 @@ def restore_missing_images_task(app_context, user_id):
                 return True
             return False
 
-        # --- 1. 扫描并补全海报与背景图 ---
         posters = WatchPoster.query.filter_by(user_id=user_id).all()
         for p in posters:
             if not p.tmdb_id: continue
@@ -2471,14 +2324,12 @@ def restore_missing_images_task(app_context, user_id):
             if not (needs_main or needs_local or needs_backdrop):
                 continue
 
-            # 提取精确的媒体名称
             base_name = p.series_name if p.media_type == 'Series' and p.series_name else p.display_title
             season_text = f"第 {p.season_num} 季" if p.season_num is not None and p.season_num > 0 else "特别篇"
 
             tmdb_type = 'movie' if p.media_type == 'Movie' else 'tv'
-            url = f"https://api.themoviedb.org/3/{tmdb_type}/{p.tmdb_id}"
+            url = f"[https://api.themoviedb.org/3/](https://api.themoviedb.org/3/){tmdb_type}/{p.tmdb_id}"
 
-            # 拉取基础元数据
             try:
                 resp = fetch_with_retry(url, params={"api_key": user.tmdb_api_key, "language": "zh-CN"})
                 if not resp: continue
@@ -2487,38 +2338,42 @@ def restore_missing_images_task(app_context, user_id):
                 logger.error(f"[补全引擎] {base_name} 元数据拉取失败: {str(e)}")
                 continue
 
-            # 独立捕获：补全主海报
             if needs_main:
                 try:
                     remote = data.get('poster_path')
-                    if remote and download_exact(f"https://image.tmdb.org/t/p/w500{remote}", p.series_image_path):
+                    if remote and download_exact(
+                            f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){remote}",
+                            p.series_image_path):
                         logger.info(f"[补全引擎] {base_name} 主海报补全下载成功")
                 except Exception as e:
                     logger.error(f"[补全引擎] {base_name} 主海报补全失败: {str(e)}")
 
-            # 独立捕获：补全背景图
             if needs_backdrop:
                 try:
                     remote = data.get('backdrop_path')
-                    if remote and download_exact(f"https://image.tmdb.org/t/p/w1280{remote}", p.backdrop_image_path):
+                    if remote and download_exact(
+                            f"[https://image.tmdb.org/t/p/w1280](https://image.tmdb.org/t/p/w1280){remote}",
+                            p.backdrop_image_path):
                         logger.info(f"[补全引擎] {base_name} 背景图补全下载成功")
                 except Exception as e:
                     logger.error(f"[补全引擎] {base_name} 背景图补全失败: {str(e)}")
 
-            # 独立捕获：补全季海报 / 电影本地海报
             if needs_local:
                 try:
                     if p.media_type == 'Movie':
                         remote = data.get('poster_path')
-                        if remote and download_exact(f"https://image.tmdb.org/t/p/w500{remote}", p.local_image_path):
+                        if remote and download_exact(
+                                f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){remote}",
+                                p.local_image_path):
                             logger.info(f"[补全引擎] {base_name} 主海报补全下载成功")
                     elif p.season_num is not None:
-                        s_url = f"https://api.themoviedb.org/3/tv/{p.tmdb_id}/season/{p.season_num}"
+                        s_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){p.tmdb_id}/season/{p.season_num}"
                         s_resp = fetch_with_retry(s_url, params={"api_key": user.tmdb_api_key, "language": "zh-CN"})
                         if s_resp:
                             remote = s_resp.json().get('poster_path')
-                            if remote and download_exact(f"https://image.tmdb.org/t/p/w500{remote}",
-                                                         p.local_image_path):
+                            if remote and download_exact(
+                                    f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){remote}",
+                                    p.local_image_path):
                                 logger.info(f"[补全引擎] {base_name} {season_text}海报补全下载成功")
                 except Exception as e:
                     if p.media_type == 'Movie':
@@ -2526,7 +2381,6 @@ def restore_missing_images_task(app_context, user_id):
                     else:
                         logger.error(f"[补全引擎] {base_name} {season_text}海报补全失败: {str(e)}")
 
-        # --- 2. 扫描并补全单集剧照 ---
         user_ep_ids = [r.item_id for r in WatchRecord.query.filter_by(user_id=user_id, item_type='Episode').all()]
         if user_ep_ids:
             ep_details = EpisodeDetail.query.filter(EpisodeDetail.item_id.in_(user_ep_ids)).all()
@@ -2534,14 +2388,15 @@ def restore_missing_images_task(app_context, user_id):
                 if not ed.series_tmdb_id or ed.season_num is None or ed.episode_num is None: continue
                 if ed.still_image_path and ed.still_image_path != "images/logo.png" and not os.path.exists(
                         os.path.join(static_dir, ed.still_image_path)):
-                    ep_url = f"https://api.themoviedb.org/3/tv/{ed.series_tmdb_id}/season/{ed.season_num}/episode/{ed.episode_num}"
+                    ep_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){ed.series_tmdb_id}/season/{ed.season_num}/episode/{ed.episode_num}"
                     ep_season_text = f"第 {ed.season_num} 季" if ed.season_num > 0 else "特别篇"
                     try:
                         ep_resp = fetch_with_retry(ep_url, params={"api_key": user.tmdb_api_key, "language": "zh-CN"})
                         if ep_resp:
                             remote = ep_resp.json().get('still_path')
-                            if remote and download_exact(f"https://image.tmdb.org/t/p/w300{remote}",
-                                                         ed.still_image_path):
+                            if remote and download_exact(
+                                    f"[https://image.tmdb.org/t/p/w300](https://image.tmdb.org/t/p/w300){remote}",
+                                    ed.still_image_path):
                                 logger.info(
                                     f"[补全引擎] {ed.series_name} {ep_season_text} 第 {ed.episode_num} 集剧照补全下载成功")
                     except Exception as e:
@@ -2555,12 +2410,11 @@ def restore_missing_images_task(app_context, user_id):
 @app.route('/export_data')
 @login_required
 def export_data():
-    """将当前用户的观看记录、海报及剧照缓存导出为 JSON 文件（不包含用户 API 与系统配置）"""
+    """把用户看过的记录、海报和剧照缓存全都导出成一份干净的 JSON 文件用来备份。"""
 
     logger.info(f"[数据导出] 用户 {current_user.username} 发起了纯净历史数据导出请求（排除配置信息）。")
 
     try:
-        # 1. 提取观影记录
         records = WatchRecord.query.filter_by(user_id=current_user.id).all()
         records_list = []
         user_ep_item_ids = []
@@ -2580,7 +2434,6 @@ def export_data():
                 "is_deleted": r.is_deleted
             })
 
-        # 2. 提取海报缓存记录
         posters = WatchPoster.query.filter_by(user_id=current_user.id).all()
         posters_list = []
         for p in posters:
@@ -2601,7 +2454,6 @@ def export_data():
                 "is_deleted": p.is_deleted
             })
 
-        # 3. 提取关联的剧照与剧情记录 (EpisodeDetail)
         ep_details = EpisodeDetail.query.filter(
             EpisodeDetail.item_id.in_(user_ep_item_ids)).all() if user_ep_item_ids else []
         ep_details_list = []
@@ -2617,7 +2469,6 @@ def export_data():
                 "still_image_path": ed.still_image_path
             })
 
-        # 4. 组装导出
         export_dict = {
             "version": "1.2",
             "export_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -2643,7 +2494,7 @@ def export_data():
 @app.route('/api/import_data', methods=['POST'])
 @login_required
 def import_data():
-    """解析上传的 JSON，仅合并历史记录及海报数据至数据库，不覆盖用户配置，并挂载图片扫描补全线程"""
+    """解析前台上传的 JSON 备份数据，只拿里面的观影历史来和现在的数据库做合并，顺带唤醒后台跑一下补全图片的任务。"""
     logger.info(f"[数据导入] 收到来自用户 {current_user.username} 的数据导入请求。")
 
     if 'file' not in request.files:
@@ -2661,7 +2512,6 @@ def import_data():
         logger.info(
             f"[数据导入] 文件解析成功，准备为 {current_user.username} 合并 {len(data.get('watch_records', []))} 条观影记录（跳过用户配置项，仅导入历史数据）。")
 
-        # --- 1. 恢复流水记录 (已移除用户配置覆盖逻辑) ---
         for r_data in data.get("watch_records", []):
             item_id = r_data.get("item_id")
             if not item_id: continue
@@ -2682,7 +2532,6 @@ def import_data():
             rec.date_played = dt_played
             rec.is_deleted = r_data.get("is_deleted", False)
 
-        # --- 2. 恢复海报墙缓存 ---
         for p_data in data.get("watch_posters", []):
             target_id = p_data.get("target_id")
             if not target_id: continue
@@ -2706,7 +2555,6 @@ def import_data():
             pos.last_watched_date = dt_last
             pos.is_deleted = p_data.get("is_deleted", False)
 
-        # --- 3. 恢复单集剧照与剧情 ---
         for ed_data in data.get("episode_details", []):
             item_id = ed_data.get("item_id")
             if not item_id: continue
@@ -2726,7 +2574,6 @@ def import_data():
 
         logger.info(f"[数据导入] 数据库历史记录合并提交成功。已为 {current_user.username} 触发后台 TMDB 图片补全线程。")
 
-        # 数据落库完毕后，丢到后台慢慢校验和下载图片
         threading.Thread(target=restore_missing_images_task, args=(app.app_context(), current_user.id)).start()
 
         return jsonify(
@@ -2737,15 +2584,15 @@ def import_data():
         logger.error(f"[数据导入] 用户 {current_user.username} 文件结构解析失败或入库异常: {str(e)}")
         return jsonify({"success": False, "message": f"导入失败，数据格式可能不正确: {str(e)}"})
 
+
 # ==========================================
-# 🌟 日志管理面板路由及文件写入逻辑
+# 日志管理面板路由及文件写入逻辑
 # ==========================================
 
 def log_print(msg):
-    """全局自定义日志打印函数：控制台输出并追加到 logs/jellywall.log"""
+    """一个全局的小工具函数，可以同时往控制台和文件里打印日志信息。"""
     print(msg)
 
-    # ✨ 确保 logs 文件夹存在
     log_dir = os.path.join(app.root_path, 'logs')
     os.makedirs(log_dir, exist_ok=True)
     log_file_path = os.path.join(log_dir, 'jellywall.log')
@@ -2758,14 +2605,14 @@ def log_print(msg):
 @app.route('/logs')
 @login_required
 def logs_view():
-    """渲染终端界面"""
+    """渲染前台的网页版日志查看控制台。"""
     return render_template('logs.html', title="日志管理")
 
 
 @app.route('/api/log_stream')
 @login_required
 def log_stream():
-    """实时读取本地日志文件推送到前端"""
+    """用来把后台的日志实时推给前端 SSE 连接展示的流接口，还带了往上回溯一百行的功能。"""
     log_dir = os.path.join(app.root_path, 'logs')
     os.makedirs(log_dir, exist_ok=True)
     log_file_path = os.path.join(log_dir, 'jellywall.log')
@@ -2777,45 +2624,36 @@ def log_stream():
         with open(log_file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
-            # ====== ✨ 核心优化：双通道回溯算法 ======
             indexed_lines = []
             biz_count = 0
             sys_count = 0
 
-            # 从文件的最后一行开始，倒序往上找
             for i in range(len(lines) - 1, -1, -1):
                 line = lines[i]
                 if not line.strip():
                     continue
 
-                # 如果是业务日志
                 if '[System-HTTP]' not in line:
                     if biz_count < 100:
                         indexed_lines.append((i, line))
                         biz_count += 1
-                # 如果是系统请求日志
                 else:
                     if sys_count < 100:
                         indexed_lines.append((i, line))
                         sys_count += 1
 
-                # 当两种日志都各自攒够 100 条时，停止回溯
                 if biz_count >= 100 and sys_count >= 100:
                     break
 
-            # 因为是倒序收集的，所以要按照它们在文件里的原始行号(i)重新正向排序
             indexed_lines.sort(key=lambda x: x[0])
 
-            # 将收集好的历史记录吐给前端
             for _, line in indexed_lines:
                 yield f"data: {line.strip()}\n\n"
 
-            # ====== 2. 进入死循环，监听新写入的内容 ======
             while True:
                 line = f.readline()
                 if not line:
                     time.sleep(0.5)
-                    # 清除 EOF 标志，强制 Python 重新检查文件末尾
                     f.seek(0, 1)
                     continue
 
@@ -2825,23 +2663,24 @@ def log_stream():
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 
-
 @app.route('/demo')
 @login_required
 def demo_preview():
-    """纯静态体验版详情页"""
+    """渲染出一个静态做样子的预览详情页面。"""
     return render_template('demo_detail.html', title="详情页预览")
 
+
 def get_system_config():
-    """获取系统全局配置，默认开启注册"""
+    """读取这套系统的基础开关配置，找不到就默认开启允许新用户注册。"""
     config_path = os.path.join(app.root_path, 'config', 'system_config.json')
     if os.path.exists(config_path):
         with open(config_path, 'r', encoding='utf-8') as f:
             return json.load(f)
-    return {"allow_registration": True}  # 默认值为开启
+    return {"allow_registration": True}
+
 
 def save_system_config(config_data):
-    """保存系统全局配置"""
+    """保存这套系统的基础开关配置。"""
     config_dir = os.path.join(app.root_path, 'config')
     os.makedirs(config_dir, exist_ok=True)
     config_path = os.path.join(config_dir, 'system_config.json')
@@ -2850,30 +2689,28 @@ def save_system_config(config_data):
 
 
 if __name__ == '__main__':
-    # ====== ✨ 修复：提早声明 Debug 状态，杜绝双重进程问题 ======
+    # 提前开启调式模式，把双进程的坑避过去
     app.debug = True
 
-    # 1. 保持你原有的数据库表结构自动创建逻辑
+    # 项目启动时保证数据库表结构都顺利建好
     with app.app_context():
         db.create_all()
 
     import os
 
-    # ✨ 核心修复：只有当环境是 Werkzeug 的真正工作子进程，或者关闭了 debug 时，才启动调度器引擎
+    # 做个判断，环境是 Werkzeug 的真正工作子进程，或者没有开调试才启动调度器
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
         refresh_scheduler_jobs()
         scheduler.start()
 
-    # 2. 设置一个保底的默认端口
     run_port = 5000
 
-    # 3. 在项目启动前，主动去扒一遍 config/users.json，找出你配置的自定义端口
+    # 启动前看看本地的配置文件里有没有专门去修改过端口，有的话就用新端口启动
     try:
         config_path = os.path.join(app.root_path, 'config', 'users.json')
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
                 users_data = json.load(f)
-                # 遍历找到第一个设置了 web_port 的配置
                 for u in users_data.values():
                     if u.get('web_port'):
                         run_port = int(u['web_port'])
@@ -2881,10 +2718,6 @@ if __name__ == '__main__':
     except Exception as e:
         logger.warning(f"读取自定义端口失败，将使用默认端口 5000。原因: {e}")
 
-    # 4. 把读出来的端口喂给 Flask，让它监听所有 IP (0.0.0.0)
     logger.info(f"JellyWall 即将启动，运行端口: {run_port}")
 
-    # ⚠️ 注意：这里去掉了 debug=True 的入参，因为它已经在代码最顶部被全局激活了
     app.run(host='0.0.0.0', port=run_port)
-
-

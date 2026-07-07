@@ -664,7 +664,7 @@ def test_proxy():
     }
 
     try:
-        test_resp = requests.get("[http://www.google.com](http://www.google.com)", proxies=proxies, timeout=5)
+        test_resp = requests.get("http://www.google.com", proxies=proxies, timeout=5)
         if test_resp.status_code == 200:
             return jsonify({"success": True, "message": "测试代理成功！网络已连通。"})
         else:
@@ -682,7 +682,7 @@ def test_tmdb():
         return jsonify({"success": False, "message": "请输入 TMDB API Key"})
 
     try:
-        url = f"[https://api.themoviedb.org/3/authentication?api_key=](https://api.themoviedb.org/3/authentication?api_key=){api_key}"
+        url = f"https://api.themoviedb.org/3/authentication?api_key={api_key}"
         resp = requests.get(url, proxies=get_user_proxies(current_user), timeout=8)
 
         if resp.status_code == 200:
@@ -844,7 +844,7 @@ def explore_detail(media_type, item_id):
 
     if not render_data:
         try:
-            url = f"[https://api.themoviedb.org/3/](https://api.themoviedb.org/3/){media_type}/{item_id}"
+            url = f"https://api.themoviedb.org/3/{media_type}/{item_id}"
             params = {
                 "api_key": api_key,
                 "language": "zh-CN",
@@ -864,11 +864,11 @@ def explore_detail(media_type, item_id):
             year = date_str[:4] if date_str else "未知"
 
             poster_path = data.get('poster_path')
-            poster_url = f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){poster_path}" if poster_path else url_for(
+            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else url_for(
                 'static',
                 filename='images/logo.png')
             backdrop_path = data.get('backdrop_path')
-            bg_url = f"[https://image.tmdb.org/t/p/w1280](https://image.tmdb.org/t/p/w1280){backdrop_path}" if backdrop_path else poster_url
+            bg_url = f"https://image.tmdb.org/t/p/w1280{backdrop_path}" if backdrop_path else poster_url
             display_type = 'series' if media_type == 'tv' else 'movie'
 
             genres_list = [g.get('name') for g in data.get('genres', []) if g.get('name')]
@@ -901,7 +901,7 @@ def explore_detail(media_type, item_id):
                     s_num = s.get('season_number')
                     if s_num is None: continue
 
-                    s_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){item_id}/season/{s_num}"
+                    s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
                     s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"},
                                           proxies=get_user_proxies(current_user), timeout=5)
 
@@ -912,7 +912,7 @@ def explore_detail(media_type, item_id):
                         formatted_episodes = []
                         for ep in episodes:
                             still_path = ep.get('still_path')
-                            full_still_url = f"[https://image.tmdb.org/t/p/w300](https://image.tmdb.org/t/p/w300){still_path}" if still_path else url_for(
+                            full_still_url = f"https://image.tmdb.org/t/p/w300{still_path}" if still_path else url_for(
                                 'static', filename='images/logo.png')
 
                             formatted_episodes.append({
@@ -926,7 +926,7 @@ def explore_detail(media_type, item_id):
                         seasons_data[s_num] = formatted_episodes
                         s_poster = s.get('poster_path')
                         season_poster_map[
-                            s_num] = f"[https://image.tmdb.org/t/p/w300](https://image.tmdb.org/t/p/w300){s_poster}" if s_poster else poster_url
+                            s_num] = f"https://image.tmdb.org/t/p/w300{s_poster}" if s_poster else poster_url
                         season_overview_map[s_num] = s.get('overview') or s_data.get('overview') or ""
 
             render_data = {
@@ -1068,7 +1068,7 @@ def api_mark_watched():
 
     try:
         tmdb_type = 'movie' if media_type == 'movie' else 'tv'
-        url = f"[https://api.themoviedb.org/3/](https://api.themoviedb.org/3/){tmdb_type}/{item_id}"
+        url = f"https://api.themoviedb.org/3/{tmdb_type}/{item_id}"
         resp = requests.get(url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies, timeout=10)
         if resp.status_code != 200:
             return jsonify({"success": False, "message": "无法从 TMDB 拉取该影视的基础元数据"})
@@ -1083,7 +1083,7 @@ def api_mark_watched():
 
         local_poster_name = None
         if poster_path:
-            remote_poster_url = f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){poster_path}"
+            remote_poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
             local_poster_name = download_tmdb_image(
                 remote_poster_url,
                 os.path.join(app.root_path, 'static', 'posters'),
@@ -1120,7 +1120,7 @@ def api_mark_watched():
                 local_s_poster_name = None
                 if s_poster_path:
                     local_s_poster_name = download_tmdb_image(
-                        f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){s_poster_path}",
+                        f"https://image.tmdb.org/t/p/w500{s_poster_path}",
                         os.path.join(app.root_path, 'static', 'posters'),
                         f"tmdb_{item_id}_S{s_num}.jpg",
                         proxies
@@ -1153,7 +1153,7 @@ def api_mark_watched():
                 if ep_still_path:
                     os.makedirs(os.path.join(app.root_path, 'static', 'stills'), exist_ok=True)
                     local_still_name = download_tmdb_image(
-                        f"[https://image.tmdb.org/t/p/w300](https://image.tmdb.org/t/p/w300){ep_still_path}",
+                        f"https://image.tmdb.org/t/p/w300{ep_still_path}",
                         os.path.join(app.root_path, 'static', 'stills'),
                         f"still_tmdb_{ep_item_id}.jpg",
                         proxies
@@ -1217,7 +1217,7 @@ def api_mark_watched():
 
         elif scope == 'episode':
             ensure_season_poster(target_season)
-            ep_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){item_id}/season/{target_season}/episode/{target_episode}"
+            ep_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{target_season}/episode/{target_episode}"
             ep_resp = requests.get(ep_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies, timeout=8)
             ep_title = f"第 {target_episode} 集"
             ep_overview = ""
@@ -1266,7 +1266,7 @@ def api_mark_watched():
 
             for s_num, e_nums in batch_by_season.items():
                 ensure_season_poster(s_num)
-                s_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){item_id}/season/{s_num}"
+                s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
                 s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies,
                                       timeout=8)
                 ep_meta_map = {}
@@ -1315,7 +1315,7 @@ def api_mark_watched():
 
             for s_num in seasons_to_add:
                 ensure_season_poster(s_num)
-                s_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){item_id}/season/{s_num}"
+                s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
                 s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"}, proxies=proxies,
                                       timeout=8)
                 if s_resp.status_code == 200:
@@ -1405,7 +1405,7 @@ def api_search_tmdb():
 
     if raw_results is None:
         try:
-            url = "[https://api.themoviedb.org/3/search/multi](https://api.themoviedb.org/3/search/multi)"
+            url = "https://api.themoviedb.org/3/search/multi"
             params = {
                 "api_key": api_key,
                 "query": query,
@@ -1471,7 +1471,7 @@ def api_search_tmdb():
                         else:
                             try:
                                 tv_resp = requests.get(
-                                    f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){item_id}",
+                                    f"https://api.themoviedb.org/3/tv/{item_id}",
                                     params={"api_key": api_key},
                                     proxies=get_user_proxies(current_user), timeout=3)
                                 if tv_resp.status_code == 200:
@@ -1504,7 +1504,7 @@ def api_search_tmdb():
                     'media_type': media_type,
                     'title': tmdb_name,
                     'date': date[:4] if date else "未知年份",
-                    'poster_url': f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){poster_path}" if poster_path else None,
+                    'poster_url': f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None,
                     'watch_status': watch_status
                 })
 
@@ -1644,7 +1644,7 @@ def get_tmdb_id_smart(user, item, item_type, tmdb_cache):
         return tmdb_cache[cache_key]
 
     try:
-        url = f"[https://api.themoviedb.org/3/search/](https://api.themoviedb.org/3/search/){search_type}"
+        url = f"https://api.themoviedb.org/3/search/{search_type}"
         params = {
             "api_key": user.tmdb_api_key,
             "query": query_title,
@@ -2328,7 +2328,7 @@ def restore_missing_images_task(app_context, user_id):
             season_text = f"第 {p.season_num} 季" if p.season_num is not None and p.season_num > 0 else "特别篇"
 
             tmdb_type = 'movie' if p.media_type == 'Movie' else 'tv'
-            url = f"[https://api.themoviedb.org/3/](https://api.themoviedb.org/3/){tmdb_type}/{p.tmdb_id}"
+            url = f"https://api.themoviedb.org/3/{tmdb_type}/{p.tmdb_id}"
 
             try:
                 resp = fetch_with_retry(url, params={"api_key": user.tmdb_api_key, "language": "zh-CN"})
@@ -2342,7 +2342,7 @@ def restore_missing_images_task(app_context, user_id):
                 try:
                     remote = data.get('poster_path')
                     if remote and download_exact(
-                            f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){remote}",
+                            f"https://image.tmdb.org/t/p/w500{remote}",
                             p.series_image_path):
                         logger.info(f"[补全引擎] {base_name} 主海报补全下载成功")
                 except Exception as e:
@@ -2352,7 +2352,7 @@ def restore_missing_images_task(app_context, user_id):
                 try:
                     remote = data.get('backdrop_path')
                     if remote and download_exact(
-                            f"[https://image.tmdb.org/t/p/w1280](https://image.tmdb.org/t/p/w1280){remote}",
+                            f"https://image.tmdb.org/t/p/w1280{remote}",
                             p.backdrop_image_path):
                         logger.info(f"[补全引擎] {base_name} 背景图补全下载成功")
                 except Exception as e:
@@ -2363,16 +2363,16 @@ def restore_missing_images_task(app_context, user_id):
                     if p.media_type == 'Movie':
                         remote = data.get('poster_path')
                         if remote and download_exact(
-                                f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){remote}",
+                                f"https://image.tmdb.org/t/p/w500{remote}",
                                 p.local_image_path):
                             logger.info(f"[补全引擎] {base_name} 主海报补全下载成功")
                     elif p.season_num is not None:
-                        s_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){p.tmdb_id}/season/{p.season_num}"
+                        s_url = f"https://api.themoviedb.org/3/tv/{p.tmdb_id}/season/{p.season_num}"
                         s_resp = fetch_with_retry(s_url, params={"api_key": user.tmdb_api_key, "language": "zh-CN"})
                         if s_resp:
                             remote = s_resp.json().get('poster_path')
                             if remote and download_exact(
-                                    f"[https://image.tmdb.org/t/p/w500](https://image.tmdb.org/t/p/w500){remote}",
+                                    f"https://image.tmdb.org/t/p/w500{remote}",
                                     p.local_image_path):
                                 logger.info(f"[补全引擎] {base_name} {season_text}海报补全下载成功")
                 except Exception as e:
@@ -2388,14 +2388,14 @@ def restore_missing_images_task(app_context, user_id):
                 if not ed.series_tmdb_id or ed.season_num is None or ed.episode_num is None: continue
                 if ed.still_image_path and ed.still_image_path != "images/logo.png" and not os.path.exists(
                         os.path.join(static_dir, ed.still_image_path)):
-                    ep_url = f"[https://api.themoviedb.org/3/tv/](https://api.themoviedb.org/3/tv/){ed.series_tmdb_id}/season/{ed.season_num}/episode/{ed.episode_num}"
+                    ep_url = f"https://api.themoviedb.org/3/tv/{ed.series_tmdb_id}/season/{ed.season_num}/episode/{ed.episode_num}"
                     ep_season_text = f"第 {ed.season_num} 季" if ed.season_num > 0 else "特别篇"
                     try:
                         ep_resp = fetch_with_retry(ep_url, params={"api_key": user.tmdb_api_key, "language": "zh-CN"})
                         if ep_resp:
                             remote = ep_resp.json().get('still_path')
                             if remote and download_exact(
-                                    f"[https://image.tmdb.org/t/p/w300](https://image.tmdb.org/t/p/w300){remote}",
+                                    f"https://image.tmdb.org/t/p/w300{remote}",
                                     ed.still_image_path):
                                 logger.info(
                                     f"[补全引擎] {ed.series_name} {ep_season_text} 第 {ed.episode_num} 集剧照补全下载成功")

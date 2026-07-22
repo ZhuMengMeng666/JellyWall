@@ -18,6 +18,9 @@ from apscheduler.triggers.cron import CronTrigger
 import time
 from flask import stream_with_context, Response
 import zipfile
+from datetime import timezone
+import hashlib
+from datetime import datetime
 
 # TMDB 搜索结果的短时缓存池，格式为 {query: {timestamp: float, data: list}}
 TMDB_SEARCH_CACHE = {}
@@ -1517,31 +1520,83 @@ def api_search_tmdb():
 @app.route('/watched')
 @login_required
 def watched():
-    """读取本地缓存：去重处理电影和剧集，用来渲染那个好看的方块海报墙。"""
-    all_posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
-        WatchPoster.last_watched_date.asc()).all()
+    """读取本地缓存：从观看记录提取最真实的初看时间，从海报表匹配最高清图片，完美去重渲染海报墙。"""
+
+    # ==========================================
+    # 1. 抓取海报表，构建基于片名和 TMDB_ID 的图片映射库
+    # ==========================================
+    posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).all()
+    movie_poster_map = {}
+    movie_tmdb_map = {}
+    series_poster_map = {}
+    series_tmdb_map = {}
+
+    for p in posters:
+        if p.media_type == "Movie":
+            movie_poster_map[p.display_title] = p.local_image_path
+            if p.tmdb_id:
+                movie_tmdb_map[str(p.tmdb_id)] = p.local_image_path
+        else:
+            path = p.series_image_path or p.local_image_path
+            series_poster_map[p.series_name] = path
+            if p.tmdb_id:
+                series_tmdb_map[str(p.tmdb_id)] = path
+
+    def is_valid_tmdb(tid):
+        return bool(tid and str(tid).lower() not in ['none', 'null', ''])
+
+    # ==========================================
+    # 2. 从真实的观看记录表 (WatchRecord) 中提取数据
+    # 注意这里使用的是 asc()，即从最老的远古记录开始遍历
+    # ==========================================
+    raw_records = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
+        WatchRecord.date_played.asc()).all()
 
     aggregated_dict = {}
 
-    for p in all_posters:
-        if p.media_type == "Movie":
-            key = f"movie_{p.tmdb_id}" if p.tmdb_id else f"movie_{p.target_id}"
-            name = p.display_title
-            img_file = p.local_image_path
+    # ==========================================
+    # 3. 核心去重与时间捕获引擎
+    # ==========================================
+    for record in raw_records:
+        item_type = record.item_type
+        tmdb_id = record.tmdb_id
+        valid_tmdb = is_valid_tmdb(tmdb_id)
+
+        # 构建统一身份键，没有 tmdb_id 就强制使用中文片名兜底，杜绝重复
+        if item_type == "Movie":
+            key = f"movie_tmdb_{tmdb_id}" if valid_tmdb else f"movie_title_{record.title}"
+            name = record.title
+            type_icon = "M"
+            # 智能匹配图片
+            if valid_tmdb and str(tmdb_id) in movie_tmdb_map:
+                img_file = movie_tmdb_map[str(tmdb_id)]
+            else:
+                img_file = movie_poster_map.get(name)
         else:
-            key = f"series_{p.tmdb_id}" if p.tmdb_id else f"series_{p.series_name}"
-            name = p.series_name
-            img_file = p.series_image_path or p.local_image_path
+            series_name = getattr(record, 'series_name', record.title)
+            key = f"series_tmdb_{tmdb_id}" if valid_tmdb else f"series_title_{series_name}"
+            name = series_name
+            type_icon = "S"
+            # 智能匹配图片
+            if valid_tmdb and str(tmdb_id) in series_tmdb_map:
+                img_file = series_tmdb_map[str(tmdb_id)]
+            else:
+                img_file = series_poster_map.get(name)
 
-        aggregated_dict[key] = {
-            "id": p.id,
-            "name": name,
-            "type_icon": "M" if p.media_type == "Movie" else "S",
-            "local_img_url": url_for('static', filename=img_file) if img_file else url_for('static',
-                                                                                           filename='images/logo.png'),
-            "date_actual": p.last_watched_date
-        }
+        # ✨ 最关键的一步：因为列表已经是 asc 升序
+        # 只要这个 key 不在字典里，说明我们遇到了这部剧的【绝对第一次】观看记录
+        # 我们把它锁进字典里。后续再遇到这部剧的第二季、第三季记录，直接忽略，从而保住了最古老的时间
+        if key not in aggregated_dict:
+            aggregated_dict[key] = {
+                "id": record.id,
+                "name": name,
+                "type_icon": type_icon,
+                "local_img_url": url_for('static', filename=img_file) if img_file else url_for('static',
+                                                                                               filename='images/logo.png'),
+                "date_actual": record.date_played
+            }
 
+    # 4. 把字典转回列表，再执行一次排序（确保渲染时的严格顺序）
     final_posters = list(aggregated_dict.values())
     final_posters.sort(key=lambda x: x["date_actual"])
 
@@ -2029,19 +2084,31 @@ def api_sync_stream():
 @app.route('/watched_list')
 @login_required
 def watched_list():
-    """历史记录展示大全，这儿组装了双层级的字典结构送去渲染，能按照“媒体库”或者“媒体类型”来进行折叠显示。"""
-    records = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
+    """历史记录展示大全，采用双轨引擎：按媒体库展示不去重（保留数据源真实性），按类型展示严格去重。"""
+    raw_records = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
         WatchRecord.date_played.desc()).all()
 
     posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).all()
 
+    # 构建双维度海报映射字典，极大提高命中率
     movie_poster_map = {}
+    movie_tmdb_map = {}
     series_poster_map = {}
+    series_tmdb_map = {}
+
     for p in posters:
         if p.media_type == "Movie":
             movie_poster_map[p.display_title] = p.local_image_path
+            if p.tmdb_id:
+                movie_tmdb_map[str(p.tmdb_id)] = p.local_image_path
         else:
-            series_poster_map[p.series_name] = p.series_image_path or p.local_image_path
+            path = p.series_image_path or p.local_image_path
+            series_poster_map[p.series_name] = path
+            if p.tmdb_id:
+                series_tmdb_map[str(p.tmdb_id)] = path
+
+    def is_valid_tmdb(tid):
+        return bool(tid and str(tid).lower() not in ['none', 'null', ''])
 
     library_data = {}
     type_data = {
@@ -2049,7 +2116,10 @@ def watched_list():
         '剧集区': {'episodes_tree': {}, 'movies': [], 'series_posters': {}}
     }
 
-    for record in records:
+    # ========================================================
+    # 引擎 1：构建【按媒体库分组】数据（保留所有真实来源，不去重）
+    # ========================================================
+    for record in raw_records:
         lib_name = record.library_name or "未分类媒体库"
         item_type = record.item_type
         date_played_str = record.date_played.strftime('%Y-%m-%d %H:%M')
@@ -2062,24 +2132,32 @@ def watched_list():
             }
 
         if item_type == "Movie":
+            poster_img = "images/logo.png"
+            if is_valid_tmdb(record.tmdb_id) and str(record.tmdb_id) in movie_tmdb_map:
+                poster_img = movie_tmdb_map[str(record.tmdb_id)]
+            else:
+                poster_img = movie_poster_map.get(record.title, "images/logo.png")
+
             movie_node = {
                 'id': record.id,
                 'name': record.title,
                 'date': date_played_str,
-                'poster_path': movie_poster_map.get(record.title, "images/logo.png")
+                'poster_path': poster_img
             }
             library_data[lib_name]['movies'].append(movie_node)
-            type_data['电影区']['movies'].append(movie_node)
 
         else:
             series_name = getattr(record, 'series_name', record.title)
-
             season_name = getattr(record, 'season_name')
             if not season_name:
                 season_name = "第 1 季"
 
             episode_name = record.title
-            poster_img = series_poster_map.get(series_name, "images/logo.png")
+            poster_img = "images/logo.png"
+            if is_valid_tmdb(record.tmdb_id) and str(record.tmdb_id) in series_tmdb_map:
+                poster_img = series_tmdb_map[str(record.tmdb_id)]
+            else:
+                poster_img = series_poster_map.get(series_name, "images/logo.png")
 
             ep_node = {
                 'id': record.id,
@@ -2093,6 +2171,76 @@ def watched_list():
             if season_name not in library_data[lib_name]['episodes_tree'][series_name]:
                 library_data[lib_name]['episodes_tree'][series_name][season_name] = []
             library_data[lib_name]['episodes_tree'][series_name][season_name].append(ep_node)
+
+    # ========================================================
+    # 引擎 2：构建【按类型分组】数据（底层字典聚合，严格去重）
+    # ========================================================
+    unique_records_dict = {}
+    for record in raw_records:
+        item_type = record.item_type
+        tmdb_id = record.tmdb_id
+        valid_tmdb = is_valid_tmdb(tmdb_id)
+
+        # 构造去重唯一标识键
+        if item_type == "Movie":
+            key = f"movie_tmdb_{tmdb_id}" if valid_tmdb else f"movie_title_{record.title}"
+        else:
+            season_name = getattr(record, 'season_name', '') or "第 1 季"
+            episode_title = record.title
+            if valid_tmdb:
+                key = f"ep_tmdb_{tmdb_id}_{season_name}_{episode_title}"
+            else:
+                series_name = getattr(record, 'series_name', record.title)
+                key = f"ep_title_{series_name}_{season_name}_{episode_title}"
+
+        # 发现重复时，保留 date_played 最早（最小）的记录
+        if key not in unique_records_dict:
+            unique_records_dict[key] = record
+        else:
+            if record.date_played < unique_records_dict[key].date_played:
+                unique_records_dict[key] = record
+
+    # 提取去重后的数据，再次按照日期倒序排列，保证新看的剧排在海报墙前面
+    deduped_records = list(unique_records_dict.values())
+    deduped_records.sort(key=lambda x: x.date_played, reverse=True)
+
+    for record in deduped_records:
+        item_type = record.item_type
+        date_played_str = record.date_played.strftime('%Y-%m-%d %H:%M')
+
+        if item_type == "Movie":
+            poster_img = "images/logo.png"
+            if is_valid_tmdb(record.tmdb_id) and str(record.tmdb_id) in movie_tmdb_map:
+                poster_img = movie_tmdb_map[str(record.tmdb_id)]
+            else:
+                poster_img = movie_poster_map.get(record.title, "images/logo.png")
+
+            movie_node = {
+                'id': record.id,
+                'name': record.title,
+                'date': date_played_str,
+                'poster_path': poster_img
+            }
+            type_data['电影区']['movies'].append(movie_node)
+
+        else:
+            series_name = getattr(record, 'series_name', record.title)
+            season_name = getattr(record, 'season_name')
+            if not season_name:
+                season_name = "第 1 季"
+
+            episode_name = record.title
+            poster_img = "images/logo.png"
+            if is_valid_tmdb(record.tmdb_id) and str(record.tmdb_id) in series_tmdb_map:
+                poster_img = series_tmdb_map[str(record.tmdb_id)]
+            else:
+                poster_img = series_poster_map.get(series_name, "images/logo.png")
+
+            ep_node = {
+                'id': record.id,
+                'episode': episode_name,
+                'date': date_played_str
+            }
 
             type_data['剧集区']['series_posters'][series_name] = poster_img
             if series_name not in type_data['剧集区']['episodes_tree']:
@@ -2583,6 +2731,469 @@ def import_data():
         db.session.rollback()
         logger.error(f"[数据导入] 用户 {current_user.username} 文件结构解析失败或入库异常: {str(e)}")
         return jsonify({"success": False, "message": f"导入失败，数据格式可能不正确: {str(e)}"})
+
+
+import hashlib
+import os
+import json
+from datetime import datetime, timezone
+
+
+@app.route('/api/parse_watcharr', methods=['POST'])
+@login_required
+def parse_watcharr():
+    """解析 Watcharr 数据，纳秒兼容，并精准提取 customDate 真实观看时间"""
+    if 'file' not in request.files:
+        return jsonify({"status": "error", "message": "未找到文件"})
+
+    try:
+        data = json.loads(request.files['file'].read().decode('utf-8'))
+        parsed_results = {}
+
+        now = datetime.now()
+        local_tz = now.astimezone().tzinfo
+
+        def parse_date(date_str):
+            """纳秒级安全的时间解析器"""
+            if not date_str: return now
+            try:
+                date_str = str(date_str).strip().replace("Z", "+00:00")
+                # 核心修复：强行截断超过 6 位的纳秒，防止 Python fromisoformat 崩溃
+                if '.' in date_str:
+                    base, rest = date_str.split('.', 1)
+                    if '+' in rest:
+                        frac, tz = rest.split('+', 1)
+                        tz = '+' + tz
+                    elif '-' in rest:
+                        frac, tz = rest.split('-', 1)
+                        tz = '-' + tz
+                    else:
+                        frac = rest
+                        tz = ''
+                    frac = frac[:6]  # 仅保留最大 6 位微秒
+                    date_str = f"{base}.{frac}{tz}"
+
+                dt = datetime.fromisoformat(date_str)
+                # 统一转为本地时区去除了 tzinfo，适配 SQLite
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(local_tz).replace(tzinfo=None)
+            except Exception as e:
+                logger.error(f"[TimeParse] 无法解析时间 {date_str}: {e}")
+                return now
+
+        for item in data:
+            content = item.get('content', {})
+            tmdb_id = content.get('tmdbId') or item.get('tmdbId') or ''
+            item_type = str(content.get('type') or item.get('type') or '').lower()
+            title = content.get('title') or content.get('name') or item.get('title') or item.get('name') or '未知媒体'
+            status = str(item.get('status', '')).upper()
+
+            has_tmdb = bool(tmdb_id and str(tmdb_id).lower() not in ['none', 'null', ''])
+            core_id = str(
+                tmdb_id) if has_tmdb else f"custom_{hashlib.md5((str(item.get('id', '')) or title).encode('utf-8')).hexdigest()[:8]}"
+
+            # 获取主兜底时间
+            main_time = parse_date(item.get('updatedAt') or item.get('createdAt'))
+
+            if core_id not in parsed_results:
+                parsed_results[core_id] = {
+                    "core_id": core_id, "tmdb_id": tmdb_id if has_tmdb else "",
+                    "type": item_type, "title": title, "records": []
+                }
+
+            if item_type == 'movie':
+                if status in ['FINISHED', 'COMPLETED']:
+                    movie_time = main_time
+                    activities = item.get('activity', [])
+                    # ✨ 提取电影的真实历史观看时间
+                    for act in activities:
+                        if 'WATCHED' in act.get('type', ''):
+                            best_date_str = act.get('customDate') or act.get('createdAt')
+                            if best_date_str:
+                                movie_time = parse_date(best_date_str)
+                                if act.get('customDate'):
+                                    break  # 只要找到了 customDate 真实时间就跳出
+
+                    parsed_results[core_id]['records'].append({
+                        "season": "", "episode": "", "label": title,
+                        "watch_date": movie_time.isoformat()
+                    })
+
+            elif item_type == 'tv':
+                fully_watched_seasons = set(s for s in item.get('watchedSeasons', []) if isinstance(s, int))
+                activities = sorted(item.get('activity', []), key=lambda x: x.get('createdAt', ''))
+
+                watched_episodes = {}
+                season_added_times = {}
+
+                for act in activities:
+                    act_type = act.get('type', '')
+                    # ✨ 核心修复：优先抓取 customDate 真实导入时间
+                    date_str = act.get('customDate') or act.get('createdAt')
+                    act_time = parse_date(date_str)
+
+                    if 'EPISODE_' in act_type:
+                        try:
+                            act_data = json.loads(act.get('data', '{}'))
+                            s, e = act_data.get('season'), act_data.get('episode')
+                            if s is not None and e is not None:
+                                s, e = int(s), int(e)
+                                if 'ADDED' in act_type:
+                                    watched_episodes[(s, e)] = act_time
+                                elif 'REMOVED' in act_type:
+                                    watched_episodes.pop((s, e), None)
+                        except:
+                            pass
+
+                    elif 'SEASON_ADDED' in act_type:
+                        try:
+                            act_data = json.loads(act.get('data', '{}'))
+                            s = act_data.get('season')
+                            if s is not None:
+                                season_added_times[int(s)] = act_time
+                        except:
+                            pass
+
+                if not fully_watched_seasons and not watched_episodes and status in ['FINISHED', 'COMPLETED']:
+                    total_seasons = content.get('numberOfSeasons', 0)
+                    if isinstance(total_seasons, int) and total_seasons > 0:
+                        fully_watched_seasons.update(range(1, total_seasons + 1))
+                    else:
+                        fully_watched_seasons.add(1)
+
+                # 处理“全季”
+                for s_num in fully_watched_seasons:
+                    specific_times = {}
+                    for (s, e), ep_time in watched_episodes.items():
+                        if s == s_num:
+                            specific_times[str(e)] = ep_time.isoformat()
+
+                    season_time = season_added_times.get(s_num, main_time)
+
+                    parsed_results[core_id]['records'].append({
+                        "season": s_num, "episode": "全季", "label": f"{title} 第{s_num}季 (全)",
+                        "watch_date": season_time.isoformat(),
+                        "specific_times": specific_times
+                    })
+
+                # 处理未全部看完的零散单集
+                filtered_episodes = {k: v for k, v in watched_episodes.items() if k[0] not in fully_watched_seasons}
+                for (s_num, e_num), ep_time in filtered_episodes.items():
+                    parsed_results[core_id]['records'].append({
+                        "season": s_num, "episode": e_num, "label": f"{title} S{s_num:02d}E{e_num:02d}",
+                        "watch_date": ep_time.isoformat()
+                    })
+
+        final_list = [v for v in parsed_results.values() if v['records']]
+        final_list.sort(key=lambda x: (0 if x['type'] == 'movie' else 1, x['title']))
+        for item in final_list:
+            if item['type'] == 'tv':
+                item['records'].sort(key=lambda x: (x['season'], -1 if x['episode'] == '全季' else x['episode']))
+
+        return jsonify({"status": "success", "data": final_list})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+import time
+import requests
+import uuid
+import os
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from datetime import datetime
+from flask import request, jsonify, Response, stream_with_context
+
+
+@app.route('/api/execute_watcharr_import', methods=['POST'])
+@login_required
+def execute_watcharr_import():
+    """极致精简前端推送，但后台保持全面下载、中文化、精准时间继承与专业级详尽日志记录"""
+    payload = request.json
+    if not payload:
+        logger.warning("[WatcharrImport] Received empty payload. Aborting.")
+        return jsonify({"status": "error", "message": "未收到任何勾选数据"})
+
+    def generate():
+        logger.info("[WatcharrImport] Task started. Initializing import engine.")
+        yield f"data: {json.dumps({'status': 'syncing', 'name': '正在初始化导入引擎...'})}\n\n"
+
+        # ========================================================
+        # 局部代理净化区
+        # ========================================================
+        raw_proxies = get_user_proxies(current_user)
+        safe_proxies = None
+
+        if raw_proxies:
+            safe_proxies = {}
+            for k, v in raw_proxies.items():
+                if v:
+                    clean_url = str(v).strip().lower().replace("https://", "").replace("http://", "")
+                    safe_proxies[k] = f"http://{clean_url}"
+            logger.info(f"[WatcharrImport] Proxy mapped to safe HTTP tunnel: {safe_proxies}")
+        else:
+            logger.info("[WatcharrImport] No proxy configured. Using direct connection.")
+
+        session = requests.Session()
+        session.trust_env = False
+        session.headers.update({'Connection': 'close'})
+
+        if safe_proxies:
+            session.proxies.update(safe_proxies)
+
+        retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+        session.mount('https://', HTTPAdapter(max_retries=retries, pool_connections=15, pool_maxsize=15))
+        logger.info("[WatcharrImport] HTTP connection pool and retry mechanism initialized.")
+
+        def download_tmdb_image(url_path, folder="posters", max_retries=3):
+            if not url_path:
+                logger.debug(f"[ImageDownload] Missing URL path for {folder}. Using fallback placeholder.")
+                return "images/logo.png"
+
+            # 1. 提取 TMDB 原始文件名 (例如: ysSHtaqOwYvW9JUH8VJS1XVHOh5.jpg)
+            filename = url_path.strip("/")
+
+            # 2. 提前构建本地存储路径
+            save_dir = os.path.join(app.root_path, 'static', 'images', folder)
+            os.makedirs(save_dir, exist_ok=True)
+            save_path = os.path.join(save_dir, filename)
+            relative_path = f"images/{folder}/{filename}"
+
+            # 3. 核心防重逻辑：如果本地已经存在这个文件，直接返回路径，瞬间跳过下载
+            if os.path.exists(save_path):
+                logger.info(f"[ImageDownload] Skipped. Image already exists locally: {filename}")
+                return relative_path
+
+            base_url = "https://image.tmdb.org/t/p/w1280" if folder == "backdrops" else "https://image.tmdb.org/t/p/w500"
+            img_url = base_url + url_path
+            logger.info(f"[ImageDownload] Starting download for {folder}: {img_url}")
+
+            for attempt in range(max_retries):
+                try:
+                    resp = session.get(img_url, timeout=(3.05, 30))
+
+                    if resp.status_code == 200:
+                        with open(save_path, 'wb') as f:
+                            f.write(resp.content)
+                        logger.info(f"[ImageDownload] Success: Saved to {save_path}")
+                        return relative_path
+                    else:
+                        logger.warning(f"[ImageDownload] HTTP {resp.status_code} for {img_url}. Preparing to retry...")
+
+                except requests.exceptions.ReadTimeout:
+                    logger.warning(f"[ImageDownload] ReadTimeout on attempt {attempt + 1}/{max_retries} for {img_url}")
+                except requests.exceptions.ConnectionError:
+                    logger.warning(
+                        f"[ImageDownload] ConnectionError on attempt {attempt + 1}/{max_retries} for {img_url}")
+                except Exception as e:
+                    logger.error(f"[ImageDownload] Fatal network exception for {img_url}: {e}")
+                    break
+
+                time.sleep(1.5)
+
+            logger.error(f"[ImageDownload] Abandoned after {max_retries} attempts: {img_url}. Using placeholder.")
+            return "images/logo.png"
+
+        def fetch_tmdb_metadata(t_id, m_type):
+            url = f"https://api.themoviedb.org/3/{m_type}/{t_id}"
+            logger.info(f"[TMDB_API] Fetching metadata from: {url}")
+            try:
+                resp = session.get(url, params={"api_key": current_user.tmdb_api_key, "language": "zh-CN"}, timeout=10)
+                if resp.status_code == 200:
+                    logger.info(f"[TMDB_API] Successfully fetched metadata for ID {t_id}")
+                    return resp.json()
+                else:
+                    logger.warning(f"[TMDB_API] Failed to fetch metadata. HTTP status code: {resp.status_code}")
+            except Exception as e:
+                logger.error(f"[TMDB_API] Network exception during metadata fetch: {e}")
+            return {}
+
+        def fetch_tmdb_season(t_id, s_num):
+            url = f"https://api.themoviedb.org/3/tv/{t_id}/season/{s_num}"
+            logger.info(f"[TMDB_API] Fetching season metadata from: {url}")
+            try:
+                resp = session.get(url, params={"api_key": current_user.tmdb_api_key, "language": "zh-CN"}, timeout=10)
+                if resp.status_code == 200:
+                    logger.info(f"[TMDB_API] Successfully fetched season {s_num} for ID {t_id}")
+                    return resp.json()
+                else:
+                    logger.warning(f"[TMDB_API] Failed to fetch season metadata. HTTP status code: {resp.status_code}")
+            except Exception as e:
+                logger.error(f"[TMDB_API] Network exception during season fetch: {e}")
+            return {}
+
+        tmdb_season_cache = {}
+        total_items = len(payload)
+        logger.info(f"[WatcharrImport] Total items detected in payload: {total_items}")
+
+        try:
+            for idx, item in enumerate(payload, 1):
+                core_id = item.get('core_id')
+                tmdb_id = item.get('tmdb_id')
+
+                if str(tmdb_id).lower() in ['none', 'null', '']:
+                    tmdb_id = None
+
+                item_type = item.get('type')
+                fallback_title = item.get('title')
+                records = item.get('records', [])
+
+                logger.info(f"[WatcharrImport] ------------- Processing item {idx}/{total_items} -------------")
+                logger.info(f"[WatcharrImport] Original Title: {fallback_title} | Type: {item_type} | TMDB_ID: {tmdb_id}")
+
+                tmdb_title = fallback_title
+                overview = ""
+                local_poster = "images/logo.png"
+                local_backdrop = None
+                meta = None
+
+                # 1. 优先获取中文元数据
+                if tmdb_id:
+                    meta = fetch_tmdb_metadata(tmdb_id, 'movie' if item_type == 'movie' else 'tv')
+                    if meta:
+                        tmdb_title = meta.get('title') if item_type == 'movie' else meta.get('name', fallback_title)
+                        overview = meta.get('overview', '')
+                        logger.info(f"[WatcharrImport] Title localized to: {tmdb_title}")
+                    else:
+                        logger.warning(f"[WatcharrImport] Metadata fetch failed. Falling back to original title: {fallback_title}")
+
+                # 2. 推送已经中文化的标题给前端（在耗时的图片下载前推送，防止UI假死）
+                yield f"data: {json.dumps({'status': 'syncing', 'name': f'({idx}/{total_items}) {tmdb_title}'})}\n\n"
+
+                # 3. 推送完成后，后台安心执行耗时的图片下载逻辑
+                if meta:
+                    local_poster = download_tmdb_image(meta.get('poster_path'), "posters")
+                    local_backdrop = download_tmdb_image(meta.get('backdrop_path'), "backdrops")
+
+                episodes_to_insert = []
+                if item_type == 'tv':
+                    for r in records:
+                        s_num = r['season']
+                        rec_date = datetime.fromisoformat(r['watch_date']) if r.get('watch_date') else datetime.now()
+
+                        specific_times_raw = r.get('specific_times', {})
+                        specific_times = {}
+                        for e_str, t_str in specific_times_raw.items():
+                            try:
+                                specific_times[int(e_str)] = datetime.fromisoformat(t_str)
+                            except:
+                                pass
+
+                        cache_key = f"{tmdb_id}_s{s_num}"
+                        if cache_key not in tmdb_season_cache:
+                            tmdb_season_cache[cache_key] = fetch_tmdb_season(tmdb_id, s_num) if tmdb_id else {}
+
+                        season_meta = tmdb_season_cache[cache_key]
+                        ep_meta_list = season_meta.get('episodes', [])
+
+                        ep_list = [ep.get('episode_number') for ep in ep_meta_list] if r['episode'] == '全季' and ep_meta_list else [int(r['episode']) if r['episode'] != '全季' else 1]
+
+                        episodes_to_insert.append({
+                            's_num': s_num,
+                            'ep_list': ep_list,
+                            'date_played': rec_date,
+                            'specific_times': specific_times,
+                            'season_meta': season_meta
+                        })
+                        logger.info(f"[WatcharrImport] Processed TV Season {s_num}. Resolved episode mappings: {ep_list}")
+
+                try:
+                    logger.info(f"[Database] Acquiring DB lock for item: {tmdb_title}")
+                    with db_lock:
+                        poster_target = tmdb_id if (item_type == 'movie' and tmdb_id) else (core_id if item_type == 'movie' else f"{core_id}_S1")
+                        poster = WatchPoster.query.filter_by(user_id=current_user.id, target_id=poster_target).first()
+
+                        if not poster:
+                            logger.info(f"[Database] Creating new WatchPoster record. Target ID: {poster_target}")
+                            db.session.add(WatchPoster(
+                                user_id=current_user.id, target_id=poster_target,
+                                media_type="Movie" if item_type == 'movie' else "Series",
+                                display_title=tmdb_title, series_name=None if item_type == 'movie' else tmdb_title,
+                                season_num=None if item_type == 'movie' else records[0]['season'],
+                                local_image_path=local_poster, series_image_path=local_poster,
+                                backdrop_image_path=local_backdrop, background_image_path=local_backdrop,
+                                overview=overview, season_overview=overview,
+                                last_watched_date=datetime.now(), tmdb_id=tmdb_id or None, is_deleted=False
+                            ))
+                        else:
+                            logger.info(f"[Database] Updating existing WatchPoster record. Target ID: {poster_target}")
+                            poster.display_title, poster.overview, poster.local_image_path, poster.is_deleted = tmdb_title, overview, local_poster, False
+                            if local_backdrop: poster.backdrop_image_path = local_backdrop
+
+                        if item_type == 'movie':
+                            rec_date = datetime.fromisoformat(records[0]['watch_date']) if records and records[0].get('watch_date') else datetime.now()
+                            rec_id = str(tmdb_id) if tmdb_id else f"watcharr_{core_id}"
+                            rec = WatchRecord.query.filter_by(user_id=current_user.id, item_id=rec_id).first()
+                            if not rec:
+                                logger.info(f"[Database] Creating new WatchRecord for movie. Record ID: {rec_id}")
+                                db.session.add(WatchRecord(
+                                    user_id=current_user.id, item_id=rec_id, item_type="Movie",
+                                    library_name="Watcharr导入",
+                                    title=tmdb_title, source="watcharr", tmdb_id=tmdb_id or None, date_played=rec_date,
+                                    is_deleted=False
+                                ))
+                            else:
+                                logger.info(f"[Database] Updating existing WatchRecord for movie. Record ID: {rec_id}")
+                                rec.date_played, rec.is_deleted = rec_date, False
+
+                        elif item_type == 'tv':
+                            for block in episodes_to_insert:
+                                s_num, ep_list, fallback_date = block['s_num'], block['ep_list'], block['date_played']
+                                specific_times = block.get('specific_times', {})
+                                ep_meta_map = {ep.get('episode_number'): ep for ep in block['season_meta'].get('episodes', [])}
+
+                                for e_num in ep_list:
+                                    actual_date = specific_times.get(e_num, fallback_date)
+
+                                    rec_id = f"{tmdb_id}_{s_num}_{e_num}" if tmdb_id else f"watcharr_{core_id}_{s_num}_{e_num}"
+                                    ep_data = ep_meta_map.get(e_num, {})
+                                    zh_ep_name = ep_data.get('name', f"第 {e_num} 集")
+                                    zh_ep_overview = ep_data.get('overview', '')
+
+                                    rec = WatchRecord.query.filter_by(user_id=current_user.id, item_id=rec_id).first()
+                                    if not rec:
+                                        logger.info(f"[Database] Creating new WatchRecord for TV episode {e_num} with exact date: {actual_date}")
+                                        db.session.add(WatchRecord(
+                                            user_id=current_user.id, item_id=rec_id, item_type="Episode",
+                                            library_name="Watcharr导入",
+                                            title=f"第 {e_num} 集 - {zh_ep_name}", series_name=tmdb_title,
+                                            season_name=f"第 {s_num} 季",
+                                            episode_num=e_num, source="watcharr", tmdb_id=tmdb_id or None,
+                                            date_played=actual_date, is_deleted=False
+                                        ))
+                                    else:
+                                        logger.info(f"[Database] Updating existing WatchRecord for TV episode {e_num} with exact date: {actual_date}")
+                                        rec.date_played, rec.is_deleted = actual_date, False
+
+                                    detail = EpisodeDetail.query.filter_by(item_id=rec_id).first()
+                                    if not detail:
+                                        logger.info(f"[Database] Processing EpisodeDetail and downloading still image for: {rec_id}")
+                                        local_still = download_tmdb_image(ep_data.get('still_path'), "stills")
+                                        db.session.add(EpisodeDetail(
+                                            item_id=rec_id, series_name=tmdb_title, season_num=s_num, episode_num=e_num,
+                                            episode_name=zh_ep_name, overview=zh_ep_overview,
+                                            series_tmdb_id=tmdb_id or None,
+                                            still_image_path=local_still
+                                        ))
+                    db.session.commit()
+                    logger.info(f"[Database] Successfully committed transactions for item: {tmdb_title}")
+                except Exception as db_err:
+                    db.session.rollback()
+                    logger.error(f"[Database] Rollback executed. Exception processing item '{fallback_title}': {str(db_err)}")
+
+        except GeneratorExit:
+            logger.info("[WatcharrImport] Client actively aborted the import task. Backend process safely terminated.")
+            session.close()
+            return
+        except Exception as e:
+            logger.error(f"[WatcharrImport] Unexpected exception in main loop: {e}")
+
+        session.close()
+        logger.info("[WatcharrImport] All import tasks completed successfully.")
+        yield f"data: {json.dumps({'status': 'done'})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 
 # ==========================================

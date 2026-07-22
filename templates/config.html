@@ -6,7 +6,6 @@
        🌟 悬浮导航栏 (修正版)
        ================================== */
     .sticky-nav {
-        /* 吸顶偏移量设为 0，紧贴 main-content 顶部 */
         position: sticky; top: -5px; z-index: 999;
         background: color-mix(in srgb, var(--sidebar-bg) 85%, transparent);
         backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -68,16 +67,10 @@
     @media (max-width: 768px) {
         .config-card { padding: 20px 15px; }
         .sticky-nav { padding: 12px 15px; margin-bottom: 20px; }
-
-        /* 1. 表单上下堆叠，解决绑定服务器与密码框的拥挤问题 */
         .form-row { flex-direction: column; gap: 15px; }
         .form-row .col, .form-row .col-auto, .form-row .col-port { width: 100% !important; max-width: 100%; flex: none; }
-
-        /* 2. 按钮在手机端占满全宽，方便手指点击 */
         .btn-group { flex-direction: column; gap: 10px; }
         .btn-group .submit-btn { width: 100%; justify-content: center; padding: 12px; }
-
-        /* 3. 自动同步的快捷周期按钮适配 */
         .cron-wrapper { flex-direction: column !important; align-items: stretch !important; }
         .cron-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
         .cron-buttons button { flex: 1 1 calc(33.333% - 8px); padding: 8px 4px !important; font-size: 12px; justify-content: center; }
@@ -310,6 +303,11 @@
             <i data-lucide="download"></i> 导入数据文件
         </button>
         <input type="file" id="import-file" style="display: none;" accept=".json" onchange="handleImportData(this)">
+
+        <button type="button" class="submit-btn test-btn" onclick="document.getElementById('import-watcharr-file').click()">
+            <i data-lucide="file-json"></i> 导入Watcharr记录
+        </button>
+        <input type="file" id="import-watcharr-file" style="display: none;" accept=".json" onchange="parseWatcharrFile(this)">
     </div>
 </div>
 
@@ -363,116 +361,180 @@
     </form>
 </div>
 
+<style>
+/* 1. 二次确认嵌套表格弹窗 */
+.wa-modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6); display: none;
+    justify-content: center; align-items: center; z-index: 9999;
+    backdrop-filter: blur(4px);
+}
+.wa-modal-content {
+    background: #fff; width: 90%; max-width: 800px; max-height: 85vh;
+    border-radius: 12px; display: flex; flex-direction: column;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2); overflow: hidden;
+}
+.wa-modal-header {
+    padding: 20px; background: #f8f9fa; border-bottom: 1px solid #eee;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.wa-modal-header h3 { margin: 0; font-size: 18px; color: #333; }
+.wa-modal-body { padding: 20px; overflow-y: auto; flex: 1; background: #fdfdfd; }
+.wa-modal-footer {
+    padding: 15px 20px; border-top: 1px solid #eee; background: #fff;
+    display: flex; justify-content: flex-end; gap: 12px;
+}
+.wa-group { margin-bottom: 12px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fff; }
+.wa-group-header {
+    padding: 12px 15px; display: flex; align-items: center; cursor: pointer;
+    font-weight: bold; color: #444; background: #fafafa; border-radius: 8px; transition: background 0.2s;
+}
+.wa-group-header:hover { background: #f0f0f0; }
+.wa-group-header input[type="checkbox"] { margin-right: 12px; transform: scale(1.2); cursor: pointer; }
+.wa-badge { font-size: 12px; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: normal; }
+.wa-badge.movie { background: #e3f2fd; color: #1976d2; }
+.wa-badge.tv { background: #f3e5f5; color: #7b1fa2; }
+.wa-records { display: none; padding: 5px 15px 15px 45px; border-top: 1px dashed #eee; }
+.wa-record-item { display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid #f5f5f5; color: #555;}
+.wa-record-item:last-child { border-bottom: none; }
+.wa-record-item input[type="checkbox"] { margin-right: 10px; cursor: pointer; }
+.toggle-icon { margin-left: auto; color: #999; font-size: 14px; }
+
+/* 2. ✨ 专属的旋转容器与动画类，彻底解决呼啦圈偏心问题 */
+.wa-spinner-box {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 46px;
+    height: 46px;
+    margin: 0 auto 15px auto; /* 保证容器自己水平居中 */
+    transform-origin: center center; /* 强行锚定中心点 */
+}
+@keyframes custom-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+.wa-spin-anim {
+    animation: custom-spin 1.2s linear infinite;
+}
+</style>
+
+<div id="wa-modal" class="wa-modal-overlay">
+    <div class="wa-modal-content">
+        <div class="wa-modal-header">
+            <h3>选择要导入的记录</h3>
+            <span id="wa-modal-count" style="color:#666; font-size: 14px;"></span>
+        </div>
+        <div class="wa-modal-body" id="wa-modal-body">
+            </div>
+        <div class="wa-modal-footer">
+            <button class="submit-btn" style="background: #999;" onclick="document.getElementById('wa-modal').style.display='none'">取消</button>
+            <button class="submit-btn" onclick="submitWatcharrImport()">确认导入所选项</button>
+        </div>
+    </div>
+</div>
+
+<div id="wa-simple-progress-modal" class="wa-modal-overlay" style="display: none; align-items: center; justify-content: center;">
+    <div style="background: var(--sidebar-bg); width: 90%; max-width: 340px; border-radius: 16px; padding: 35px 25px 25px; text-align: center; box-shadow: 0 15px 35px rgba(0,0,0,0.2);">
+
+        <!-- 这里采用了双类名分离设计：一个负责绝对居中布局，一个负责纯粹的旋转动画 -->
+        <div class="wa-spinner-box wa-spin-anim" id="wa-sync-spinner-container">
+            <i data-lucide="loader-2" style="width: 42px; height: 42px; color: var(--primary-color);"></i>
+        </div>
+
+        <h3 style="margin: 0 0 10px 0; font-size: 18px; color: var(--text-main);">正在导入 Watcharr 数据</h3>
+
+        <div style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 25px;">
+            <span style="font-size: 14px; color: var(--text-muted);">正在处理：</span>
+            <span id="wa-current-item" style="font-size: 15px; font-weight: 600; color: var(--primary-color);">初始化中...</span>
+        </div>
+
+        <button id="wa-cancel-btn" class="submit-btn test-btn" style="width: 100%; justify-content: center; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);" onclick="cancelWatcharrImport()">
+            <i data-lucide="x-circle"></i> 取消导入
+        </button>
+
+    </div>
+</div>
+
 <script>
     if (typeof lucide !== 'undefined') lucide.createIcons();
 
     // ==========================================
-    // 🌟 修正版：针对 .main-content 的跳转与滚动监听
+    // 🌟 导航与页面滚动逻辑
     // ==========================================
     const mainContent = document.querySelector('.main-content');
-
     function scrollToCard(id, btn) {
         const target = document.getElementById(id);
         if(target && mainContent) {
             const y = target.offsetTop - 80;
             mainContent.scrollTo({top: y, behavior: 'smooth'});
-
             document.querySelectorAll('.nav-pill').forEach(el => el.classList.remove('active'));
             btn.classList.add('active');
         }
     }
-
     if (mainContent) {
         mainContent.addEventListener('scroll', () => {
             let currentId = '';
             const cards = document.querySelectorAll('.config-card');
-
             cards.forEach(card => {
                 const rect = card.getBoundingClientRect();
-                if (rect.top >= 0 && rect.top < 250) {
-                    currentId = card.getAttribute('id');
-                }
+                if (rect.top >= 0 && rect.top < 250) { currentId = card.getAttribute('id'); }
             });
-
             if (!currentId) {
                 cards.forEach(card => {
                     const rect = card.getBoundingClientRect();
-                    if (rect.top < 0 && rect.bottom > 100) {
-                        currentId = card.getAttribute('id');
-                    }
+                    if (rect.top < 0 && rect.bottom > 100) { currentId = card.getAttribute('id'); }
                 });
             }
-
             if (currentId) {
                 document.querySelectorAll('.nav-pill').forEach(el => {
                     el.classList.remove('active');
-                    if (el.getAttribute('onclick').includes(currentId)) {
-                        el.classList.add('active');
-                    }
+                    if (el.getAttribute('onclick').includes(currentId)) { el.classList.add('active'); }
                 });
             }
         });
     }
+
     // ==========================================
-    // ✨ 新增：开放注册开关动画逻辑
+    // ✨ 基础功能开关逻辑
     // ==========================================
     function toggleRegInput() {
         const isChecked = document.getElementById('allow_registration').checked;
         const bg = document.getElementById('reg-toggle-bg');
         const dot = document.getElementById('reg-toggle-dot');
-
         if (isChecked) {
-            bg.style.backgroundColor = 'var(--primary-color)';
-            dot.style.transform = 'translateX(20px)';
+            bg.style.backgroundColor = 'var(--primary-color)'; dot.style.transform = 'translateX(20px)';
         } else {
-            bg.style.backgroundColor = 'var(--border-color)';
-            dot.style.transform = 'translateX(0)';
+            bg.style.backgroundColor = 'var(--border-color)'; dot.style.transform = 'translateX(0)';
         }
     }
-    // ==========================================
-    // 自动化同步 Cron 逻辑
-    // ==========================================
+
     function toggleCronInput() {
         const isChecked = document.getElementById('sync_enabled').checked;
         const bg = document.getElementById('toggle-bg');
         const dot = document.getElementById('toggle-dot');
         const area = document.getElementById('cron-setup-area');
-
         if (isChecked) {
-            bg.style.backgroundColor = 'var(--primary-color)';
-            dot.style.transform = 'translateX(20px)';
-            area.style.opacity = '1';
-            area.style.pointerEvents = 'auto';
+            bg.style.backgroundColor = 'var(--primary-color)'; dot.style.transform = 'translateX(20px)';
+            area.style.opacity = '1'; area.style.pointerEvents = 'auto';
         } else {
-            bg.style.backgroundColor = 'var(--border-color)';
-            dot.style.transform = 'translateX(0)';
-            area.style.opacity = '0.4';
-            area.style.pointerEvents = 'none';
+            bg.style.backgroundColor = 'var(--border-color)'; dot.style.transform = 'translateX(0)';
+            area.style.opacity = '0.4'; area.style.pointerEvents = 'none';
         }
     }
-
     toggleCronInput();
 
-    function setCron(val) {
-        document.getElementById('sync_cron').value = val;
-        translateCron();
-    }
-
+    function setCron(val) { document.getElementById('sync_cron').value = val; translateCron(); }
     function translateCron() {
         const val = document.getElementById('sync_cron').value.trim();
         const parts = val.split(/\s+/);
         const out = document.getElementById('cron-translation');
-
         if (parts.length !== 5) {
-            out.innerText = "格式有误，请输入标准的 5 位 Cron 表达式 (分 时 日 月 周)";
-            out.style.color = "#ef4444";
-            return;
+            out.innerText = "格式有误，请输入标准的 5 位 Cron 表达式"; out.style.color = "#ef4444"; return;
         }
         out.style.color = "#10b981";
-
         const [min, hour, day, month, week] = parts;
         let result = "将会在 ";
-
         if (val === "0 * * * *") result += "每小时的第 0 分钟";
         else if (val === "0 */6 * * *") result += "每隔 6 小时的第 0 分钟";
         else if (val === "0 2 * * *") result += "每天的凌晨 2:00";
@@ -481,34 +543,26 @@
             result += `${day === '*' ? '每天 ' : day + '号 '}`;
             if (week !== '*') result += `(周 ${week}) `;
             result += `${hour === '*' ? '每小时' : hour + '点'}`;
-            result += `${min === '*' ? '每分钟' : min + '分'} `;
-            result += "触发";
+            result += `${min === '*' ? '每分钟' : min + '分'} 触发`;
         }
         out.innerText = result;
     }
-
     translateCron();
 
     // ==========================================
-    // 代理 & TMDB 测试逻辑
+    // 代理 & API 测试逻辑
     // ==========================================
     async function handleTestProxy() {
         const url = document.getElementById('proxy_url').value.trim();
         const port = document.getElementById('proxy_port').value.trim();
         const btn = document.getElementById('btn-test-proxy');
         const originalHtml = btn.innerHTML;
-
         if(!url || !port) { window.showToast("❌ 请先填写代理的网址和端口"); return; }
-
-        btn.disabled = true;
-        btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> <span>测试中...</span>`;
+        btn.disabled = true; btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> <span>测试中...</span>`;
         if (typeof lucide !== 'undefined') lucide.createIcons();
         window.showToast("⏳ 正在测试代理连通性...");
-
         try {
-            const response = await fetch('/test_proxy', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, port })
-            });
+            const response = await fetch('/test_proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, port }) });
             const result = await response.json();
             window.showToast(result.message);
         } catch (error) { window.showToast("❌ 请求发送失败，请检查网络是否通畅。"); } finally {
@@ -521,18 +575,12 @@
         const apiKey = document.getElementById('tmdb_api_key').value.trim();
         const btn = document.getElementById('btn-test-tmdb');
         const originalHtml = btn.innerHTML;
-
         if(!apiKey) { window.showToast("❌ 请先填写 TMDB API Key"); return; }
-
-        btn.disabled = true;
-        btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> <span>测试中...</span>`;
+        btn.disabled = true; btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> <span>测试中...</span>`;
         if (typeof lucide !== 'undefined') lucide.createIcons();
         window.showToast("⏳ 正在测试 TMDB 连接...");
-
         try {
-            const response = await fetch('/test_tmdb', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: apiKey })
-            });
+            const response = await fetch('/test_tmdb', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: apiKey }) });
             const result = await response.json();
             window.showToast(result.message);
         } catch (error) { window.showToast("❌ 请求发送失败，请检查网络。"); } finally {
@@ -540,40 +588,251 @@
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }
     }
+
     // ==========================================
-    // 数据导入上传逻辑
+    // 通用数据导入 (备份恢复)
     // ==========================================
     window.handleImportData = async function(input) {
         if (!input.files || input.files.length === 0) return;
         const file = input.files[0];
-
         if (!confirm(`确定要导入数据文件：${file.name} 吗？\n\n注意：导入过程将覆盖您目前的各项 API 配置，并向数据库中注入历史记录。`)) {
+            input.value = ''; return;
+        }
+        window.showToast("正在处理导入数据，请稍候...");
+        const formData = new FormData(); formData.append('file', file);
+        try {
+            const response = await fetch('/api/import_data', { method: 'POST', body: formData });
+            const result = await response.json();
+            window.showToast(result.message);
+            if (result.success) setTimeout(() => location.reload(), 1500);
+        } catch (error) { window.showToast("网络请求异常，文件上传失败。"); } finally { input.value = ''; }
+    };
+
+    // ==========================================
+    // ✨ Watcharr 专属高级导入 (解析 -> 勾选 -> 极简进度)
+    // ==========================================
+    let currentParsedData = [];
+
+    // 1. 发送 JSON 让后端纯净解析
+    window.parseWatcharrFile = async function(input) {
+        if (!input.files || input.files.length === 0) return;
+        const file = input.files[0];
+
+        window.showToast("正在深度解析 Watcharr 数据...");
+        const formData = new FormData(); formData.append('file', file);
+
+        try {
+            const response = await fetch('/api/parse_watcharr', { method: 'POST', body: formData });
+            const result = await response.json();
+
+            if (result.status === 'success' && result.data.length > 0) {
+                currentParsedData = result.data;
+                renderWatcharrModal();
+                document.getElementById('wa-modal').style.display = 'flex';
+            } else {
+                window.showToast("未解析到有效数据或文件格式错误。");
+            }
+        } catch (error) {
+            window.showToast("网络请求异常。");
+        } finally {
             input.value = '';
+        }
+    };
+
+    // 2. 渲染 UI: 生成嵌套折叠面板
+    function renderWatcharrModal() {
+        const container = document.getElementById('wa-modal-body');
+        let html = '';
+
+        currentParsedData.forEach((group, groupIdx) => {
+            const typeLabel = group.type === 'movie' ? '电影' : '剧集';
+            const badgeClass = group.type === 'movie' ? 'movie' : 'tv';
+
+            html += `
+            <div class="wa-group">
+                <div class="wa-group-header" onclick="toggleWaGroup(${groupIdx})">
+                    <input type="checkbox" id="wa-group-cb-${groupIdx}" checked onclick="toggleGroupCheckbox(event, ${groupIdx})">
+                    <span>${group.title}</span>
+                    <span class="wa-badge ${badgeClass}">${typeLabel}</span>
+                    <span class="toggle-icon" id="wa-icon-${groupIdx}">▼ 展开 (${group.records.length})</span>
+                </div>
+                <div class="wa-records" id="wa-records-${groupIdx}">
+            `;
+
+            group.records.forEach((rec, recIdx) => {
+                html += `
+                    <div class="wa-record-item">
+                        <input type="checkbox" class="wa-child-cb-${groupIdx}" id="wa-cb-${groupIdx}-${recIdx}" checked onchange="updateGroupCheckbox(${groupIdx})">
+                        <label for="wa-cb-${groupIdx}-${recIdx}">${rec.label}</label>
+                    </div>
+                `;
+            });
+            html += `</div></div>`;
+        });
+
+        container.innerHTML = html;
+        document.getElementById('wa-modal-count').innerText = `共检测到 ${currentParsedData.length} 部媒体`;
+    }
+
+    // 3. UI 交互：面板展开与收起
+    window.toggleWaGroup = function(idx) {
+        const el = document.getElementById(`wa-records-${idx}`);
+        const icon = document.getElementById(`wa-icon-${idx}`);
+        if (el.style.display === 'block') {
+            el.style.display = 'none';
+            icon.innerText = icon.innerText.replace('▲', '▼').replace('收起', '展开');
+        } else {
+            el.style.display = 'block';
+            icon.innerText = icon.innerText.replace('▼', '▲').replace('展开', '收起');
+        }
+    }
+
+    // 4. UI 交互：主复选框全选/反选子项
+    window.toggleGroupCheckbox = function(e, idx) {
+        e.stopPropagation();
+        const isChecked = e.target.checked;
+        const childBoxes = document.querySelectorAll(`.wa-child-cb-${idx}`);
+        childBoxes.forEach(cb => cb.checked = isChecked);
+    }
+
+    // 5. UI 交互：子项反向影响主复选框状态 (半选)
+    window.updateGroupCheckbox = function(idx) {
+        const groupCb = document.getElementById(`wa-group-cb-${idx}`);
+        const childBoxes = Array.from(document.querySelectorAll(`.wa-child-cb-${idx}`));
+        const checkedCount = childBoxes.filter(cb => cb.checked).length;
+
+        if (checkedCount === 0) {
+            groupCb.checked = false; groupCb.indeterminate = false;
+        } else if (checkedCount === childBoxes.length) {
+            groupCb.checked = true; groupCb.indeterminate = false;
+        } else {
+            groupCb.checked = false; groupCb.indeterminate = true;
+        }
+    }
+
+    // ==========================================
+    // 6. 核心：带实时取消功能的极简版提交函数
+    // ==========================================
+    let importAbortController = null; // 全局控制器
+
+    // 取消按钮触发函数
+    window.cancelWatcharrImport = function() {
+        if (importAbortController) {
+            importAbortController.abort(); // 立刻终止 Fetch 请求
+            const currentItemText = document.getElementById('wa-current-item');
+            const cancelBtn = document.getElementById('wa-cancel-btn');
+
+            currentItemText.innerText = "正在中断任务...";
+            currentItemText.style.color = "#f59e0b";
+            cancelBtn.disabled = true;
+            cancelBtn.innerHTML = `<i data-lucide="loader-2" class="wa-spin-anim"></i> 中止中...`;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+    };
+
+    window.submitWatcharrImport = async function() {
+        const payload = [];
+
+        // 收集被选中的记录
+        currentParsedData.forEach((group, groupIdx) => {
+            const selectedRecords = [];
+            group.records.forEach((rec, recIdx) => {
+                const cb = document.getElementById(`wa-cb-${groupIdx}-${recIdx}`);
+                if (cb && cb.checked) {
+                    selectedRecords.push(rec);
+                }
+            });
+
+            if (selectedRecords.length > 0) {
+                const groupCopy = JSON.parse(JSON.stringify(group));
+                groupCopy.records = selectedRecords;
+                payload.push(groupCopy);
+            }
+        });
+
+        if (payload.length === 0) {
+            window.showToast("未选择任何记录！");
             return;
         }
 
-        window.showToast("正在处理导入数据，请稍候...");
-        const formData = new FormData();
-        formData.append('file', file);
+        // 隐藏选框面板，呼出极简同步面板
+        document.getElementById('wa-modal').style.display = 'none';
+        document.getElementById('wa-simple-progress-modal').style.display = 'flex';
+
+        // 恢复取消按钮初始状态
+        document.getElementById('wa-cancel-btn').disabled = false;
+        document.getElementById('wa-cancel-btn').style.display = 'flex';
+        document.getElementById('wa-cancel-btn').innerHTML = `<i data-lucide="x-circle"></i> 取消导入`;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+
+        const currentItemText = document.getElementById('wa-current-item');
+        const spinnerContainer = document.getElementById('wa-sync-spinner-container');
+
+        // 实例化中止控制器
+        importAbortController = new AbortController();
 
         try {
-            const response = await fetch('/api/import_data', {
+            const response = await fetch('/api/execute_watcharr_import', {
                 method: 'POST',
-                body: formData
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: importAbortController.signal // 绑定中止信号
             });
-            const result = await response.json();
 
-            if (result.success) {
-                window.showToast(result.message);
-                setTimeout(() => location.reload(), 1500);
-            } else {
-                window.showToast(result.message);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                let chunks = buffer.split('\n\n');
+                buffer = chunks.pop();
+
+                for (let chunk of chunks) {
+                    if (chunk.startsWith("data: ")) {
+                        const data = JSON.parse(chunk.substring(6));
+
+                        if (data.status === 'syncing') {
+                            currentItemText.innerText = data.name;
+                        } else if (data.status === 'done') {
+                            currentItemText.innerText = "全部处理完成！";
+                            currentItemText.style.color = "#10b981";
+                            spinnerContainer.innerHTML = '<i data-lucide="check-circle" style="width: 42px; height: 42px; color: #10b981;"></i>';
+                            spinnerContainer.classList.remove('wa-spin-anim'); // 停止旋转
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+
+                            window.showToast("数据导入已完美完成！");
+                            document.getElementById('wa-cancel-btn').style.display = 'none'; // 隐藏取消按钮
+
+                            setTimeout(() => location.reload(), 1500);
+                        } else if (data.status === 'error') {
+                            currentItemText.innerText = "导入中断";
+                            currentItemText.style.color = "#ef4444";
+                            window.showToast("导入失败，请查看后台日志。");
+                        }
+                    }
+                }
             }
         } catch (error) {
-            window.showToast("网络请求异常，文件上传失败。");
+            // 拦截我们自己触发的取消异常
+            if (error.name === 'AbortError') {
+                currentItemText.innerText = "已手动取消";
+                currentItemText.style.color = "#f59e0b";
+                spinnerContainer.innerHTML = '<i data-lucide="alert-triangle" style="width: 42px; height: 42px; color: #f59e0b;"></i>';
+                spinnerContainer.classList.remove('wa-spin-anim');
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+
+                window.showToast("导入任务已中止，保留已导入部分。");
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                currentItemText.innerText = "网络异常";
+                currentItemText.style.color = "#ef4444";
+            }
         } finally {
-            // 清空 input 状态，允许重复上传同一个文件
-            input.value = '';
+            importAbortController = null; // 清理控制器
         }
     };
 </script>

@@ -4,6 +4,13 @@
 <script src="{{ url_for('static', filename='js/Sortable.min.js') }}" defer></script>
 
 <style>
+    /* ====== CSS 渲染优化黑魔法 ====== */
+    /* 强迫浏览器跳过屏幕外元素的渲染计算，长列表滚动将如丝般顺滑 */
+    .library-details, .series-details, .season-details {
+        content-visibility: auto;
+        contain-intrinsic-size: auto 60px;
+    }
+
     /* ====== 一级折叠：容器与外框 ====== */
     .group-container { display: flex; flex-direction: column; }
     .library-details { background-color: var(--sidebar-bg); border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid var(--border-color); }
@@ -189,118 +196,13 @@
     </div>
 </div>
 
-{% macro render_data_blocks(dataset_dict, container_id) %}
-<div id="{{ container_id }}" class="group-container view-mode-list" style="display: none;">
-    {% for group_name, data in dataset_dict.items() %}
-        <details class="library-details" data-id="{{ group_name }}">
-            <summary class="library-summary">
-                <span class="drag-handle"><i data-lucide="grip-vertical" style="width: 18px; height: 18px;"></i></span>
-                {% if '电影' in group_name %}<i data-lucide="clapperboard" style="width: 22px; height: 22px;"></i>
-                {% elif '剧集' in group_name %}<i data-lucide="tv" style="width: 22px; height: 22px;"></i>
-                {% else %}<i data-lucide="folder-open" style="width: 22px; height: 22px;"></i>{% endif %}
-                {{ group_name }}
-                <i data-lucide="chevron-right" class="fold-icon"></i>
-            </summary>
-
-            <div class="library-content">
-                <div class="list-container">
-                    {% if data.episodes_tree %}
-                        <div class="sub-title"><i data-lucide="tv" style="width: 18px; height: 18px;"></i> 包含剧集</div>
-                        {% for series_name, seasons in data.episodes_tree.items() %}
-                            <details class="series-details">
-                                <summary class="series-summary">
-                                    <input type="checkbox" class="history-checkbox chk-series" data-series-id="{{ series_name }}" onclick="event.stopPropagation();">
-                                    {{ series_name }}
-                                    <i data-lucide="chevron-right" class="fold-icon"></i>
-                                </summary>
-                                {% for season_name, episodes in seasons.items() %}
-                                    <details class="season-details">
-                                        <summary class="season-summary">
-                                            <input type="checkbox" class="history-checkbox chk-season" data-series-parent="{{ series_name }}" data-season-id="{{ season_name }}" onclick="event.stopPropagation();">
-                                            {{ season_name }}
-                                            <i data-lucide="chevron-right" class="fold-icon"></i>
-                                        </summary>
-                                        <table style="margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--border-color);">
-                                            <thead><tr><th>单集详情</th><th>完成观看时间</th></tr></thead>
-                                            <tbody>
-                                                {% for ep in episodes %}
-                                                <tr>
-                                                    <td style="color: var(--text-main); display: flex; align-items: center;">
-                                                        <input type="checkbox" class="history-checkbox chk-episode" data-series-parent="{{ series_name }}" data-season-parent="{{ season_name }}" value="{{ ep.id }}">
-                                                        {{ ep.episode }}
-                                                    </td>
-                                                    <td style="color: var(--text-muted); font-size: 14px; width: 180px;">{{ ep.date }}</td>
-                                                </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </details>
-                                {% endfor %}
-                            </details>
-                        {% endfor %}
-                    {% endif %}
-
-                    {% if data.episodes_tree and data.movies %}
-                        <hr style="border-color: var(--border-color); margin: 25px 0;">
-                    {% endif %}
-
-                    {% if data.movies %}
-                        <div class="sub-title"><i data-lucide="film" style="width: 18px; height: 18px;"></i> 包含电影</div>
-                        <table>
-                            <thead><tr><th>电影名称</th><th>完成观看时间</th></tr></thead>
-                            <tbody>
-                                {% for mv in data.movies %}
-                                <tr>
-                                    <td style="font-weight: bold; color: var(--primary-color); display: flex; align-items: center;">
-                                        <input type="checkbox" class="history-checkbox chk-episode" value="{{ mv.id }}">
-                                        {{ mv.name }}
-                                    </td>
-                                    <td style="color: var(--text-muted); font-size: 14px; width: 180px;">{{ mv.date }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    {% endif %}
-                </div>
-
-                <div class="poster-container">
-                    {% if data.episodes_tree %}
-                        {% for series_name, seasons in data.episodes_tree.items() %}
-                            <a href="{{ url_for('media_detail', media_type='series', title=series_name) }}" class="poster-item" style="text-decoration: none;">
-                                <img src="{{ url_for('static', filename=data.series_posters.get(series_name, 'images/logo.png')) }}" loading="lazy">
-                                <div class="poster-info">
-                                    <div class="poster-title">{{ series_name }}</div>
-                                    <div class="poster-time">剧集</div>
-                                </div>
-                            </a>
-                        {% endfor %}
-                    {% endif %}
-
-                    {% if data.movies %}
-                        {% for mv in data.movies %}
-                            <a href="{{ url_for('media_detail', media_type='movie', title=mv.name) }}" class="poster-item" style="text-decoration: none;">
-                                <img src="{{ url_for('static', filename=mv.get('poster_path', 'images/logo.png')) }}" loading="lazy">
-                                <div class="poster-info">
-                                    <div class="poster-title">{{ mv.name }}</div>
-                                    <div class="poster-time">{{ mv.date }}</div>
-                                </div>
-                            </a>
-                        {% endfor %}
-                    {% endif %}
-                </div>
-            </div>
-        </details>
-    {% else %}
-        <div style="text-align: center; color: var(--text-muted); padding: 80px 20px; background-color: var(--sidebar-bg); border-radius: 10px; border: 1px solid var(--border-color);">
-            <i data-lucide="package-open" style="width: 64px; height: 64px; margin: 0 auto 15px auto; display: block; opacity: 0.5;"></i>
-            <p style="font-size: 16px;">本地数据库暂无记录，请点击上方按钮进行同步。</p>
-        </div>
-    {% endfor %}
+<!-- ==============================================
+     🌟 核心重构：唯一动态渲染容器
+     抛弃了双重 DOM 树，改用前端 JS 极速按需组装
+     ============================================== -->
+<div id="dynamic-render-container" class="group-container view-mode-list">
+    <!-- 数据将通过 JS 瞬间注入到这里 -->
 </div>
-{% endmacro %}
-
-{{ render_data_blocks(library_data, 'container-library') }}
-{{ render_data_blocks(type_data, 'container-type') }}
 
 <div class="floating-action-bar" id="delete-bar">
     <span style="color: #fff; font-size: 15px; white-space: nowrap;">已选择 <b id="sel-count" style="color: var(--primary-color); font-size: 18px; margin: 0 4px;">0</b> 项记录</span>
@@ -346,52 +248,187 @@
 </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // ====== 初始化双容器拖拽排序 ======
-        ['container-library', 'container-type'].forEach(containerId => {
-            const container = document.getElementById(containerId);
-            if (container) {
-                // 恢复保存的顺序
-                const savedOrder = JSON.parse(localStorage.getItem('jellywall_order_' + containerId));
-                if (savedOrder && Array.isArray(savedOrder)) {
-                    let cssString = '';
-                    savedOrder.forEach((id, index) => {
-                        cssString += `#${containerId} .library-details[data-id="${CSS.escape(id)}"] { order: ${index}; }\n`;
-                    });
-                    const style = document.createElement('style');
-                    style.textContent = cssString + `#${containerId} .library-details { order: 9999; }`;
-                    document.head.appendChild(style);
-                }
+    // ========================================================
+    // ✨ 核心重构：注入 JSON，前端纯净 DOM 渲染引擎
+    // ========================================================
+    const rawLibraryData = {{ library_data | tojson | safe }};
+    const rawTypeData = {{ type_data | tojson | safe }};
+    let currentGroupMode = 'library'; // 'library' or 'type'
+    let isEditMode = false;
+    let sortableInstance = null;
 
-                // 激活 Sortable
-                Sortable.create(container, {
-                    animation: 150, handle: '.library-summary', ghostClass: 'sortable-ghost',
-                    onEnd: function () {
-                        const currentOrder = Array.from(container.children).map(el => el.getAttribute('data-id')).filter(id => id);
-                        localStorage.setItem('jellywall_order_' + containerId, JSON.stringify(currentOrder));
-                    }
-                });
-            }
+    function renderDynamicDOM(mode) {
+        const dataDict = mode === 'type' ? rawTypeData : rawLibraryData;
+        const container = document.getElementById('dynamic-render-container');
+        let htmlStr = '';
+
+        if (Object.keys(dataDict).length === 0) {
+            htmlStr = `
+            <div style="text-align: center; color: var(--text-muted); padding: 80px 20px; background-color: var(--sidebar-bg); border-radius: 10px; border: 1px solid var(--border-color);">
+                <i data-lucide="package-open" style="width: 64px; height: 64px; margin: 0 auto 15px auto; display: block; opacity: 0.5;"></i>
+                <p style="font-size: 16px;">本地数据库暂无记录，请点击上方按钮进行同步。</p>
+            </div>`;
+            container.innerHTML = htmlStr;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            return;
+        }
+
+        // 恢复这组数据的保存折叠/展开状态
+        const savedOrder = JSON.parse(localStorage.getItem('jellywall_order_' + mode)) || [];
+        const entries = Object.entries(dataDict);
+
+        // 按照用户拖拽保存的顺序重新排列
+        entries.sort((a, b) => {
+            const indexA = savedOrder.indexOf(a[0]);
+            const indexB = savedOrder.indexOf(b[0]);
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            if (indexA !== -1) return -1;
+            if (indexB !== -1) return 1;
+            return 0;
         });
 
+        entries.forEach(([groupName, data]) => {
+            let iconName = 'folder-open';
+            if (groupName.includes('电影')) iconName = 'clapperboard';
+            else if (groupName.includes('剧集')) iconName = 'tv';
+
+            // 读取记忆的折叠状态
+            const isOpen = sessionStorage.getItem('jellywall_open_state_' + groupName) === 'true' ? 'open' : '';
+
+            htmlStr += `
+            <details class="library-details" data-id="${groupName}" ${isOpen}>
+                <summary class="library-summary" onclick="setTimeout(()=>sessionStorage.setItem('jellywall_open_state_${groupName}', this.parentElement.open), 50)">
+                    <span class="drag-handle"><i data-lucide="grip-vertical" style="width: 18px; height: 18px;"></i></span>
+                    <i data-lucide="${iconName}" style="width: 22px; height: 22px;"></i>
+                    ${groupName}
+                    <i data-lucide="chevron-right" class="fold-icon"></i>
+                </summary>
+                <div class="library-content">
+                    <div class="list-container">
+            `;
+
+            const hasEpisodes = Object.keys(data.episodes_tree || {}).length > 0;
+            const hasMovies = (data.movies || []).length > 0;
+
+            if (hasEpisodes) {
+                htmlStr += `<div class="sub-title"><i data-lucide="tv" style="width: 18px; height: 18px;"></i> 包含剧集</div>`;
+                for (const [seriesName, seasons] of Object.entries(data.episodes_tree)) {
+                    htmlStr += `
+                    <details class="series-details">
+                        <summary class="series-summary">
+                            <input type="checkbox" class="history-checkbox chk-series" data-series-id="${seriesName}" onclick="event.stopPropagation();">
+                            ${seriesName}
+                            <i data-lucide="chevron-right" class="fold-icon"></i>
+                        </summary>`;
+                    for (const [seasonName, episodes] of Object.entries(seasons)) {
+                        htmlStr += `
+                        <details class="season-details">
+                            <summary class="season-summary">
+                                <input type="checkbox" class="history-checkbox chk-season" data-series-parent="${seriesName}" data-season-id="${seasonName}" onclick="event.stopPropagation();">
+                                ${seasonName}
+                                <i data-lucide="chevron-right" class="fold-icon"></i>
+                            </summary>
+                            <table style="margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--border-color);">
+                                <thead><tr><th>单集详情</th><th>完成观看时间</th></tr></thead>
+                                <tbody>`;
+                        episodes.forEach(ep => {
+                            htmlStr += `
+                                <tr>
+                                    <td style="color: var(--text-main); display: flex; align-items: center;">
+                                        <input type="checkbox" class="history-checkbox chk-episode" data-series-parent="${seriesName}" data-season-parent="${seasonName}" value="${ep.id}">
+                                        ${ep.episode}
+                                    </td>
+                                    <td style="color: var(--text-muted); font-size: 14px; width: 180px;">${ep.date}</td>
+                                </tr>`;
+                        });
+                        htmlStr += `</tbody></table></details>`;
+                    }
+                    htmlStr += `</details>`;
+                }
+            }
+
+            if (hasEpisodes && hasMovies) {
+                htmlStr += `<hr style="border-color: var(--border-color); margin: 25px 0;">`;
+            }
+
+            if (hasMovies) {
+                htmlStr += `
+                <div class="sub-title"><i data-lucide="film" style="width: 18px; height: 18px;"></i> 包含电影</div>
+                <table>
+                    <thead><tr><th>电影名称</th><th>完成观看时间</th></tr></thead>
+                    <tbody>`;
+                data.movies.forEach(mv => {
+                    htmlStr += `
+                        <tr>
+                            <td style="font-weight: bold; color: var(--primary-color); display: flex; align-items: center;">
+                                <input type="checkbox" class="history-checkbox chk-episode" value="${mv.id}">
+                                ${mv.name}
+                            </td>
+                            <td style="color: var(--text-muted); font-size: 14px; width: 180px;">${mv.date}</td>
+                        </tr>`;
+                });
+                htmlStr += `</tbody></table>`;
+            }
+
+            htmlStr += `</div><div class="poster-container">`;
+
+            // 海报渲染区
+            for (const [seriesName, posterPath] of Object.entries(data.series_posters || {})) {
+                htmlStr += `
+                <a href="/detail/series/${encodeURIComponent(seriesName)}" class="poster-item" style="text-decoration: none;">
+                    <img src="/static/${posterPath}" loading="lazy">
+                    <div class="poster-info">
+                        <div class="poster-title">${seriesName}</div>
+                        <div class="poster-time">剧集</div>
+                    </div>
+                </a>`;
+            }
+
+            (data.movies || []).forEach(mv => {
+                const pPath = mv.poster_path || 'images/logo.png';
+                htmlStr += `
+                <a href="/detail/movie/${encodeURIComponent(mv.name)}" class="poster-item" style="text-decoration: none;">
+                    <img src="/static/${pPath}" loading="lazy">
+                    <div class="poster-info">
+                        <div class="poster-title">${mv.name}</div>
+                        <div class="poster-time">${mv.date}</div>
+                    </div>
+                </a>`;
+            });
+
+            htmlStr += `</div></div></details>`;
+        });
+
+        container.innerHTML = htmlStr;
+
+        // 如果正处于编辑模式，渲染完也要让所有的勾选框漏出来
+        if (isEditMode) container.classList.add('edit-mode');
+
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+
+        // 重新挂载拖拽逻辑
+        if (sortableInstance) sortableInstance.destroy();
+        sortableInstance = Sortable.create(container, {
+            animation: 150, handle: '.library-summary', ghostClass: 'sortable-ghost',
+            onEnd: function () {
+                const currentOrder = Array.from(container.children).map(el => el.getAttribute('data-id')).filter(id => id);
+                localStorage.setItem('jellywall_order_' + mode, JSON.stringify(currentOrder));
+            }
+        });
+    }
+
+    // ==========================================
+    // 常规控制与事件绑定
+    // ==========================================
+    document.addEventListener('DOMContentLoaded', function () {
         // 恢复用户设定的视图模式与分组模式
         const savedViewMode = localStorage.getItem('historyViewMode') || 'list';
         const savedGroupMode = localStorage.getItem('historyGroupMode') || 'library';
+
+        switchGroup(savedGroupMode); // 里面会自动调用 renderDynamicDOM
         switchView(savedViewMode);
-        switchGroup(savedGroupMode);
-
-        const allDetails = document.querySelectorAll('details');
-        allDetails.forEach(detail => {
-            const summaryText = detail.querySelector('summary').textContent.trim();
-            const stateKey = 'jellywall_open_state_' + summaryText;
-            if (sessionStorage.getItem(stateKey) === 'true') detail.open = true;
-            detail.addEventListener('toggle', () => { sessionStorage.setItem(stateKey, detail.open); });
-        });
-
-        if (typeof lucide !== 'undefined') lucide.createIcons();
     });
 
-    // ====== 自定义下拉组件交互逻辑 ======
     window.toggleGroupDropdown = function(e) {
         e.stopPropagation();
         const options = document.getElementById('group-dropdown-options');
@@ -402,23 +439,14 @@
 
     window.selectGroupOption = function(value, text, e) {
         e.stopPropagation();
-
-        // 更新显示文本
         document.getElementById('group-dropdown-text').innerText = text;
-
-        // 更新选中高亮状态
         document.querySelectorAll('.dropdown-option').forEach(el => el.classList.remove('active'));
         e.currentTarget.classList.add('active');
-
-        // 收起面板
         document.getElementById('group-dropdown-options').classList.remove('show');
         document.getElementById('group-dropdown-icon').style.transform = 'rotate(0)';
-
-        // 触发数据容器切换
         switchGroup(value);
     };
 
-    // 点击页面其他空白区域时，自动收起下拉面板
     document.addEventListener('click', function(e) {
         const options = document.getElementById('group-dropdown-options');
         if (options && options.classList.contains('show') && !e.target.closest('.custom-dropdown')) {
@@ -427,50 +455,34 @@
         }
     });
 
-    // ====== 分组模式切换逻辑 ======
     window.switchGroup = function(mode) {
-        const contLib = document.getElementById('container-library');
-        const contType = document.getElementById('container-type');
-
-        // 同步初始化时下拉框的文本和状态
+        currentGroupMode = mode;
         const textSpan = document.getElementById('group-dropdown-text');
         if (textSpan) {
             textSpan.innerText = mode === 'type' ? '按类型分组' : '按媒体库分组';
             document.querySelectorAll('.dropdown-option').forEach(el => {
-                if (el.getAttribute('data-value') === mode) {
-                    el.classList.add('active');
-                } else {
-                    el.classList.remove('active');
-                }
+                if (el.getAttribute('data-value') === mode) el.classList.add('active');
+                else el.classList.remove('active');
             });
         }
+        localStorage.setItem('historyGroupMode', mode);
 
-        if (mode === 'type') {
-            contType.style.display = 'flex';
-            contLib.style.display = 'none';
-            localStorage.setItem('historyGroupMode', 'type');
-        } else {
-            contLib.style.display = 'flex';
-            contType.style.display = 'none';
-            localStorage.setItem('historyGroupMode', 'library');
-        }
-
-        if (typeof lucide !== 'undefined') lucide.createIcons();
+        // 触发极速渲染引擎
+        renderDynamicDOM(mode);
     };
 
-    // ====== 视图模式切换逻辑 ======
     window.switchView = function(mode) {
-        const containers = document.querySelectorAll('.group-container');
+        const container = document.getElementById('dynamic-render-container');
         const listBtn = document.getElementById('btn-list');
         const posterBtn = document.getElementById('btn-poster');
 
         if (mode === 'poster') {
             posterBtn.classList.add('active'); listBtn.classList.remove('active');
-            containers.forEach(c => { c.classList.remove('view-mode-list'); c.classList.add('view-mode-poster'); });
+            container.classList.remove('view-mode-list'); container.classList.add('view-mode-poster');
             localStorage.setItem('historyViewMode', 'poster');
         } else {
             listBtn.classList.add('active'); posterBtn.classList.remove('active');
-            containers.forEach(c => { c.classList.remove('view-mode-poster'); c.classList.add('view-mode-list'); });
+            container.classList.remove('view-mode-poster'); container.classList.add('view-mode-list');
             localStorage.setItem('historyViewMode', 'list');
         }
     };
@@ -500,20 +512,19 @@
         overlay.style.opacity = '0'; setTimeout(() => { overlay.style.display = 'none'; }, 300);
     };
 
-    let isEditMode = false;
     window.toggleEditMode = function() {
         isEditMode = !isEditMode;
-        const containers = document.querySelectorAll('.group-container');
+        const container = document.getElementById('dynamic-render-container');
         const editBtn = document.getElementById('edit-btn');
         const deleteBar = document.getElementById('delete-bar');
 
         if (isEditMode) {
-            containers.forEach(c => c.classList.add('edit-mode'));
+            container.classList.add('edit-mode');
             editBtn.innerHTML = '<i data-lucide="x" style="width: 16px; height: 16px;"></i> 退出编辑';
             deleteBar.classList.add('show');
             if (!document.getElementById('btn-list').classList.contains('active')) switchView('list');
         } else {
-            containers.forEach(c => c.classList.remove('edit-mode'));
+            container.classList.remove('edit-mode');
             editBtn.innerHTML = '<i data-lucide="pencil" style="width: 16px; height: 16px;"></i> 进入编辑';
             deleteBar.classList.remove('show');
             document.querySelectorAll('.history-checkbox').forEach(chk => chk.checked = false);
@@ -522,13 +533,12 @@
         if (typeof lucide !== 'undefined') lucide.createIcons();
     };
 
-    // ====== 增强版级联勾选逻辑，让分组间的勾选状态同步 ======
+    // ====== 优化后的级联事件监听 ======
     document.addEventListener('change', function(e) {
         if (!e.target.classList.contains('history-checkbox')) return;
         const isChecked = e.target.checked;
         const val = e.target.value;
 
-        // 如果点的是某个单集，我们把它在另一个分组里对应的单集也勾上，保持状态统一
         if (e.target.classList.contains('chk-episode')) {
             document.querySelectorAll(`.chk-episode[value="${val}"]`).forEach(chk => chk.checked = isChecked);
         }
@@ -549,7 +559,6 @@
     });
 
     window.updateSelectedCount = function() {
-        // 由于有两个容器，同样的记录会渲染两次，我们需要使用 Set 去重计算选中的数量
         const selectedIds = new Set();
         document.querySelectorAll('.chk-episode:checked').forEach(chk => selectedIds.add(chk.value));
         document.getElementById('sel-count').innerText = selectedIds.size;

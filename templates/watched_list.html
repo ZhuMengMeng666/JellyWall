@@ -127,6 +127,25 @@
     .datetime-input { width: 100%; padding: 12px 15px; border-radius: 8px; background-color: var(--bg-color); color: var(--text-main); border: 1px solid var(--border-color); outline: none; font-size: 15px; font-family: monospace; box-sizing: border-box; transition: 0.3s; }
     .datetime-input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 20%, transparent); }
 
+    /* ====== 缺失数据急救弹窗专属样式 ====== */
+    .wa-modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+    .wa-modal-content { background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 12px; width: 90%; max-width: 650px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }
+    .wa-modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+    .wa-modal-header h3 { margin: 0; font-size: 18px; color: var(--text-main); }
+    .wa-modal-body { padding: 20px 24px; overflow-y: auto; flex: 1; }
+    .wa-modal-footer { padding: 15px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 12px; }
+    .wa-group-header { background: color-mix(in srgb, var(--bg-color) 50%, transparent); border: 1px solid var(--border-color) !important; border-radius: 8px; transition: all 0.2s; }
+    .wa-group-header:hover { background: var(--bg-color); }
+    .wa-badge { font-size: 12px; padding: 2px 6px; border-radius: 4px; margin-left: 10px; font-weight: bold; }
+    .wa-badge.movie { background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .wa-badge.tv { background: rgba(139, 92, 246, 0.15); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.3); }
+
+    /* ✨ 新增弹窗控制按钮标准样式 */
+    .wa-btn-cancel { padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; background: transparent; border: 1px solid var(--border-color); color: var(--text-muted); transition: all 0.2s; }
+    .wa-btn-cancel:hover { border-color: var(--primary-color); color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+    .wa-btn-primary { padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; background: var(--primary-color); color: white; border: none; transition: transform 0.2s, filter 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: inline-flex; align-items: center; gap: 6px; }
+    .wa-btn-primary:hover { filter: brightness(1.1); transform: translateY(-2px); }
+
     /* ====== 响应式防挤压 ====== */
     @media (max-width: 768px) {
         .alert-box { flex-direction: column !important; align-items: flex-start !important; gap: 15px; }
@@ -150,15 +169,24 @@
         <i data-lucide="lightbulb" style="color: var(--primary-color); flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px;"></i>
         <div>
             <span style="color: var(--primary-color); font-weight: bold;">提示：</span>首次同步可能需要较长时间，请耐心等待。<br>
-            如在 Jellyfin 中产生了新的观影记录，请点击右侧同步按钮拉取最新数据或配置定时任务自动同步。
+            如海报库出现占位图或遗漏解析情况，可通过补全引擎一键调用检索修复缺失元数据。
         </div>
     </div>
-    <a href="{{ url_for('sync_history') }}" style="text-decoration: none;" onclick="handleSyncClick(this, event)">
-        <button id="sync-btn" style="padding: 10px 24px; font-size: 15px; font-weight: 600; background-color: var(--primary-color); color: white; border: none; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.2s, filter 0.2s;">
-            <i data-lucide="refresh-cw" id="sync-icon" style="width: 16px; height: 16px;"></i>
-            <span id="sync-text">同步最新记录</span>
+
+    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <!-- 新增：补全数据入口按钮 (增加 type="button" 阻断刷新) -->
+        <button type="button" id="check-missing-btn" style="padding: 10px 20px; font-size: 14px; font-weight: bold; background-color: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s;" onclick="openMissingDataModal(event)">
+            <i data-lucide="scan-search" style="width: 16px; height: 16px;"></i>
+            <span>检查补全数据</span>
         </button>
-    </a>
+
+        <a href="{{ url_for('sync_history') }}" style="text-decoration: none;" onclick="handleSyncClick(this, event)">
+            <button id="sync-btn" style="padding: 10px 24px; font-size: 15px; font-weight: 600; background-color: var(--primary-color); color: white; border: none; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.2s, filter 0.2s;">
+                <i data-lucide="refresh-cw" id="sync-icon" style="width: 16px; height: 16px;"></i>
+                <span id="sync-text">同步最新记录</span>
+            </button>
+        </a>
+    </div>
 </div>
 
 <div class="view-controls">
@@ -243,6 +271,30 @@
             <label style="color: var(--text-muted); font-size: 13px;">请选择新的完成观看时间：</label>
             <input type="datetime-local" id="new-watch-date" class="datetime-input">
             <button onclick="confirmDateChange()" style="width: 100%; padding: 12px; border-radius: 8px; background: var(--primary-color); color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 5px; font-size: 15px; transition: 0.2s;">确认保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- ✨ 修改后的：缺失数据汇总补全确认浮窗 -->
+<div id="missing-data-modal" class="wa-modal-overlay">
+    <div class="wa-modal-content" style="max-width: 650px;">
+        <div class="wa-modal-header">
+            <h3 style="display: flex; align-items: center; gap: 8px;"><i data-lucide="scan-search" style="color: var(--primary-color);"></i> 检查结果</h3>
+        </div>
+        <div class="wa-modal-body">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 0 5px;">
+                <label style="font-size: 14px; font-weight: bold; cursor: pointer; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="missing-select-all" checked style="accent-color: var(--primary-color); transform: scale(1.1);" onchange="toggleAllMissingItems(this.checked)"> 全选所有缺失资产
+                </label>
+            </div>
+
+            <div id="missing-items-container" style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- 动态渲染缺失清单 -->
+            </div>
+        </div>
+        <div class="wa-modal-footer">
+            <button class="wa-btn-cancel" onclick="document.getElementById('missing-data-modal').style.display='none'">稍后处理</button>
+            <button class="wa-btn-primary" id="confirm-patch-btn" onclick="executeDataPatch()">确认补全</button>
         </div>
     </div>
 </div>
@@ -613,6 +665,141 @@
             if (result.success) { window.showToast(result.message); setTimeout(() => location.reload(), 1000); }
             else window.showToast("删除失败: " + result.message);
         } catch (error) { window.showToast("网络请求异常"); }
+    };
+
+    // ========================================================
+    // 🛠️ 刮削急救与补全控制体系
+    // ========================================================
+    let missingPayload = []; // 存储扫描到的残缺媒体对象
+
+    window.openMissingDataModal = async function(event) {
+    // 🚨 防御塔1：强行阻止任何可能的页面跳转或刷新行为
+    if (event) event.preventDefault();
+
+    const btn = document.getElementById('check-missing-btn');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<i data-lucide="loader-2" class="wa-spin-anim" style="width: 16px; height: 16px;"></i> <span>矩阵扫描中...</span>`;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    try {
+        console.log("🚀 [DataCheck] 开始请求后端接口...");
+        const resp = await fetch('/api/check_missing_data');
+
+        // 🚨 防御塔2：如果后端崩了（比如 500），改用 Toast 提示
+        if (!resp.ok) {
+            window.showToast(`❌ 后端请求失败！状态码: ${resp.status}`);
+            return;
+        }
+
+        const res = await resp.json();
+        console.log("📦 [DataCheck] 后端返回的数据:", res);
+
+        if (res.status === 'success') {
+            missingPayload = res.data;
+            if (missingPayload.length === 0) {
+                window.showToast("🎉 太棒了，当前无缺失数据！");
+            } else {
+                renderMissingItemsList();
+                document.getElementById('missing-data-modal').style.display = 'flex';
+            }
+        } else {
+            window.showToast("⚠️ 后端扫描报错：" + res.message);
+        }
+    } catch(e) {
+        // 🚨 防御塔3：前端执行异常时，控制台保留详细报错，页面用 Toast 提示
+        console.error("💥 [DataCheck] 前端致命报错:", e);
+        window.showToast("💥 扫描执行异常，请按 F12 查看控制台日志");
+    } finally {
+        // 恢复按钮状态
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+};
+
+    function renderMissingItemsList() {
+        const container = document.getElementById('missing-items-container');
+        let html = '';
+
+        missingPayload.forEach((item, index) => {
+            html += `
+            <label class="wa-group-header" style="justify-content: flex-start; padding: 10px 15px; margin: 0; border: 1px solid #f0f0f0;">
+                <input type="checkbox" class="missing-chk-item" value="${index}" checked style="accent-color: var(--primary-color);">
+                <span style="font-weight: 600; color: var(--text-main); flex: 1; margin-left: 5px;">${item.title}</span>
+                <span class="wa-badge ${item.raw_type === 'Movie' ? 'movie' : 'tv'}">${item.type}</span>
+                <span style="font-size: 12px; color: #ef4444; background: rgba(239,68,68,0.1); padding: 2px 8px; border-radius: 4px;">${item.reason}</span>
+            </label>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
+    window.toggleAllMissingItems = function(isChecked) {
+        document.querySelectorAll('.missing-chk-item').forEach(chk => {
+            chk.checked = isChecked;
+        });
+    };
+
+    window.executeDataPatch = async function() {
+        const selectedIndexes = Array.from(document.querySelectorAll('.missing-chk-item:checked')).map(chk => parseInt(chk.value));
+        if (selectedIndexes.length === 0) {
+            window.showToast("必须勾选至少一项急救对象");
+            return;
+        }
+
+        const taskPayload = selectedIndexes.map(idx => missingPayload[idx]);
+
+        // 隐藏选框面板，复用现有的流式同步加载框作为状态展示容器
+        document.getElementById('missing-data-modal').style.display = 'none';
+
+        const overlay = document.getElementById('sync-modal-overlay');
+        const modal = overlay.querySelector('.sync-modal-box');
+        const subText = document.getElementById('sync-status-sub');
+
+        overlay.style.display = 'flex'; void overlay.offsetWidth; overlay.style.opacity = '1'; modal.style.transform = 'scale(1)';
+        subText.innerText = "正在唤醒 TMDB 元数据桥接引擎...";
+
+        try {
+            const response = await fetch('/api/execute_data_completion', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(taskPayload)
+            });
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                let chunks = buffer.split('\n\n');
+                buffer = chunks.pop();
+
+                for (let chunk of chunks) {
+                    if (chunk.startsWith("data: ")) {
+                        const data = JSON.parse(chunk.substring(6));
+
+                        if (data.status === 'syncing') {
+                            subText.innerText = data.name;
+                        } else if (data.status === 'done') {
+                            subText.innerText = "全部修补序列执行完毕！正在重建缓存池...";
+                            setTimeout(() => location.reload(), 1500);
+                        } else if (data.status === 'error') {
+                            subText.innerText = "补全任务发生阻断...";
+                            window.showToast("执行出错，详情请查看后端日志。");
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            subText.innerText = "连接中断";
+            window.showToast("执行异常阻断");
+        }
     };
 </script>
 {% endblock %}

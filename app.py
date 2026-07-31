@@ -1,26 +1,43 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify, stream_with_context
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from datetime import datetime, timedelta
-from werkzeug.security import generate_password_hash
-import threading
-import uuid
-from werkzeug.security import check_password_hash
-from flask_login import login_user
-import re
+# ==========================================
+# 1. Python 内置标准库
+# ==========================================
+import hashlib
 import json
+import logging
+import os
+import re
 import sys
+import threading
+import time
+import uuid
+import zipfile
+from datetime import datetime, timedelta, timezone
+
+# ==========================================
+# 2. 第三方网络与任务调度库
+# ==========================================
 import requests
-from datetime import datetime
-from flask import request, jsonify
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-import time
-from flask import stream_with_context, Response
-import zipfile
-from datetime import timezone
-import hashlib
-from datetime import datetime
+
+# ==========================================
+# 3. Flask 生态与数据库相关模块
+# ==========================================
+from flask import (
+    Flask, render_template, request, redirect, url_for,
+    flash, Response, jsonify, stream_with_context
+)
+from flask_login import (
+    LoginManager, UserMixin, login_user, login_required,
+    logout_user, current_user
+)
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import or_
+from werkzeug.security import generate_password_hash, check_password_hash
+
+
 
 # TMDB 搜索结果的短时缓存池，格式为 {query: {timestamp: float, data: list}}
 TMDB_SEARCH_CACHE = {}
@@ -42,10 +59,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'connect_args': {'timeout': 20}
 }
 
-import logging
-import os
-import re
-import sys
+
 
 # ==========================================
 # 核心：接管日志引擎 (区分系统 HTTP 与 业务日志)
@@ -2733,10 +2747,7 @@ def import_data():
         return jsonify({"success": False, "message": f"导入失败，数据格式可能不正确: {str(e)}"})
 
 
-import hashlib
-import os
-import json
-from datetime import datetime, timezone
+
 
 
 @app.route('/api/parse_watcharr', methods=['POST'])
@@ -2896,14 +2907,226 @@ def parse_watcharr():
         return jsonify({"status": "error", "message": str(e)})
 
 
-import time
-import requests
-import uuid
-import os
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from datetime import datetime
-from flask import request, jsonify, Response, stream_with_context
+
+
+
+@app.route('/api/check_missing_data', methods=['GET'])
+@login_required
+def check_missing_data():
+    """全盘扫描：揪出所有缺少 TMDB ID、海报路径错误 (双字段校验)、或物理文件丢失的数据"""
+    try:
+        all_items = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).all()
+
+        results = []
+        for item in all_items:
+            reasons = []
+
+            # 1. 检查 TMDB ID 是否有效
+            valid_tmdb = bool(item.tmdb_id and str(item.tmdb_id).strip().lower() not in ['none', 'null', '', '0'])
+            if not valid_tmdb:
+                reasons.append("缺失 TMDB ID")
+
+            # 2. ✨ 升级版：联合检查 local_image_path 和 series_image_path 是否为占位图
+            img_path = item.local_image_path
+            series_img_path = item.series_image_path
+
+            is_missing_poster = False
+            # 检查主路径
+            if not img_path or 'logo.png' in img_path:
+                is_missing_poster = True
+            # 如果是剧集，额外检查剧集专属路径
+            elif item.media_type == 'Series' and (not series_img_path or 'logo.png' in series_img_path):
+                is_missing_poster = True
+
+            if is_missing_poster:
+                reasons.append("缺失海报图片")
+            else:
+                # 3. 检查物理文件是否真实存在于硬盘上
+                full_path = os.path.join(app.root_path, 'static', img_path.strip('/'))
+                if not os.path.exists(full_path):
+                    reasons.append("海报物理文件丢失")
+                elif item.media_type == 'Series' and series_img_path:
+                    # 同步核查剧集图片的物理文件
+                    full_series_path = os.path.join(app.root_path, 'static', series_img_path.strip('/'))
+                    if not os.path.exists(full_series_path):
+                        reasons.append("剧集海报物理文件丢失")
+
+            # 如果有任何缺失理由，就加入急救名单
+            if reasons:
+                results.append({
+                    "id": item.id,
+                    "title": item.display_title,
+                    "type": "电影" if item.media_type == "Movie" else "剧集",
+                    "raw_type": item.media_type,
+                    "reason": " & ".join(reasons)
+                })
+
+        return jsonify({"status": "success", "data": results})
+    except Exception as e:
+        logger.error(f"[DataCheck] 扫描缺失数据异常: {e}")
+        return jsonify({"status": "error", "message": "扫描数据库异常"})
+
+
+
+
+@app.route('/api/execute_data_completion', methods=['POST'])
+@login_required
+def execute_data_completion():
+    """执行补全急救：调用 TMDB 接口自动清洗片名、搜索并挂载 ID、下载缺失的海报（带完整日志文件记录）"""
+    payload = request.json
+    if not payload or not isinstance(payload, list):
+        return jsonify({"status": "error", "message": "未收到任何补全任务"})
+
+    def generate():
+        logger.info(f"[DataCompletion] 🚀 补全急救任务开始！共收到 {len(payload)} 个处理项")
+        yield f"data: {json.dumps({'status': 'syncing', 'name': '正在初始化急救引擎...'})}\n\n"
+
+        # 代理与 Session 初始化
+        raw_proxies = get_user_proxies(current_user)
+        safe_proxies = None
+        if raw_proxies:
+            safe_proxies = {}
+            for k, v in raw_proxies.items():
+                if v:
+                    clean_url = str(v).strip().lower().replace("https://", "").replace("http://", "")
+                    safe_proxies[k] = f"http://{clean_url}"
+
+        session = requests.Session()
+        session.trust_env = False
+        session.headers.update({'Connection': 'close'})
+        if safe_proxies:
+            session.proxies.update(safe_proxies)
+
+        retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+        session.mount('https://', HTTPAdapter(max_retries=retries, pool_connections=15, pool_maxsize=15))
+
+        def download_tmdb_image(url_path, folder="posters", max_retries=3):
+            if not url_path: return "images/logo.png"
+            filename = url_path.strip("/")
+            save_dir = os.path.join(app.root_path, 'static', 'images', folder)
+            os.makedirs(save_dir, exist_ok=True)
+            save_path = os.path.join(save_dir, filename)
+            relative_path = f"images/{folder}/{filename}"
+            if os.path.exists(save_path): return relative_path
+
+            img_url = (
+                          "https://image.tmdb.org/t/p/w1280" if folder == "backdrops" else "https://image.tmdb.org/t/p/w500") + url_path
+            for _ in range(max_retries):
+                try:
+                    resp = session.get(img_url, timeout=(3.05, 30))
+                    if resp.status_code == 200:
+                        with open(save_path, 'wb') as f:
+                            f.write(resp.content)
+                        return relative_path
+                except:
+                    pass
+                time.sleep(1.5)
+            return "images/logo.png"
+
+        total_items = len(payload)
+        for idx, item in enumerate(payload, 1):
+            poster_id = item.get('id')
+            raw_title = item.get('title')
+            m_type = 'movie' if item.get('raw_type') == 'Movie' else 'tv'
+
+            # ✨ 增强修复：去除末尾的括号，并强制抹除首尾的破折号、下划线、波浪号等干扰符号
+            clean_title = re.sub(r'\s*\(.*?\)$', '', raw_title).strip('- _~= ')
+
+            # 尝试提取年份供 TMDB 电影搜索做高精度匹配
+            year_match = re.search(r'\((\d{4})\)', raw_title)
+            release_year = year_match.group(1) if year_match else None
+
+            logger.info(f"[DataCompletion] 🔄 [{idx}/{total_items}] 正在处理: {raw_title}")
+            logger.info(f"[DataCompletion]    ↳ 提取纯净搜索词: '{clean_title}', 识别年份: {release_year}")
+
+            yield f"data: {json.dumps({'status': 'syncing', 'name': f'({idx}/{total_items}) 检索: {clean_title}'})}\n\n"
+
+            try:
+                poster = WatchPoster.query.filter_by(id=poster_id, user_id=current_user.id).first()
+                if not poster:
+                    logger.warning(f"[DataCompletion]    ❌ 数据库未找到 ID={poster_id} 的记录，跳过。")
+                    continue
+
+                target_tmdb_id = poster.tmdb_id
+
+                # 1. 缺失 TMDB ID，拿着纯净搜索词去 TMDB 找回真身
+                if not target_tmdb_id:
+                    search_url = f"https://api.themoviedb.org/3/search/{m_type}"
+                    params = {
+                        "api_key": current_user.tmdb_api_key,
+                        "query": clean_title,
+                        "language": "zh-CN"
+                    }
+                    if release_year and m_type == 'movie':
+                        params['primary_release_year'] = release_year
+
+                    resp = session.get(search_url, params=params, timeout=10)
+                    if resp.status_code == 200:
+                        results = resp.json().get('results', [])
+                        if results:
+                            target_tmdb_id = str(results[0].get('id'))
+                            poster.tmdb_id = target_tmdb_id
+                            logger.info(f"[DataCompletion]    ✅ 搜索命中！找回遗失的 TMDB ID: {target_tmdb_id}")
+                        else:
+                            logger.warning(f"[DataCompletion]    ⚠️ 搜索扑空：TMDB 未收录词条 '{clean_title}'")
+                    else:
+                        logger.error(f"[DataCompletion]    ❌ 搜索请求失败！状态码: {resp.status_code}")
+
+                # 2. 有了 ID 后，顺藤摸瓜把海报和详情都拉回来
+                if target_tmdb_id:
+                    meta_url = f"https://api.themoviedb.org/3/{m_type}/{target_tmdb_id}"
+                    meta_resp = session.get(meta_url,
+                                            params={"api_key": current_user.tmdb_api_key, "language": "zh-CN"},
+                                            timeout=10)
+
+                    if meta_resp.status_code == 200:
+                        meta = meta_resp.json()
+                        if poster.media_type == "Movie":
+                            poster.display_title = meta.get('title', poster.display_title)
+                        else:
+                            poster.display_title = meta.get('name', poster.display_title)
+                            poster.series_name = poster.display_title
+
+                        poster.overview = meta.get('overview', poster.overview)
+                        poster.season_overview = poster.overview
+
+                        new_poster = download_tmdb_image(meta.get('poster_path'), "posters")
+                        new_backdrop = download_tmdb_image(meta.get('backdrop_path'), "backdrops")
+
+                        if new_poster != "images/logo.png":
+                            poster.local_image_path = new_poster
+                            poster.series_image_path = new_poster
+                        if new_backdrop != "images/logo.png":
+                            poster.backdrop_image_path = new_backdrop
+                            poster.background_image_path = new_backdrop
+
+                        # 同步连带把底层的 WatchRecord 也补齐
+                        sync_records = WatchRecord.query.filter_by(user_id=current_user.id, title=raw_title).all()
+                        for r in sync_records:
+                            r.tmdb_id = target_tmdb_id
+
+                        db.session.commit()
+                        logger.info(f"[DataCompletion]    🎉 {clean_title} 元数据与海报全部拼图补齐！")
+                    else:
+                        logger.error(f"[DataCompletion]    ❌ TMDB 详情获取失败，状态码: {meta_resp.status_code}")
+                else:
+                    logger.warning(f"[DataCompletion]    ⏭️ 缺失基础身份标识，放弃海报补全。")
+
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"[DataCompletion]    💥 处理时发生异常崩断: {str(e)}")
+
+            # TMDB 频率安全锁
+            time.sleep(0.5)
+
+        session.close()
+        logger.info("[DataCompletion] 🏁 全部数据修补任务已经执行完毕！ 🏁")
+        yield f"data: {json.dumps({'status': 'done'})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
+
+
 
 
 @app.route('/api/execute_watcharr_import', methods=['POST'])
@@ -3297,6 +3520,8 @@ def save_system_config(config_data):
     config_path = os.path.join(config_dir, 'system_config.json')
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(config_data, f, indent=4)
+
+
 
 
 if __name__ == '__main__':

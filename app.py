@@ -33,8 +33,9 @@ from flask_login import (
     LoginManager, UserMixin, login_user, login_required,
     logout_user, current_user
 )
+from flask_compress import Compress
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from werkzeug.security import generate_password_hash, check_password_hash
 
 
@@ -58,6 +59,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'connect_args': {'timeout': 20}
 }
+# 静态资源浏览器缓存 7 天(文件名不变时直接走本地缓存)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=7)
+
+Compress(app)
 
 
 
@@ -206,7 +211,12 @@ class WatchRecord(db.Model):
     # 软删除标记，用户点击删除时仅仅是打个标记，不做真实物理删除
     is_deleted = db.Column(db.Boolean, default=False)
 
-    __table_args__ = (db.UniqueConstraint('user_id', 'item_id', name='_user_item_uc'),)
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'item_id', name='_user_item_uc'),
+        db.Index('ix_watch_record_user_type', 'user_id', 'is_deleted', 'item_type'),
+        db.Index('ix_watch_record_user_series', 'user_id', 'series_name', 'is_deleted'),
+        db.Index('ix_watch_record_user_date', 'user_id', 'date_played'),
+    )
 
 
 class WatchPoster(db.Model):
@@ -229,7 +239,11 @@ class WatchPoster(db.Model):
 
     last_watched_date = db.Column(db.DateTime, nullable=False)
     is_deleted = db.Column(db.Boolean, default=False)
-    __table_args__ = (db.UniqueConstraint('user_id', 'target_id', 'display_title', name='_user_poster_uc'),)
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'target_id', 'display_title', name='_user_poster_uc'),
+        db.Index('ix_watch_poster_user_type', 'user_id', 'media_type', 'is_deleted'),
+        db.Index('ix_watch_poster_user_series', 'user_id', 'series_name', 'is_deleted'),
+    )
 
 
 class EpisodeDetail(db.Model):
@@ -245,6 +259,10 @@ class EpisodeDetail(db.Model):
     overview = db.Column(db.Text)
     series_tmdb_id = db.Column(db.String(50), nullable=True)
     still_image_path = db.Column(db.String(255))
+
+    __table_args__ = (
+        db.Index('ix_episode_detail_series', 'series_tmdb_id', 'season_num'),
+    )
 
 
 def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id):
@@ -1462,6 +1480,20 @@ def api_search_tmdb():
                     WatchPoster.is_deleted == False).all()
         watched_series_set = {r[0] for r in local_series if r[0]}
 
+        # 优化:一次性批量拉取所有"已看过"剧集的本地记录,替代逐个结果查询
+        watched_tv_names = [item.get('name') for item in raw_results
+                            if item.get('media_type') == 'tv' and item.get('name') in watched_series_set]
+        ep_records_by_series = {}
+        if watched_tv_names:
+            tv_ep_records = WatchRecord.query.filter(
+                WatchRecord.user_id == current_user.id,
+                WatchRecord.item_type == 'Episode',
+                WatchRecord.series_name.in_(watched_tv_names),
+                WatchRecord.is_deleted == False
+            ).all()
+            for ep in tv_ep_records:
+                ep_records_by_series.setdefault(ep.series_name, []).append(ep)
+
         results = []
         import re
         for item in raw_results:
@@ -1497,8 +1529,7 @@ def api_search_tmdb():
                             except:
                                 pass
 
-                        ep_records = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode',
-                                                                 series_name=tmdb_name, is_deleted=False).all()
+                        ep_records = ep_records_by_series.get(tmdb_name, [])
                         watched_normal_eps = set()
                         for ep in ep_records:
                             s_num = 1
@@ -2295,10 +2326,19 @@ def media_detail(media_type, title):
     seasons, movie_record = {}, None
 
     if media_type == 'series':
-        for ep in [r for r in
-                   WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode', is_deleted=False).all() if
-                   getattr(r, 'series_name', r.title) == title]:
-            ep_detail = EpisodeDetail.query.filter_by(item_id=ep.item_id).first()
+        ep_records = [r for r in
+                      WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode', is_deleted=False).all() if
+                      getattr(r, 'series_name', r.title) == title]
+
+        # 优化:一次批量查询本剧所有单集详情,替代每集一次 SQL
+        ep_ids = [ep.item_id for ep in ep_records]
+        ep_detail_map = {}
+        if ep_ids:
+            ep_detail_map = {d.item_id: d for d in
+                             EpisodeDetail.query.filter(EpisodeDetail.item_id.in_(ep_ids)).all()}
+
+        for ep in ep_records:
+            ep_detail = ep_detail_map.get(ep.item_id)
             real_season_num = 1
             if ep_detail:
                 ep.still_path = ep_detail.still_image_path
@@ -3455,15 +3495,24 @@ def log_stream():
         open(log_file_path, 'a', encoding='utf-8').close()
 
     def generate():
-        with open(log_file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+        # 优化:不再 readlines() 全量读文件,只从文件尾部读最近 1MB
+        with open(log_file_path, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            file_size = f.tell()
+            read_size = min(file_size, 1024 * 1024)
+            f.seek(-read_size, os.SEEK_END)
+            chunk = f.read().decode('utf-8', errors='replace')
+            tail_lines = chunk.splitlines()
+            if file_size > read_size:
+                # 读取窗口头部可能截断半行,丢弃第一行保证完整性
+                tail_lines = tail_lines[1:]
 
             indexed_lines = []
             biz_count = 0
             sys_count = 0
 
-            for i in range(len(lines) - 1, -1, -1):
-                line = lines[i]
+            for i in range(len(tail_lines) - 1, -1, -1):
+                line = tail_lines[i]
                 if not line.strip():
                     continue
 
@@ -3485,11 +3534,12 @@ def log_stream():
                 yield f"data: {line.strip()}\n\n"
 
             while True:
-                line = f.readline()
-                if not line:
+                raw_line = f.readline()
+                if not raw_line:
                     time.sleep(0.5)
                     f.seek(0, 1)
                     continue
+                line = raw_line.decode('utf-8', errors='replace').rstrip('\r\n')
 
                 if line.strip():
                     yield f"data: {line.strip()}\n\n"
@@ -3531,6 +3581,19 @@ if __name__ == '__main__':
     # 项目启动时保证数据库表结构都顺利建好
     with app.app_context():
         db.create_all()
+
+        # 存量数据库补业务索引(幂等,新库由模型自动创建,旧库走 IF NOT EXISTS)
+        index_sqls = [
+            "CREATE INDEX IF NOT EXISTS ix_watch_record_user_type ON watch_record (user_id, is_deleted, item_type)",
+            "CREATE INDEX IF NOT EXISTS ix_watch_record_user_series ON watch_record (user_id, series_name, is_deleted)",
+            "CREATE INDEX IF NOT EXISTS ix_watch_record_user_date ON watch_record (user_id, date_played)",
+            "CREATE INDEX IF NOT EXISTS ix_watch_poster_user_type ON watch_poster (user_id, media_type, is_deleted)",
+            "CREATE INDEX IF NOT EXISTS ix_watch_poster_user_series ON watch_poster (user_id, series_name, is_deleted)",
+            "CREATE INDEX IF NOT EXISTS ix_episode_detail_series ON episode_detail (series_tmdb_id, season_num)",
+        ]
+        for sql in index_sqls:
+            db.session.execute(text(sql))
+        db.session.commit()
 
     import os
 

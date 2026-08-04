@@ -23,6 +23,10 @@ instance/*
 static/backdrops/*
 static/posters/*
 static/stills/*
+# TMDB 图片本地缓存目录(运行时生成)
+static/images/
+# 静态资源离线备份包
+static.rar
 logs/*
 
 # ==================================

@@ -339,7 +339,8 @@
             return 0;
         });
 
-        entries.forEach(([groupName, data]) => {
+        // 优化:只渲染外层卡片,内部内容在展开时按需填充
+        entries.forEach(([groupName]) => {
             let iconName = 'folder-open';
             if (groupName.includes('电影')) iconName = 'clapperboard';
             else if (groupName.includes('剧集')) iconName = 'tv';
@@ -356,105 +357,29 @@
                     <i data-lucide="chevron-right" class="fold-icon"></i>
                 </summary>
                 <div class="library-content">
-                    <div class="list-container">
+                    <div class="library-content-fill" data-group="${groupName}"></div>
+                </div>
+            </details>
             `;
-
-            const hasEpisodes = Object.keys(data.episodes_tree || {}).length > 0;
-            const hasMovies = (data.movies || []).length > 0;
-
-            if (hasEpisodes) {
-                htmlStr += `<div class="sub-title"><i data-lucide="tv" style="width: 18px; height: 18px;"></i> 包含剧集</div>`;
-                for (const [seriesName, seasons] of Object.entries(data.episodes_tree)) {
-                    htmlStr += `
-                    <details class="series-details">
-                        <summary class="series-summary">
-                            <input type="checkbox" class="history-checkbox chk-series" data-series-id="${seriesName}" onclick="event.stopPropagation();">
-                            ${seriesName}
-                            <i data-lucide="chevron-right" class="fold-icon"></i>
-                        </summary>`;
-                    for (const [seasonName, episodes] of Object.entries(seasons)) {
-                        htmlStr += `
-                        <details class="season-details">
-                            <summary class="season-summary">
-                                <input type="checkbox" class="history-checkbox chk-season" data-series-parent="${seriesName}" data-season-id="${seasonName}" onclick="event.stopPropagation();">
-                                ${seasonName}
-                                <i data-lucide="chevron-right" class="fold-icon"></i>
-                            </summary>
-                            <table style="margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--border-color);">
-                                <thead><tr><th>单集详情</th><th>完成观看时间</th></tr></thead>
-                                <tbody>`;
-                        episodes.forEach(ep => {
-                            htmlStr += `
-                                <tr>
-                                    <td style="color: var(--text-main); display: flex; align-items: center;">
-                                        <input type="checkbox" class="history-checkbox chk-episode" data-series-parent="${seriesName}" data-season-parent="${seasonName}" value="${ep.id}">
-                                        ${ep.episode}
-                                    </td>
-                                    <td style="color: var(--text-muted); font-size: 14px; width: 180px;">${ep.date}</td>
-                                </tr>`;
-                        });
-                        htmlStr += `</tbody></table></details>`;
-                    }
-                    htmlStr += `</details>`;
-                }
-            }
-
-            if (hasEpisodes && hasMovies) {
-                htmlStr += `<hr style="border-color: var(--border-color); margin: 25px 0;">`;
-            }
-
-            if (hasMovies) {
-                htmlStr += `
-                <div class="sub-title"><i data-lucide="film" style="width: 18px; height: 18px;"></i> 包含电影</div>
-                <table>
-                    <thead><tr><th>电影名称</th><th>完成观看时间</th></tr></thead>
-                    <tbody>`;
-                data.movies.forEach(mv => {
-                    htmlStr += `
-                        <tr>
-                            <td style="font-weight: bold; color: var(--primary-color); display: flex; align-items: center;">
-                                <input type="checkbox" class="history-checkbox chk-episode" value="${mv.id}">
-                                ${mv.name}
-                            </td>
-                            <td style="color: var(--text-muted); font-size: 14px; width: 180px;">${mv.date}</td>
-                        </tr>`;
-                });
-                htmlStr += `</tbody></table>`;
-            }
-
-            htmlStr += `</div><div class="poster-container">`;
-
-            // 海报渲染区
-            for (const [seriesName, posterPath] of Object.entries(data.series_posters || {})) {
-                htmlStr += `
-                <a href="/detail/series/${encodeURIComponent(seriesName)}" class="poster-item" style="text-decoration: none;">
-                    <img src="/static/${posterPath}" loading="lazy">
-                    <div class="poster-info">
-                        <div class="poster-title">${seriesName}</div>
-                        <div class="poster-time">剧集</div>
-                    </div>
-                </a>`;
-            }
-
-            (data.movies || []).forEach(mv => {
-                const pPath = mv.poster_path || 'images/logo.png';
-                htmlStr += `
-                <a href="/detail/movie/${encodeURIComponent(mv.name)}" class="poster-item" style="text-decoration: none;">
-                    <img src="/static/${pPath}" loading="lazy">
-                    <div class="poster-info">
-                        <div class="poster-title">${mv.name}</div>
-                        <div class="poster-time">${mv.date}</div>
-                    </div>
-                </a>`;
-            });
-
-            htmlStr += `</div></div></details>`;
         });
 
         container.innerHTML = htmlStr;
 
         // 如果正处于编辑模式，渲染完也要让所有的勾选框漏出来
         if (isEditMode) container.classList.add('edit-mode');
+
+        // 展开时按需填充;已记忆为展开状态的卡片立即填充
+        // 注意:必须等 container.innerHTML 注入后再挂载监听,否则监听器会挂在被替换的旧节点上
+        container.querySelectorAll('details.library-details').forEach(det => {
+            const fill = () => {
+                if (det.open) fillLibraryContent(det, dataDict[det.getAttribute('data-id')]);
+            };
+            det.addEventListener('toggle', fill);
+            // 兜底:部分浏览器对 details 的 toggle 事件支持不佳,改为 summary 点击后延迟检查
+            const summaryEl = det.querySelector('.library-summary');
+            if (summaryEl) summaryEl.addEventListener('click', () => setTimeout(fill, 0));
+            if (det.open) fill();
+        });
 
         if (typeof lucide !== 'undefined') lucide.createIcons();
 
@@ -467,6 +392,113 @@
                 localStorage.setItem('jellywall_order_' + mode, JSON.stringify(currentOrder));
             }
         });
+    }
+
+    // 按需填充某张媒体库卡片的完整内容(首次展开时执行一次)
+    function fillLibraryContent(detailsEl, data) {
+        // 防御:数据缺失时不标记 filled,避免永久空白且失去重试机会
+        if (!data || typeof data !== 'object') return;
+        const fillEl = detailsEl.querySelector('.library-content-fill');
+        if (!fillEl || fillEl.dataset.filled === '1') return;
+        fillEl.dataset.filled = '1';
+        fillEl.innerHTML = buildLibraryContent(data);
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+
+    // 原 renderDynamicDOM 中构建媒体库内容的逻辑,原样搬移至此
+    function buildLibraryContent(data) {
+        let htmlStr = '<div class="list-container">';
+        const hasEpisodes = Object.keys(data.episodes_tree || {}).length > 0;
+        const hasMovies = (data.movies || []).length > 0;
+
+        if (hasEpisodes) {
+            htmlStr += `<div class="sub-title"><i data-lucide="tv" style="width: 18px; height: 18px;"></i> 包含剧集</div>`;
+            for (const [seriesName, seasons] of Object.entries(data.episodes_tree)) {
+                htmlStr += `
+                <details class="series-details">
+                    <summary class="series-summary">
+                        <input type="checkbox" class="history-checkbox chk-series" data-series-id="${seriesName}" onclick="event.stopPropagation();">
+                        ${seriesName}
+                        <i data-lucide="chevron-right" class="fold-icon"></i>
+                    </summary>`;
+                for (const [seasonName, episodes] of Object.entries(seasons)) {
+                    htmlStr += `
+                    <details class="season-details">
+                        <summary class="season-summary">
+                            <input type="checkbox" class="history-checkbox chk-season" data-series-parent="${seriesName}" data-season-id="${seasonName}" onclick="event.stopPropagation();">
+                            ${seasonName}
+                            <i data-lucide="chevron-right" class="fold-icon"></i>
+                        </summary>
+                        <table style="margin-top: 0; margin-bottom: 0; border-top: 1px solid var(--border-color);">
+                            <thead><tr><th>单集详情</th><th>完成观看时间</th></tr></thead>
+                            <tbody>`;
+                    episodes.forEach(ep => {
+                        htmlStr += `
+                            <tr>
+                                <td style="color: var(--text-main); display: flex; align-items: center;">
+                                    <input type="checkbox" class="history-checkbox chk-episode" data-series-parent="${seriesName}" data-season-parent="${seasonName}" value="${ep.id}">
+                                    ${ep.episode}
+                                </td>
+                                <td style="color: var(--text-muted); font-size: 14px; width: 180px;">${ep.date}</td>
+                            </tr>`;
+                    });
+                    htmlStr += `</tbody></table></details>`;
+                }
+                htmlStr += `</details>`;
+            }
+        }
+
+        if (hasEpisodes && hasMovies) {
+            htmlStr += `<hr style="border-color: var(--border-color); margin: 25px 0;">`;
+        }
+
+        if (hasMovies) {
+            htmlStr += `
+            <div class="sub-title"><i data-lucide="film" style="width: 18px; height: 18px;"></i> 包含电影</div>
+            <table>
+                <thead><tr><th>电影名称</th><th>完成观看时间</th></tr></thead>
+                <tbody>`;
+            data.movies.forEach(mv => {
+                htmlStr += `
+                    <tr>
+                        <td style="font-weight: bold; color: var(--primary-color); display: flex; align-items: center;">
+                            <input type="checkbox" class="history-checkbox chk-episode" value="${mv.id}">
+                            ${mv.name}
+                        </td>
+                        <td style="color: var(--text-muted); font-size: 14px; width: 180px;">${mv.date}</td>
+                    </tr>`;
+            });
+            htmlStr += `</tbody></table>`;
+        }
+
+        htmlStr += `</div><div class="poster-container">`;
+
+        // 海报渲染区
+        for (const [seriesName, posterPath] of Object.entries(data.series_posters || {})) {
+            htmlStr += `
+            <a href="/detail/series/${encodeURIComponent(seriesName)}" class="poster-item" style="text-decoration: none;">
+                <img src="/static/${posterPath}" loading="lazy">
+                <div class="poster-info">
+                    <div class="poster-title">${seriesName}</div>
+                    <div class="poster-time">剧集</div>
+                </div>
+            </a>`;
+        }
+
+        (data.movies || []).forEach(mv => {
+            const pPath = mv.poster_path || 'images/logo.png';
+            htmlStr += `
+            <a href="/detail/movie/${encodeURIComponent(mv.name)}" class="poster-item" style="text-decoration: none;">
+                <img src="/static/${pPath}" loading="lazy">
+                <div class="poster-info">
+                    <div class="poster-title">${mv.name}</div>
+                    <div class="poster-time">${mv.date}</div>
+                </div>
+            </a>`;
+        });
+
+        htmlStr += `</div>`;
+        return htmlStr;
     }
 
     // ==========================================

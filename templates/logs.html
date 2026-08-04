@@ -181,7 +181,7 @@
     let currentSearch = '';
 
     // 分组状态锚点
-    let lastLogTimeSec = '';
+    let lastLogMinute = '';
     let lastLogLevel = '';
 
     // 恢复系统日志的本地存储记忆
@@ -213,7 +213,7 @@
 
     function clearLogs() {
         logViewer.innerHTML = '';
-        lastLogTimeSec = '';
+        lastLogMinute = '';
         lastLogLevel = '';
     }
 
@@ -284,13 +284,14 @@
             else if (result.rawLower.includes('warn')) result.level = 'WARNING';
         }
 
-        // 🌟 修复版正则：兼容无日期前缀的日志 (e.g., "15:44:50,467")，解决分组失败问题
-        const timeMatch = result.msg.match(/(?:(\d{4}[-/]\d{2}[-/]\d{2})\s+)?(\d{2}:\d{2}:\d{2})[,.](\d{3})/);
+        // 🌟 修复版正则：兼容有/无毫秒的日志时间 (e.g., "15:44:50,467" 或 "[2026-08-04 14:55:20]")
+        const timeMatch = result.msg.match(/(?:(\d{4}[-/]\d{2}[-/]\d{2})\s+)?(\d{2}:\d{2}:\d{2})(?:[,.]\d{3})?/);
         if (timeMatch) {
             // 如果后端带了日期，提取出来并从正文中干掉它，保持整洁
             if (timeMatch[1]) {
                 result.date = timeMatch[1].replace(/-/g, '/');
-                result.msg = result.msg.replace(timeMatch[1], '').trim();
+                // 删除日志前缀时间戳 [YYYY-MM-DD HH:MM:SS],时间列已展示,消息中不重复
+                result.msg = result.msg.replace(new RegExp(`\\[?${timeMatch[1]}\\s+${timeMatch[2]}\\]?`), '').trim();
             } else {
                 // 如果后端没发日期，自动用浏览器今天的时间补齐左侧紫色的时间列
                 const today = new Date();
@@ -322,11 +323,12 @@
             const logData = parseRawLog(rawLog);
             const currentSecStamp = `${logData.date} ${logData.timeSec}`;
 
-            // 🌟 严格的分组判定：不仅要时间精准到同一秒，日志等级（INFO/WARNING）也要相同才进行折叠拼接！
-            const isGrouped = (currentSecStamp === lastLogTimeSec) && (logData.level === lastLogLevel) && (currentSecStamp.trim() !== "");
+            // 🌟 分组判定：按日志自身时间精确到分钟分组，同一分钟内、日志等级相同才进行折叠拼接
+            const currentMinuteStamp = `${logData.date} ${logData.timeSec.slice(0, 5)}`;
+            const isGrouped = (currentMinuteStamp === lastLogMinute) && (logData.level === lastLogLevel) && (currentMinuteStamp.trim() !== "");
 
             // 刷新锚点
-            lastLogTimeSec = currentSecStamp;
+            lastLogMinute = currentMinuteStamp;
             lastLogLevel = logData.level;
 
             const row = document.createElement('div');

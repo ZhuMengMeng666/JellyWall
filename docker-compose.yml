@@ -17,8 +17,10 @@ services:
       - /volume2/HDD-Docker/JellyWall/static/posters:/app/static/posters
       - /volume2/HDD-Docker/JellyWall/static/stills:/app/static/stills
       - /volume2/HDD-Docker/JellyWall/static/backdrops:/app/static/backdrops
-      # 映射 TMDB 补全/导入产生的图片缓存 (static/images)
-      - /volume2/HDD-Docker/JellyWall/static/images:/app/static/images
+      # 映射 TMDB 补全/导入产生的图片缓存子目录 (保留 images 根目录在镜像内,避免覆盖 logo)
+      - /volume2/HDD-Docker/JellyWall/static/images/backdrops:/app/static/images/backdrops
+      - /volume2/HDD-Docker/JellyWall/static/images/posters:/app/static/images/posters
+      - /volume2/HDD-Docker/JellyWall/static/images/stills:/app/static/images/stills
       - /volume2/HDD-Docker/JellyWall/logs:/app/logs
     environment:
       - TZ=Asia/Shanghai  # 确保日志和同步时间时区正确

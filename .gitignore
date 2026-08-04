@@ -3,7 +3,7 @@
 # ==================================
 .venv/
 venv/
-__pycache__/
+**pycache**/
 *.py[cod]
 .idea/
 
@@ -27,6 +27,13 @@ static/stills/*
 static/images/
 # 静态资源离线备份包
 static.rar
+OPTIMIZATION_REPORT.md
+PHASE1_IMPLEMENTATION.md
+PROJECT_DOCUMENTATION.md
+app_functions_documentation.md
+templates/demo_detail.html
+config/system_config.json
+
 logs/*
 
 # ==================================

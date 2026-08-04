@@ -65,6 +65,12 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=7)
 Compress(app)
 
 
+# ==========================================
+# 应用版本号(后续迭代在此递增)
+# ==========================================
+APP_VERSION = "1.0.0"
+
+
 
 # ==========================================
 # 核心：接管日志引擎 (区分系统 HTTP 与 业务日志)
@@ -127,6 +133,12 @@ logger.addHandler(console_handler)
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
+
+
+@app.context_processor
+def inject_app_version():
+    """把版本号注入所有模板,供页面页脚展示。"""
+    return {'app_version': APP_VERSION}
 
 # 配置文件的存放路径
 CONFIG_DIR = os.path.join(app.root_path, 'config')
@@ -3617,6 +3629,6 @@ if __name__ == '__main__':
     except Exception as e:
         logger.warning(f"读取自定义端口失败，将使用默认端口 5000。原因: {e}")
 
-    logger.info(f"JellyWall 即将启动，运行端口: {run_port}")
+    logger.info(f"JellyWall v{APP_VERSION} 即将启动，运行端口: {run_port}")
 
     app.run(host='0.0.0.0', port=run_port)

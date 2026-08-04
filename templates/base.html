@@ -97,6 +97,7 @@
         .user-profile { display: flex; align-items: center; padding: 10px 15px; color: var(--text-muted); font-size: 14px; }
         .logout-btn { display: flex; align-items: center; padding: 12px 15px; border-radius: 8px; color: #ef4444; text-decoration: none; transition: all 0.3s; }
         .logout-btn:hover { background-color: rgba(239, 68, 68, 0.1); transform: translateY(-3px); box-shadow: 0 6px 12px rgba(239, 68, 68, 0.15); }
+        .sidebar-version { padding: 6px 15px; color: var(--text-muted); font-size: 12px; opacity: 0.7; letter-spacing: 0.5px; }
 
         .main-content { flex: 1; padding: 30px; overflow-y: auto; position: relative; }
 
@@ -281,6 +282,7 @@
                 <span class="icon" style="color: #ef4444;"><i data-lucide="log-out"></i></span>
                 <span class="text">登出</span>
             </a>
+            <div class="sidebar-version">JellyWall v{{ app_version }}</div>
         </div>
     </div>
 

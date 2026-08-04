@@ -23,8 +23,15 @@ instance/*
 static/backdrops/*
 static/posters/*
 static/stills/*
-# TMDB 图片本地缓存目录(运行时生成)
-static/images/
+# TMDB 图片本地缓存目录(运行时生成,忽略全部内容)
+static/images/*
+# 放行随仓库提交的 Logo 与 README 截图
+!static/images/logo.png
+!static/images/logo.svg
+!static/images/dashboard.png
+!static/images/watched.png
+!static/images/watched_list.png
+!static/images/detail.png
 # 静态资源离线备份包
 static.rar
 OPTIMIZATION_REPORT.md

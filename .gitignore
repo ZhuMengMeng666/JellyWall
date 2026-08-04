@@ -32,6 +32,16 @@ static/images/*
 !static/images/watched.png
 !static/images/watched_list.png
 !static/images/detail.png
+# 放行 TMDB 缓存子目录本身,保证部署时目录结构存在(内容仍忽略)
+!static/images/backdrops/
+!static/images/posters/
+!static/images/stills/
+static/images/backdrops/*
+static/images/posters/*
+static/images/stills/*
+!static/images/backdrops/.gitkeep
+!static/images/posters/.gitkeep
+!static/images/stills/.gitkeep
 # 静态资源离线备份包
 static.rar
 OPTIMIZATION_REPORT.md

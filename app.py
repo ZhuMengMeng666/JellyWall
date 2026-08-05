@@ -3379,6 +3379,9 @@ def execute_watcharr_import():
         tmdb_season_cache = {}
         total_items = len(payload)
         logger.info(f"[Watcharr导入] 共解析到 {total_items} 个待处理条目")
+        # 批量提交阈值：每处理 COMMIT_BATCH_SIZE 个条目提交一次事务，减少 SQLite 提交开销
+        COMMIT_BATCH_SIZE = 25
+        batch_count = 0
 
         try:
             for idx, item in enumerate(payload, 1):
@@ -3529,17 +3532,27 @@ def execute_watcharr_import():
                                             series_tmdb_id=tmdb_id or None,
                                             still_image_path=local_still
                                         ))
-                    db.session.commit()
-                    logger.info(f"[数据库] 条目事务提交成功: {tmdb_title}")
+                    batch_count += 1
+                    if batch_count >= COMMIT_BATCH_SIZE:
+                        db.session.commit()
+                        logger.info(f"[数据库] 批量提交成功：第 {idx // COMMIT_BATCH_SIZE} 批，共 {batch_count} 条")
+                        batch_count = 0
                 except Exception as db_err:
                     db.session.rollback()
+                    batch_count = 0
                     logger.error(f"[数据库] 处理条目 '{fallback_title}' 时异常，已回滚: {str(db_err)}")
+
+            # 收尾：提交剩余不足一批的条目
+            if batch_count > 0:
+                db.session.commit()
+                logger.info(f"[数据库] 批量提交成功：收尾批次，共 {batch_count} 条")
 
         except GeneratorExit:
             logger.info("[Watcharr导入] 客户端主动中止了导入任务，后台进程已安全结束。")
             session.close()
             return
         except Exception as e:
+            db.session.rollback()
             logger.error(f"[Watcharr导入] 主循环出现未预期异常: {e}")
 
         session.close()
@@ -3665,8 +3678,12 @@ def save_system_config(config_data):
 
 
 if __name__ == '__main__':
-    # 提前开启调式模式，把双进程的坑避过去
-    app.debug = True
+    # 调试模式由环境变量控制：FLASK_DEBUG=1 开启（开发用），生产环境默认关闭
+    app.debug = os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes', 'on')
+    if app.debug:
+        logger.info("[启动] 调试模式已开启 (FLASK_DEBUG=1)")
+    else:
+        logger.info("[启动] 生产模式：调试器已关闭 (可设置 FLASK_DEBUG=1 开启)")
 
     # 项目启动时保证数据库表结构都顺利建好
     with app.app_context():

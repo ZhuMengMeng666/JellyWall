@@ -35,7 +35,7 @@ from flask_login import (
 )
 from flask_compress import Compress
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_, text
+from sqlalchemy import or_, text, func
 from werkzeug.security import generate_password_hash, check_password_hash
 
 
@@ -670,21 +670,26 @@ def dashboard():
         })
 
     one_year_ago = datetime.now() - timedelta(days=365)
-    heatmap_records = WatchRecord.query.filter(
+    # 优化:由 SQL 按"天 + 类型"分组聚合,替代全量加载后逐条计数
+    heat_rows = db.session.query(
+        func.date(WatchRecord.date_played).label('d'),
+        WatchRecord.item_type,
+        func.count(WatchRecord.id).label('cnt')
+    ).filter(
         WatchRecord.user_id == current_user.id,
         WatchRecord.is_deleted == False,
         WatchRecord.date_played >= one_year_ago
-    ).all()
+    ).group_by('d', WatchRecord.item_type).all()
 
     heatmap_data = {}
-    for r in heatmap_records:
-        date_str = r.date_played.strftime('%Y-%m-%d')
+    for d, item_type, cnt in heat_rows:
+        date_str = str(d)
         if date_str not in heatmap_data:
             heatmap_data[date_str] = {'movies': 0, 'episodes': 0}
-        if r.item_type == 'Movie':
-            heatmap_data[date_str]['movies'] += 1
+        if item_type == 'Movie':
+            heatmap_data[date_str]['movies'] = cnt
         else:
-            heatmap_data[date_str]['episodes'] += 1
+            heatmap_data[date_str]['episodes'] = cnt
 
     return render_template('dashboard.html', title="仪表板",
                            movie_total=movie_total, movie_jf=movie_jf, movie_tmdb=movie_tmdb,

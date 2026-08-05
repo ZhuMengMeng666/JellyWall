@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 import zipfile
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from queue import Queue
@@ -43,13 +44,25 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 
 # TMDB 搜索结果的短时缓存池，格式为 {query: {timestamp: float, data: list}}
-TMDB_SEARCH_CACHE = {}
+# 使用 OrderedDict 实现 LRU 上限，防止无限增长
+TMDB_SEARCH_CACHE = OrderedDict()
 # TMDB 详情缓存
-TMDB_DETAIL_CACHE = {}
+TMDB_DETAIL_CACHE = OrderedDict()
 # 专门用来缓存剧集的官方总集数
 TMDB_TV_EP_COUNT_CACHE = {}
 # 缓存存活时间
 CACHE_TTL = 3600
+# 缓存最大条目数，超出后淘汰最久未使用的条目
+TMDB_CACHE_MAX_ENTRIES = 200
+
+
+def _cache_put(cache, key, value):
+    """写入缓存并维护 LRU 上限：超限时淘汰最久未使用的条目。"""
+    if key in cache:
+        cache.pop(key)
+    cache[key] = value
+    if len(cache) > TMDB_CACHE_MAX_ENTRIES:
+        cache.popitem(last=False)
 # 全局数据库锁，为了防止多线程把 SQLite 并发写入卡死
 db_lock = threading.Lock()
 
@@ -985,6 +998,7 @@ def explore_detail(media_type, item_id):
     if cache_key in TMDB_DETAIL_CACHE:
         cached_item = TMDB_DETAIL_CACHE[cache_key]
         if current_time - cached_item['timestamp'] < CACHE_TTL:
+            TMDB_DETAIL_CACHE.move_to_end(cache_key)
             logger.debug(f"[探索详情] 命中 TMDB 详情缓存: {cache_key}")
             render_data = cached_item['data']
         else:
@@ -1111,10 +1125,10 @@ def explore_detail(media_type, item_id):
                 'season_overview_map': season_overview_map
             }
 
-            TMDB_DETAIL_CACHE[cache_key] = {
+            _cache_put(TMDB_DETAIL_CACHE, cache_key, {
                 'timestamp': current_time,
                 'data': render_data
-            }
+            })
         except Exception as e:
             logger.error(f"[探索详情] 获取 TMDB 详情异常 (type={media_type}, id={item_id}): {str(e)}")
             flash(f"网络请求失败: {str(e)}")
@@ -1568,6 +1582,7 @@ def api_search_tmdb():
     if query in TMDB_SEARCH_CACHE:
         cached_item = TMDB_SEARCH_CACHE[query]
         if current_time - cached_item['timestamp'] < CACHE_TTL:
+            TMDB_SEARCH_CACHE.move_to_end(query)
             raw_results = cached_item['data']
             logger.debug(f"[搜索缓存] 命中 TMDB 搜索缓存: {query}")
         else:
@@ -1590,10 +1605,10 @@ def api_search_tmdb():
                 data = resp.json()
                 raw_results = data.get('results', [])
 
-                TMDB_SEARCH_CACHE[query] = {
+                _cache_put(TMDB_SEARCH_CACHE, query, {
                     'timestamp': current_time,
                     'data': raw_results
-                }
+                })
                 logger.debug(f"[搜索缓存] 未命中缓存，请求 TMDB 并写入: {query}")
             else:
                 return jsonify({"success": False, "message": f"TMDB 返回异常 (状态码: {resp.status_code})"})
@@ -1705,7 +1720,10 @@ def watched():
     # ==========================================
     # 1. 抓取海报表，构建基于片名和 TMDB_ID 的图片映射库
     # ==========================================
-    posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).all()
+    posters = db.session.query(
+        WatchPoster.media_type, WatchPoster.display_title, WatchPoster.series_name,
+        WatchPoster.tmdb_id, WatchPoster.local_image_path, WatchPoster.series_image_path
+    ).filter_by(user_id=current_user.id, is_deleted=False).all()
     movie_poster_map = {}
     movie_tmdb_map = {}
     series_poster_map = {}
@@ -1729,8 +1747,10 @@ def watched():
     # 2. 从真实的观看记录表 (WatchRecord) 中提取数据
     # 注意这里使用的是 asc()，即从最老的远古记录开始遍历
     # ==========================================
-    raw_records = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
-        WatchRecord.date_played.asc()).all()
+    raw_records = db.session.query(
+        WatchRecord.id, WatchRecord.item_type, WatchRecord.title,
+        WatchRecord.series_name, WatchRecord.tmdb_id, WatchRecord.date_played
+    ).filter_by(user_id=current_user.id, is_deleted=False).order_by(WatchRecord.date_played.asc()).all()
 
     aggregated_dict = {}
 
@@ -2027,14 +2047,14 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
         backdrop_filename = f"{bg_source_id}_backdrop.jpg"
         backdrop_path = os.path.join(backdrop_dir, backdrop_filename)
         backdrop_relative_path = f"backdrops/{backdrop_filename}"
-        if not download_image(f"{jf_url}/Items/{bg_source_id}/Images/Backdrop/0?maxWidth=1920", headers, backdrop_path,
-                              session):
+        if not download_image(f"{jf_url}/Items/{bg_source_id}/Images/Backdrop/0?maxWidth=1920&quality=85", headers,
+                              backdrop_path, session):
             backdrop_relative_path = None
 
         background_filename = f"{bg_source_id}_background.jpg"
         background_path = os.path.join(backdrop_dir, background_filename)
         background_relative_path = f"backdrops/{background_filename}"
-        if not download_image(f"{jf_url}/Items/{bg_source_id}/Images/Backdrop/1?maxWidth=1920", headers,
+        if not download_image(f"{jf_url}/Items/{bg_source_id}/Images/Backdrop/1?maxWidth=1920&quality=85", headers,
                               background_path, session):
             background_relative_path = None
 
@@ -2187,10 +2207,15 @@ def api_sync_stream():
 @login_required
 def watched_list():
     """历史记录展示大全，采用双轨引擎：按媒体库展示不去重（保留数据源真实性），按类型展示严格去重。"""
-    raw_records = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False).order_by(
-        WatchRecord.date_played.desc()).all()
+    raw_records = db.session.query(
+        WatchRecord.id, WatchRecord.item_type, WatchRecord.title, WatchRecord.series_name,
+        WatchRecord.season_name, WatchRecord.tmdb_id, WatchRecord.library_name, WatchRecord.date_played
+    ).filter_by(user_id=current_user.id, is_deleted=False).order_by(WatchRecord.date_played.desc()).all()
 
-    posters = WatchPoster.query.filter_by(user_id=current_user.id, is_deleted=False).all()
+    posters = db.session.query(
+        WatchPoster.media_type, WatchPoster.display_title, WatchPoster.series_name,
+        WatchPoster.tmdb_id, WatchPoster.local_image_path, WatchPoster.series_image_path
+    ).filter_by(user_id=current_user.id, is_deleted=False).all()
 
     # 构建双维度海报映射字典，极大提高命中率
     movie_poster_map = {}

@@ -11,7 +11,9 @@ import threading
 import time
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from queue import Queue
 
 # ==========================================
 # 2. 第三方网络与任务调度库
@@ -126,7 +128,10 @@ app.logger.setLevel(logging.INFO)
 
 # 初始化业务专属 Logger
 logger = logging.getLogger('jellywall')
-logger.setLevel(logging.INFO)
+# 默认 INFO；设置环境变量 JELLYWALL_LOG_LEVEL=DEBUG 可开启 DEBUG 级别的细节日志
+logger.setLevel(
+    logging.DEBUG if os.environ.get('JELLYWALL_LOG_LEVEL', 'INFO').upper() == 'DEBUG' else logging.INFO
+)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
@@ -277,7 +282,7 @@ class EpisodeDetail(db.Model):
     )
 
 
-def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id):
+def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id, session=None):
     """下载并更新某一个特定单集的剧照和剧情简介到本地数据库。"""
     item_id = item["Id"]
     existing_detail = EpisodeDetail.query.filter_by(item_id=item_id).first()
@@ -300,7 +305,7 @@ def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id):
     still_relative_path = f"stills/{still_filename}"
 
     img_url = f"{jf_url}/Items/{item_id}/Images/Primary?maxWidth=600"
-    if not download_image(img_url, headers, still_path):
+    if not download_image(img_url, headers, still_path, session):
         still_relative_path = "images/logo.png"
 
     new_detail = EpisodeDetail(
@@ -317,6 +322,128 @@ def update_episode_detail(item, jf_url, headers, still_dir, series_tmdb_id):
 scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 
 
+def _build_http_session():
+    """构建带连接池与自动重试的 requests Session，避免每次请求重建 TCP/TLS 连接。"""
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=15, pool_maxsize=15)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    return session
+
+
+def _run_full_sync(user, on_progress=None, use_lock=True, collect_log_names=True):
+    """统一的全量同步核心：拉取 Jellyfin 媒体库 → 更新观看记录 / 海报 / 单集详情。
+
+    :param user: User 实例（后台任务中为 load_user 的结果，路由中即 current_user）
+    :param on_progress: 可选回调 on_progress(text)，用于 SSE 等实时场景推送进度
+    :param use_lock: 是否对每项写入及最终提交使用全局 db_lock
+                     （后台/SSE 为 True，手动同步维持原无锁行为为 False）
+    :param collect_log_names: 是否额外收集 "剧名 SxxExx" 形式的日志名称
+                     （后台/SSE 为 True，手动同步维持原行为为 False）
+    :return: {'ok': bool, 'reason': str|None, 'sync_count': int, 'synced_names': set}
+    说明：媒体库列表获取失败返回 ok=False（reason='views_failed'）；
+    其余网络异常保持原样向上抛出，由各调用方按原有方式处理。
+    """
+    jf_url = user.jellyfin_url
+    headers = {"X-Emby-Token": user.jellyfin_api_key}
+    base_user_url = f"{jf_url}/Users/{user.jellyfin_user_id}"
+
+    poster_dir = os.path.join(app.root_path, 'static', 'posters')
+    still_dir = os.path.join(app.root_path, 'static', 'stills')
+    backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
+    for d in [poster_dir, still_dir, backdrop_dir]:
+        os.makedirs(d, exist_ok=True)
+
+    session = _build_http_session()
+
+    sync_count = 0
+    synced_names = set()
+    tmdb_search_cache = {}
+    processed_ids = set()
+    poster_cache = {}
+
+    def do_update(item, view_name, dt_local, master_tmdb_id):
+        nonlocal sync_count
+        if update_watch_record(user.id, item, item["Type"], view_name, dt_local, master_tmdb_id):
+            sync_count += 1
+
+            if collect_log_names:
+                if item["Type"] == "Episode":
+                    series_name = item.get("SeriesName", item.get("Name", "未知剧集"))
+                    try:
+                        s_num = int(item.get("ParentIndexNumber", 1))
+                        e_num = int(item.get("IndexNumber", 0))
+                        log_display_name = f"{series_name} S{s_num:02d}E{e_num:02d}"
+                    except (ValueError, TypeError):
+                        log_display_name = f"{series_name} (特殊集)"
+                else:
+                    log_display_name = item.get("Name", "未知电影")
+
+                if log_display_name:
+                    synced_names.add(log_display_name)
+
+            update_watch_poster(user.id, user.jellyfin_user_id, item, item["Type"], dt_local,
+                                jf_url, headers, poster_dir, backdrop_dir, synced_names,
+                                master_tmdb_id, poster_cache, session)
+
+        if item["Type"] == "Episode":
+            update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id, session)
+
+    with db.session.no_autoflush:
+        views_resp = session.get(f"{base_user_url}/Views", headers=headers, timeout=10)
+        if views_resp.status_code != 200:
+            return {'ok': False, 'reason': 'views_failed', 'sync_count': 0, 'synced_names': set()}
+
+        for view in views_resp.json().get("Items", []):
+            view_name = view.get('Name', '未知库')
+            if on_progress:
+                on_progress(f"准备扫描库: {view_name}")
+
+            items_resp = session.get(
+                f"{base_user_url}/Items", headers=headers,
+                params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
+                        "Recursive": "true", "Limit": 2000,
+                        "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
+                timeout=15
+            )
+            if items_resp.status_code != 200:
+                continue
+
+            for item in items_resp.json().get("Items", []):
+                item_id = item["Id"]
+                if item_id in processed_ids:
+                    continue
+                processed_ids.add(item_id)
+
+                dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
+                if not dt_local:
+                    continue
+
+                if on_progress:
+                    progress_name = item.get("Name", "未知")
+                    if item["Type"] == "Episode":
+                        series_name = item.get("SeriesName", "未知剧集")
+                        progress_name = f"{series_name} - {progress_name}"
+                    on_progress(progress_name)
+
+                master_tmdb_id = get_tmdb_id_smart(user, item, item["Type"], tmdb_search_cache, session)
+
+                if use_lock:
+                    with db_lock:
+                        do_update(item, view["Name"], dt_local, master_tmdb_id)
+                else:
+                    do_update(item, view["Name"], dt_local, master_tmdb_id)
+
+        if use_lock:
+            with db_lock:
+                db.session.commit()
+        else:
+            db.session.commit()
+
+    return {'ok': True, 'reason': None, 'sync_count': sync_count, 'synced_names': synced_names}
+
+
 def background_sync_task(user_id):
     """纯后台跑的定时同步任务，负责定期去 Jellyfin 拉取最新的观看进度并存入本地。"""
     with app.app_context():
@@ -324,84 +451,24 @@ def background_sync_task(user_id):
         if not user or not user.jellyfin_url or not user.jellyfin_api_key:
             return
 
-        logger.info(f"[Auto-Sync] 开始为用户 {user.username} 执行定时同步...")
-        jf_url = user.jellyfin_url
-        headers = {"X-Emby-Token": user.jellyfin_api_key}
-        base_user_url = f"{jf_url}/Users/{user.jellyfin_user_id}"
-
-        poster_dir = os.path.join(app.root_path, 'static', 'posters')
-        still_dir = os.path.join(app.root_path, 'static', 'stills')
-        backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
-
-        sync_count = 0
-        tmdb_search_cache = {}
-        synced_names = set()
-        processed_ids = set()
-        poster_cache = {}
-
+        logger.info(f"[自动同步] 开始为用户 {user.username} 执行定时同步...")
         try:
-            with db.session.no_autoflush:
-                views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
-                if views_resp.status_code != 200: return
-
-                for view in views_resp.json().get("Items", []):
-                    items_resp = requests.get(
-                        f"{base_user_url}/Items", headers=headers,
-                        params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
-                                "Recursive": "true", "Limit": 2000,
-                                "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
-                        timeout=15
-                    )
-                    if items_resp.status_code != 200: continue
-
-                    for item in items_resp.json().get("Items", []):
-                        item_id = item["Id"]
-                        if item_id in processed_ids:
-                            continue
-                        processed_ids.add(item_id)
-
-                        dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
-                        if not dt_local: continue
-
-                        master_tmdb_id = get_tmdb_id_smart(user, item, item["Type"], tmdb_search_cache)
-
-                        with db_lock:
-                            if update_watch_record(user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
-                                sync_count += 1
-
-                                if item["Type"] == "Episode":
-                                    series_name = item.get("SeriesName", item.get("Name", "未知剧集"))
-                                    try:
-                                        s_num = int(item.get("ParentIndexNumber", 1))
-                                        e_num = int(item.get("IndexNumber", 0))
-                                        display_name = f"{series_name} S{s_num:02d}E{e_num:02d}"
-                                    except (ValueError, TypeError):
-                                        display_name = f"{series_name} (特殊集)"
-                                else:
-                                    display_name = item.get("Name", "未知电影")
-
-                                if display_name:
-                                    synced_names.add(display_name)
-
-                                update_watch_poster(user.id, user.jellyfin_user_id, item, item["Type"], dt_local,
-                                                    jf_url, headers, poster_dir, backdrop_dir, synced_names,
-                                                    master_tmdb_id, poster_cache)
-
-                            if item["Type"] == "Episode":
-                                update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
-
-            with db_lock:
-                db.session.commit()
+            result = _run_full_sync(user, on_progress=None, use_lock=True, collect_log_names=True)
+            if not result['ok']:
+                logger.warning(f"[自动同步] 用户 {user.username} 同步中止：无法获取媒体库列表")
+                return
+            sync_count = result['sync_count']
+            synced_names = result['synced_names']
 
             if sync_count > 0:
                 names_str = "\n" + "\n".join([f"  - {name}" for name in sorted(synced_names)])
                 logger.info(
-                    f"[Auto-Sync] 用户 {user.username} 定时同步完成！新增/更新了 {sync_count} 项记录:{names_str}")
+                    f"[自动同步] 用户 {user.username} 定时同步完成！新增/更新了 {sync_count} 项记录:{names_str}")
             else:
-                logger.info(f"[Auto-Sync] 用户 {user.username} 定时同步完成！本地记录已是最新，无新增。")
+                logger.info(f"[自动同步] 用户 {user.username} 定时同步完成！本地记录已是最新，无新增。")
 
         except Exception as e:
-            logger.error(f"[Auto-Sync] 定时同步失败: {e}")
+            logger.error(f"[自动同步] 定时同步失败: {e}")
 
 
 def archive_yesterday_logs():
@@ -466,9 +533,9 @@ def refresh_scheduler_jobs():
             id="system_log_archive_job",
             replace_existing=True
         )
-        logger.info("[调度引擎] 已挂载系统级定时任务: 每天 09:30 自动压缩归档昨日日志")
+        logger.info("[调度] 已挂载系统级定时任务: 每天 09:30 自动压缩归档昨日日志")
     except Exception as e:
-        logger.error(f"挂载系统日志打包任务失败: {e}")
+        logger.error(f"[调度] 挂载系统日志打包任务失败: {e}")
 
     users = load_users()
     for uid, udata in users.items():
@@ -482,9 +549,9 @@ def refresh_scheduler_jobs():
                     id=f"auto_sync_{uid}",
                     replace_existing=True
                 )
-                logger.info(f"已挂载用户 {udata.get('username')} 的定时任务: {udata['sync_cron']}")
+                logger.info(f"[调度] 已挂载用户 {udata.get('username')} 的定时任务: {udata['sync_cron']}")
             except ValueError:
-                logger.warning(f"用户 {udata.get('username')} 的 Cron 表达式无效: {udata['sync_cron']}")
+                logger.warning(f"[调度] 用户 {udata.get('username')} 的 Cron 表达式无效: {udata['sync_cron']}")
 
 
 @login_manager.user_loader
@@ -523,9 +590,10 @@ def login():
 
         if user_data and check_password_hash(user_data['password'], password):
             login_user(User(**user_data))
-            logger.info(f"用户登录成功: {username}")
+            logger.info(f"[登录] 用户登录成功: {username}, ip={request.remote_addr}")
             return redirect(url_for('dashboard'))
         else:
+            logger.warning(f"[登录] 登录失败，用户名或密码错误: username={username}, ip={request.remote_addr}")
             flash('用户名或密码错误，请重试。')
 
     return render_template('login.html')
@@ -539,6 +607,7 @@ def register():
 
     sys_config = get_system_config()
     if not sys_config.get('allow_registration', True):
+        logger.warning("[注册] 注册入口已被管理员关闭，访问被拒绝")
         flash('管理员已关闭新用户注册功能。')
         return redirect(url_for('login'))
 
@@ -550,6 +619,7 @@ def register():
 
         users = load_users()
         if any(u.get('username') == username for u in users.values()):
+            logger.warning(f"[注册] 注册失败，用户名已被占用: {username}")
             flash('该用户名已被注册，请换一个重试。')
             return redirect(url_for('register'))
 
@@ -563,7 +633,7 @@ def register():
         )
 
         new_user.save()
-        logger.info(f"新用户注册成功: {username}")
+        logger.info(f"[注册] 新用户注册成功: {username}")
         flash('注册成功！请登录。')
         return redirect(url_for('login'))
 
@@ -605,14 +675,18 @@ def onboarding():
                 current_user.jellyfin_api_key = data.get('AccessToken')
                 current_user.jellyfin_user_id = data.get('User').get('Id')
                 current_user.save()
+                logger.info(f"[引导] 用户 {current_user.username} 绑定 Jellyfin 服务器成功: {jellyfin_url}")
                 return redirect(url_for('dashboard'))
             elif resp.status_code == 401:
+                logger.warning(f"[引导] Jellyfin 绑定失败：用户名或密码错误 (用户: {current_user.username})")
                 flash('绑定失败：Jellyfin 用户名或密码错误。')
             else:
+                logger.warning(
+                    f"[引导] Jellyfin 绑定失败：服务器返回状态码 {resp.status_code} (用户: {current_user.username})")
                 flash(f'绑定失败：服务器返回状态码 {resp.status_code}')
         except Exception as e:
             flash(f'无法连接到 Jellyfin，请检查网络或配置。详细: {str(e)}')
-            logger.error(f"Jellyfin 绑定连通性测试失败: {str(e)}")
+            logger.error(f"[引导] Jellyfin 绑定连通性测试失败: {str(e)}")
 
     return render_template('onboarding.html')
 
@@ -718,10 +792,14 @@ def test_proxy():
     try:
         test_resp = requests.get("http://www.google.com", proxies=proxies, timeout=5)
         if test_resp.status_code == 200:
+            logger.info(f"[网络测试] 代理连通性测试成功: {proxy_url}:{proxy_port}")
             return jsonify({"success": True, "message": "测试代理成功！网络已连通。"})
         else:
+            logger.warning(
+                f"[网络测试] 代理连通性测试失败：代理服务器返回状态码 {test_resp.status_code} ({proxy_url}:{proxy_port})")
             return jsonify({"success": False, "message": f"测试失败：代理服务器返回状态码 {test_resp.status_code}"})
     except Exception as e:
+        logger.warning(f"[网络测试] 代理连通性测试异常：无法连接 {proxy_url}:{proxy_port}: {str(e)}")
         return jsonify({"success": False, "message": f"连接代理失败：{str(e)}"})
 
 
@@ -738,10 +816,14 @@ def test_tmdb():
         resp = requests.get(url, proxies=get_user_proxies(current_user), timeout=8)
 
         if resp.status_code == 200:
+            logger.info(f"[网络测试] TMDB API Key 验证通过 (用户: {current_user.username})")
             return jsonify({"success": True, "message": "测试成功！已连通 TMDB。"})
         else:
+            logger.warning(
+                f"[网络测试] TMDB API Key 验证失败：状态码 {resp.status_code} (用户: {current_user.username})")
             return jsonify({"success": False, "message": f"验证失败：API Key 无效 (状态码 {resp.status_code})"})
     except Exception as e:
+        logger.warning(f"[网络测试] TMDB 连通性测试异常: {str(e)}")
         return jsonify({"success": False, "message": f"连接 TMDB 失败，请检查网络或代理设置：{str(e)}"})
 
 
@@ -757,6 +839,7 @@ def config():
             sys_config = get_system_config()
             sys_config['allow_registration'] = allow_reg
             save_system_config(sys_config)
+            logger.info(f"[配置] 用户 {current_user.username} 更新了系统安全设置 (开放注册: {allow_reg})")
             flash("系统安全设置已更新！")
             return redirect(url_for('config'))
 
@@ -769,6 +852,8 @@ def config():
             current_user.save()
             refresh_scheduler_jobs()
 
+            logger.info(
+                f"[配置] 用户 {current_user.username} 更新了自动化同步配置 (enabled={sync_enabled}, cron={sync_cron})")
             flash("自动化同步配置已保存生效！")
             return redirect(url_for('config'))
 
@@ -776,12 +861,14 @@ def config():
             current_user.proxy_url = request.form.get('proxy_url').strip()
             current_user.proxy_port = request.form.get('proxy_port').strip()
             current_user.save()
+            logger.info(f"[配置] 用户 {current_user.username} 更新了代理配置")
             flash("代理配置保存成功！")
             return redirect(url_for('config'))
 
         if form_type == 'tmdb_settings':
             current_user.tmdb_api_key = request.form.get('tmdb_api_key').strip()
             current_user.save()
+            logger.info(f"[配置] 用户 {current_user.username} 更新了 TMDB API Key")
             flash("TMDB 密钥保存成功！")
             return redirect(url_for('config'))
 
@@ -791,14 +878,17 @@ def config():
             confirm_password = request.form.get('confirm_password')
 
             if not check_password_hash(current_user.password, old_password):
+                logger.warning(f"[安全] 用户 {current_user.username} 修改密码失败：原密码错误")
                 flash("原密码错误，请重试。")
             elif new_password != confirm_password:
+                logger.warning(f"[安全] 用户 {current_user.username} 修改密码失败：两次输入的新密码不一致")
                 flash("两次输入的新密码不一致。")
             elif len(new_password) < 6:
+                logger.warning(f"[安全] 用户 {current_user.username} 修改密码失败：新密码长度不足 6 位")
                 flash("新密码长度建议不少于 6 位。")
             else:
                 current_user.password = generate_password_hash(new_password)
-                logger.info(f"用户 {current_user.username} 成功修改了登录密码。")
+                logger.info(f"[安全] 用户 {current_user.username} 成功修改了登录密码")
                 current_user.save()
 
                 logout_user()
@@ -809,6 +899,7 @@ def config():
         if form_type == 'web_settings':
             current_user.web_port = request.form.get('web_port').strip()
             current_user.save()
+            logger.info(f"[配置] 用户 {current_user.username} 更新了网页访问端口: {current_user.web_port}")
             flash("网页项目访问端口保存成功！")
             return redirect(url_for('config'))
 
@@ -846,11 +937,15 @@ def config():
                 current_user.jellyfin_user_id = user_id
                 current_user.save()
 
+                logger.info(f"[配置] 用户 {current_user.username} 绑定 Jellyfin 服务器成功: {base_url}")
                 flash("Jellyfin 服务器绑定成功！现在可以去拉取数据了。")
             else:
+                logger.warning(
+                    f"[配置] Jellyfin 绑定失败：账号或密码错误 (状态码: {resp.status_code}, 用户: {current_user.username})")
                 flash(f"绑定失败：Jellyfin 账号或密码错误 (错误码: {resp.status_code})")
 
         except requests.exceptions.RequestException as e:
+            logger.warning(f"[配置] Jellyfin 绑定连接失败: {str(e)}")
             flash(f"连接失败：无法访问该地址，请检查 IP、端口或网络是否互通。")
 
         return redirect(url_for('config'))
@@ -890,6 +985,7 @@ def explore_detail(media_type, item_id):
     if cache_key in TMDB_DETAIL_CACHE:
         cached_item = TMDB_DETAIL_CACHE[cache_key]
         if current_time - cached_item['timestamp'] < CACHE_TTL:
+            logger.debug(f"[探索详情] 命中 TMDB 详情缓存: {cache_key}")
             render_data = cached_item['data']
         else:
             del TMDB_DETAIL_CACHE[cache_key]
@@ -905,6 +1001,8 @@ def explore_detail(media_type, item_id):
             resp = requests.get(url, params=params, proxies=get_user_proxies(current_user), timeout=10)
 
             if resp.status_code != 200:
+                logger.warning(
+                    f"[探索详情] 获取 TMDB 详情失败 (type={media_type}, id={item_id}, status={resp.status_code})")
                 flash(f"获取详情失败 (TMDB 状态码: {resp.status_code})")
                 return redirect(url_for('explore'))
 
@@ -949,37 +1047,55 @@ def explore_detail(media_type, item_id):
 
             if media_type == 'tv':
                 raw_seasons = data.get('seasons', [])
-                for s in raw_seasons:
+                logo_url = url_for('static', filename='images/logo.png')
+                user_proxies = get_user_proxies(current_user)
+
+                def fetch_season(s):
                     s_num = s.get('season_number')
-                    if s_num is None: continue
+                    if s_num is None:
+                        return None
 
                     s_url = f"https://api.themoviedb.org/3/tv/{item_id}/season/{s_num}"
                     s_resp = requests.get(s_url, params={"api_key": api_key, "language": "zh-CN"},
-                                          proxies=get_user_proxies(current_user), timeout=5)
+                                          proxies=user_proxies, timeout=5)
 
-                    if s_resp.status_code == 200:
-                        s_data = s_resp.json()
-                        episodes = s_data.get('episodes', [])
+                    if s_resp.status_code != 200:
+                        return None
 
-                        formatted_episodes = []
-                        for ep in episodes:
-                            still_path = ep.get('still_path')
-                            full_still_url = f"https://image.tmdb.org/t/p/w300{still_path}" if still_path else url_for(
-                                'static', filename='images/logo.png')
+                    s_data = s_resp.json()
+                    episodes = s_data.get('episodes', [])
 
-                            formatted_episodes.append({
-                                'episode_num': ep.get('episode_number'),
-                                'title': ep.get('name'),
-                                'overview': ep.get('overview'),
-                                'still_path': full_still_url,
-                                'air_date': ep.get('air_date') or '未知首播时间'
-                            })
+                    formatted_episodes = []
+                    for ep in episodes:
+                        still_path = ep.get('still_path')
+                        full_still_url = f"https://image.tmdb.org/t/p/w300{still_path}" if still_path else logo_url
 
-                        seasons_data[s_num] = formatted_episodes
-                        s_poster = s.get('poster_path')
-                        season_poster_map[
-                            s_num] = f"https://image.tmdb.org/t/p/w300{s_poster}" if s_poster else poster_url
-                        season_overview_map[s_num] = s.get('overview') or s_data.get('overview') or ""
+                        formatted_episodes.append({
+                            'episode_num': ep.get('episode_number'),
+                            'title': ep.get('name'),
+                            'overview': ep.get('overview'),
+                            'still_path': full_still_url,
+                            'air_date': ep.get('air_date') or '未知首播时间'
+                        })
+
+                    return {
+                        's_num': s_num,
+                        'episodes': formatted_episodes,
+                        'poster_path': s.get('poster_path'),
+                        'overview': s.get('overview') or s_data.get('overview') or ""
+                    }
+
+                if raw_seasons:
+                    with ThreadPoolExecutor(max_workers=4) as pool:
+                        for season_result in pool.map(fetch_season, raw_seasons):
+                            if season_result is None:
+                                continue
+                            s_num = season_result['s_num']
+                            seasons_data[s_num] = season_result['episodes']
+                            s_poster = season_result['poster_path']
+                            season_poster_map[
+                                s_num] = f"https://image.tmdb.org/t/p/w300{s_poster}" if s_poster else poster_url
+                            season_overview_map[s_num] = season_result['overview']
 
             render_data = {
                 'title': title,
@@ -1000,6 +1116,7 @@ def explore_detail(media_type, item_id):
                 'data': render_data
             }
         except Exception as e:
+            logger.error(f"[探索详情] 获取 TMDB 详情异常 (type={media_type}, id={item_id}): {str(e)}")
             flash(f"网络请求失败: {str(e)}")
             return redirect(url_for('explore'))
 
@@ -1090,7 +1207,7 @@ def download_tmdb_image(url, folder, filename, user_proxies=None):
                 f.write(resp.content)
             return filename
     except Exception as e:
-        logger.error(f"TMDB 图片本地化失败: {e}")
+        logger.warning(f"[TMDB图片] 图片本地化失败: {e}")
     return None
 
 
@@ -1100,6 +1217,7 @@ def api_mark_watched():
     """在探索页面点击了添加观看记录后，手动把 TMDB 数据反向同步进本地数据库里，还会一起刮削集数信息。"""
     api_key = current_user.tmdb_api_key
     if not api_key:
+        logger.warning(f"[反向同步] 未绑定 TMDB API Key，拒绝反向同步请求 (用户: {current_user.username})")
         return jsonify({"success": False, "message": "未绑定 TMDB API Key"})
 
     req_data = request.json or {}
@@ -1421,12 +1539,12 @@ def api_mark_watched():
             ep_count = len(req_data.get('episodes_list', []))
             log_msg += f"剧集《{title}》中的 {ep_count} 个单集"
 
-        logger.info(f"{log_msg}的观看足迹。")
+        logger.info(f"[反向同步] {log_msg}的观看足迹。")
         return jsonify({"success": True, "message": "已成功同步并下载本地海报与元数据！"})
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"反向同步操作失败 (用户: {current_user.username}): {str(e)}")
+        logger.error(f"[反向同步] 反向同步操作失败 (用户: {current_user.username}): {str(e)}")
         return jsonify({"success": False, "message": f"反向同步操作失败: {str(e)}"})
 
 
@@ -1451,7 +1569,7 @@ def api_search_tmdb():
         cached_item = TMDB_SEARCH_CACHE[query]
         if current_time - cached_item['timestamp'] < CACHE_TTL:
             raw_results = cached_item['data']
-            logger.info(f"命中搜索缓存: {query}")
+            logger.debug(f"[搜索缓存] 命中 TMDB 搜索缓存: {query}")
         else:
             del TMDB_SEARCH_CACHE[query]
 
@@ -1476,7 +1594,7 @@ def api_search_tmdb():
                     'timestamp': current_time,
                     'data': raw_results
                 }
-                logger.info(f"走网络请求并写入缓存: {query}")
+                logger.debug(f"[搜索缓存] 未命中缓存，请求 TMDB 并写入: {query}")
             else:
                 return jsonify({"success": False, "message": f"TMDB 返回异常 (状态码: {resp.status_code})"})
 
@@ -1685,7 +1803,8 @@ def proxy_image(item_id):
         resp = requests.get(img_url, headers=headers, stream=True, timeout=10)
         content_type = resp.headers.get('Content-Type', 'image/jpeg')
         return Response(resp.iter_content(chunk_size=1024), content_type=content_type)
-    except:
+    except Exception as e:
+        logger.warning(f"[图片代理] 代理图片失败 (item_id={item_id}): {str(e)}")
         return "Not found", 404
 
 
@@ -1693,7 +1812,9 @@ def proxy_image(item_id):
 @login_required
 def logout():
     """处理用户退出登录并重定向。"""
+    username = current_user.username
     logout_user()
+    logger.info(f"[登录] 用户 {username} 已退出登录")
     return redirect(url_for('login'))
 
 
@@ -1722,12 +1843,13 @@ def parse_jellyfin_date(date_raw):
         return None
 
 
-def download_image(url, headers, local_path):
+def download_image(url, headers, local_path, session=None):
     """一个通用的图片下载工具，如果在本地找到这张图了就跳过，省点带宽。"""
     if os.path.exists(local_path):
         return True
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
+        http_get = session.get if session else requests.get
+        resp = http_get(url, headers=headers, timeout=10)
         if resp.status_code == 200:
             with open(local_path, 'wb') as f:
                 f.write(resp.content)
@@ -1737,7 +1859,7 @@ def download_image(url, headers, local_path):
     return False
 
 
-def get_tmdb_id_smart(user, item, item_type, tmdb_cache):
+def get_tmdb_id_smart(user, item, item_type, tmdb_cache, session=None):
     """优先从 Jellyfin 刮削的数据里找 TMDB ID，要找不着就去 TMDB 官方接口里用中文名字再搜一遍兜底。"""
     if item_type == "Movie":
         tmdb_id = item.get("ProviderIds", {}).get("Tmdb")
@@ -1761,6 +1883,7 @@ def get_tmdb_id_smart(user, item, item_type, tmdb_cache):
         return tmdb_cache[cache_key]
 
     try:
+        http_get = session.get if session else requests.get
         url = f"https://api.themoviedb.org/3/search/{search_type}"
         params = {
             "api_key": user.tmdb_api_key,
@@ -1774,7 +1897,7 @@ def get_tmdb_id_smart(user, item, item_type, tmdb_cache):
             else:
                 params['first_air_date_year'] = year
 
-        resp = requests.get(url, params=params, proxies=get_user_proxies(user), timeout=5)
+        resp = http_get(url, params=params, proxies=get_user_proxies(user), timeout=5)
         if resp.status_code == 200:
             results = resp.json().get('results', [])
             if results:
@@ -1782,7 +1905,7 @@ def get_tmdb_id_smart(user, item, item_type, tmdb_cache):
                 tmdb_cache[cache_key] = fetched_id
                 return fetched_id
     except Exception as e:
-        logger.warning(f"TMDB ID 嗅探请求失败 (关键字: {query_title}): {str(e)}")
+        logger.warning(f"[TMDB] ID 嗅探请求失败 (关键字: {query_title}): {str(e)}")
         pass
 
     tmdb_cache[cache_key] = None
@@ -1837,8 +1960,9 @@ def update_watch_record(user_id, item, item_type, lib_name, dt_local, tmdb_id):
 
 
 def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, headers, poster_dir, backdrop_dir,
-                        synced_names, tmdb_id, poster_cache):
+                        synced_names, tmdb_id, poster_cache, session=None):
     """更新海报墙数据的双缓存，确保存下来的海报图和基本信息都是最新的。"""
+    http_get = session.get if session else requests.get
     if item_type == "Movie":
         target_id = item["Id"]
         display_title = item["Name"]
@@ -1881,8 +2005,8 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
             series_id = item.get("SeriesId")
             if series_id:
                 try:
-                    s_resp = requests.get(f"{jf_url}/Users/{jf_user_id}/Items/{series_id}?Fields=Overview",
-                                          headers=headers, timeout=5)
+                    s_resp = http_get(f"{jf_url}/Users/{jf_user_id}/Items/{series_id}?Fields=Overview",
+                                      headers=headers, timeout=5)
                     if s_resp.status_code == 200:
                         overview = s_resp.json().get("Overview") or ""
                 except Exception:
@@ -1891,8 +2015,8 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
             season_id = item.get("SeasonId")
             if season_id:
                 try:
-                    se_resp = requests.get(f"{jf_url}/Users/{jf_user_id}/Items/{season_id}?Fields=Overview",
-                                           headers=headers, timeout=5)
+                    se_resp = http_get(f"{jf_url}/Users/{jf_user_id}/Items/{season_id}?Fields=Overview",
+                                       headers=headers, timeout=5)
                     if se_resp.status_code == 200:
                         season_overview = se_resp.json().get("Overview") or ""
                 except Exception:
@@ -1903,33 +2027,36 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
         backdrop_filename = f"{bg_source_id}_backdrop.jpg"
         backdrop_path = os.path.join(backdrop_dir, backdrop_filename)
         backdrop_relative_path = f"backdrops/{backdrop_filename}"
-        if not download_image(f"{jf_url}/Items/{bg_source_id}/Images/Backdrop/0?maxWidth=1920", headers, backdrop_path):
+        if not download_image(f"{jf_url}/Items/{bg_source_id}/Images/Backdrop/0?maxWidth=1920", headers, backdrop_path,
+                              session):
             backdrop_relative_path = None
 
         background_filename = f"{bg_source_id}_background.jpg"
         background_path = os.path.join(backdrop_dir, background_filename)
         background_relative_path = f"backdrops/{background_filename}"
         if not download_image(f"{jf_url}/Items/{bg_source_id}/Images/Backdrop/1?maxWidth=1920", headers,
-                              background_path):
+                              background_path, session):
             background_relative_path = None
 
         if item_type == "Movie":
             movie_path = os.path.join(poster_dir, f"{target_id}_main.jpg")
             series_relative_path = f"posters/{target_id}_main.jpg"
-            if not download_image(f"{jf_url}/Items/{target_id}/Images/Primary?maxWidth=400", headers, movie_path):
+            if not download_image(f"{jf_url}/Items/{target_id}/Images/Primary?maxWidth=400", headers, movie_path,
+                                  session):
                 series_relative_path = "images/logo.png"
         else:
             series_id = item.get("SeriesId")
             series_path = os.path.join(poster_dir, f"{series_id}_main.jpg")
             series_relative_path = f"posters/{series_id}_main.jpg"
-            if not download_image(f"{jf_url}/Items/{series_id}/Images/Primary?maxWidth=400", headers, series_path):
+            if not download_image(f"{jf_url}/Items/{series_id}/Images/Primary?maxWidth=400", headers, series_path,
+                                  session):
                 series_relative_path = "images/logo.png"
 
             season_id = item.get("SeasonId")
             season_path = os.path.join(poster_dir, f"{target_id}_season.jpg")
             season_relative_path = f"posters/{target_id}_season.jpg"
             if season_id and download_image(f"{jf_url}/Items/{season_id}/Images/Primary?maxWidth=400", headers,
-                                            season_path):
+                                            season_path, session):
                 pass
             else:
                 season_relative_path = series_relative_path
@@ -1963,70 +2090,28 @@ def update_watch_poster(user_id, jf_user_id, item, item_type, dt_local, jf_url, 
 @login_required
 def sync_history():
     """手动触发一次对 Jellyfin 观看记录的全量拉取同步。"""
-    jf_url, headers = current_user.jellyfin_url, {"X-Emby-Token": current_user.jellyfin_api_key}
-    base_user_url = f"{jf_url}/Users/{current_user.jellyfin_user_id}"
-    poster_dir = os.path.join(app.root_path, 'static', 'posters')
-    still_dir = os.path.join(app.root_path, 'static', 'stills')
-    backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
-    for d in [poster_dir, still_dir, backdrop_dir]:
-        os.makedirs(d, exist_ok=True)
-
-    sync_count, synced_names, tmdb_search_cache = 0, set(), {}
-    processed_ids = set()
-    poster_cache = {}
     try:
-        with db.session.no_autoflush:
-            views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
-            if views_resp.status_code != 200:
-                flash("无法获取媒体库列表，同步失败。")
-                return redirect(url_for('watched_list'))
+        result = _run_full_sync(current_user, on_progress=None, use_lock=False, collect_log_names=False)
+        if not result['ok']:
+            flash("无法获取媒体库列表，同步失败。")
+            return redirect(url_for('watched_list'))
 
-            for view in views_resp.json().get("Items", []):
-                items_resp = requests.get(
-                    f"{base_user_url}/Items", headers=headers,
-                    params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
-                            "Recursive": "true", "Limit": 2000,
-                            "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
-                    timeout=15
-                )
-                if items_resp.status_code != 200: continue
-
-                for item in items_resp.json().get("Items", []):
-                    item_id = item["Id"]
-                    if item_id in processed_ids:
-                        continue
-                    processed_ids.add(item_id)
-                    dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
-                    if not dt_local: continue
-
-                    master_tmdb_id = get_tmdb_id_smart(current_user, item, item["Type"], tmdb_search_cache)
-
-                    if update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local, master_tmdb_id):
-                        sync_count += 1
-
-                        update_watch_poster(current_user.id, current_user.jellyfin_user_id, item, item["Type"],
-                                            dt_local,
-                                            jf_url, headers, poster_dir, backdrop_dir, synced_names, master_tmdb_id,
-                                            poster_cache)
-
-                    if item["Type"] == "Episode":
-                        update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
-
-        db.session.commit()
+        sync_count = result['sync_count']
+        synced_names = result['synced_names']
 
         if sync_count > 0:
             names_str = ", ".join(sorted(synced_names))
-            logger.info(f"用户 {current_user.username} 手动同步完成！新增/更新了 {sync_count} 项记录: {names_str}")
+            logger.info(f"[手动同步] 用户 {current_user.username} 手动同步完成！新增/更新了 {sync_count} 项记录: {names_str}")
 
             names_html = "<ul style='margin: 10px 0 0 0; padding-left: 20px; text-align: left; max-height: 150px; overflow-y: auto; color: var(--text-main);'>" + "".join(
                 [f"<li style='margin-bottom: 6px;'>{n}</li>" for n in sorted(synced_names)]) + "</ul>"
             flash(f"同步成功！已处理明细并缓存海报/剧照/背景图：{names_html}")
         else:
-            logger.info(f"用户 {current_user.username} 手动同步完成！本地记录已是最新，无新增。")
+            logger.info(f"[手动同步] 用户 {current_user.username} 手动同步完成！本地记录已是最新，无新增。")
             flash("同步完成！本地海报及历史记录已是最新。")
 
     except Exception as e:
-        logger.error(f"媒体库同步过程中发生网络异常: {str(e)}")
+        logger.error(f"[手动同步] 媒体库同步过程中发生网络异常: {str(e)}")
         flash(f"同步过程中发生网络异常: {str(e)}")
 
     return redirect(url_for('watched_list'))
@@ -2036,110 +2121,65 @@ def sync_history():
 @login_required
 def api_sync_stream():
     """配合前端弹窗做的实时的 SSE 接口，把同步进度一点一点地推送到网页上。"""
-    jf_url = current_user.jellyfin_url
-    headers = {"X-Emby-Token": current_user.jellyfin_api_key}
-    base_user_url = f"{jf_url}/Users/{current_user.jellyfin_user_id}"
-
-    poster_dir = os.path.join(app.root_path, 'static', 'posters')
-    still_dir = os.path.join(app.root_path, 'static', 'stills')
-    backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
-
-    for d in [poster_dir, still_dir, backdrop_dir]:
-        os.makedirs(d, exist_ok=True)
+    # 在请求上下文内先解析出真实的 User 对象，供后台线程使用（代理对象离开请求上下文会失效）
+    user = current_user._get_current_object()
 
     def generate():
-        sync_count = 0
-        synced_names = set()
-        tmdb_search_cache = {}
-        processed_ids = set()
-        poster_cache = {}
+        event_queue = Queue()
+        result = None
+        error_message = None
 
         try:
-            logger.info(f"用户 {current_user.username} 触发了前端实时全量同步流...")
+            logger.info(f"[实时同步] 用户 {user.username} 触发了前端实时全量同步流...")
             yield f"data: {json.dumps({'status': 'syncing', 'name': '正在请求媒体库列表...'})}\n\n"
 
-            with db.session.no_autoflush:
-                views_resp = requests.get(f"{base_user_url}/Views", headers=headers, timeout=10)
+            def push_progress(text):
+                event_queue.put(f"data: {json.dumps({'status': 'syncing', 'name': text})}\n\n")
 
-                if views_resp.status_code != 200:
-                    yield f"data: {json.dumps({'status': 'error', 'message': '无法获取媒体库列表'})}\n\n"
-                    return
+            def worker():
+                nonlocal result, error_message
+                with app.app_context():
+                    try:
+                        result = _run_full_sync(user, on_progress=push_progress, use_lock=True,
+                                                collect_log_names=True)
+                    except Exception as e:
+                        error_message = str(e)
+                        event_queue.put(f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n")
+                    finally:
+                        event_queue.put(None)
 
-                for view in views_resp.json().get("Items", []):
-                    view_name = view.get('Name', '未知库')
-                    yield f"data: {json.dumps({'status': 'syncing', 'name': f'准备扫描库: {view_name}'})}\n\n"
+            threading.Thread(target=worker, daemon=True).start()
 
-                    items_resp = requests.get(
-                        f"{base_user_url}/Items", headers=headers,
-                        params={"ParentId": view["Id"], "Filters": "IsPlayed", "IncludeItemTypes": "Movie,Episode",
-                                "Recursive": "true", "Limit": 2000,
-                                "Fields": "UserData,SeriesName,SeriesId,SeasonId,ParentIndexNumber,Overview,ProviderIds,SeriesProviderIds,SeasonName"},
-                        timeout=15
-                    )
-                    if items_resp.status_code != 200: continue
+            while True:
+                event = event_queue.get()
+                if event is None:
+                    break
+                yield event
 
-                    for item in items_resp.json().get("Items", []):
-                        item_id = item["Id"]
-                        if item_id in processed_ids:
-                            continue
-                        processed_ids.add(item_id)
-                        dt_local = parse_jellyfin_date(item.get("UserData", {}).get("LastPlayedDate"))
-                        if not dt_local: continue
+            if error_message:
+                logger.error(f"[实时同步] SSE 实时同步流异常终止: {error_message}")
+                return
 
-                        # 这里是推送给前端显示的文本（显示集名）
-                        display_name = item.get("Name", "未知")
-                        if item["Type"] == "Episode":
-                            series_name = item.get("SeriesName", "未知剧集")
-                            display_name = f"{series_name} - {display_name}"
+            if not result or not result['ok']:
+                yield f"data: {json.dumps({'status': 'error', 'message': '无法获取媒体库列表'})}\n\n"
+                return
 
-                        yield f"data: {json.dumps({'status': 'syncing', 'name': display_name})}\n\n"
+            sync_count = result['sync_count']
+            synced_names = result['synced_names']
 
-                        master_tmdb_id = get_tmdb_id_smart(current_user, item, item["Type"], tmdb_search_cache)
-
-                        with db_lock:
-                            if update_watch_record(current_user.id, item, item["Type"], view["Name"], dt_local,
-                                                   master_tmdb_id):
-                                sync_count += 1
-
-                                # 这里是专门为后台日志提取带季数、集数的名字
-                                if item["Type"] == "Episode":
-                                    log_series_name = item.get("SeriesName", item.get("Name", "未知剧集"))
-                                    try:
-                                        s_num = int(item.get("ParentIndexNumber", 1))
-                                        e_num = int(item.get("IndexNumber", 0))
-                                        log_display_name = f"{log_series_name} S{s_num:02d}E{e_num:02d}"
-                                    except (ValueError, TypeError):
-                                        log_display_name = f"{log_series_name} (特殊集)"
-                                else:
-                                    log_display_name = item.get("Name", "未知电影")
-
-                                if log_display_name:
-                                    synced_names.add(log_display_name)
-
-                                update_watch_poster(current_user.id, current_user.jellyfin_user_id, item, item["Type"],
-                                                    dt_local,
-                                                    jf_url, headers, poster_dir, backdrop_dir, synced_names,
-                                                    master_tmdb_id, poster_cache)
-
-                            if item["Type"] == "Episode":
-                                update_episode_detail(item, jf_url, headers, still_dir, master_tmdb_id)
-
-            with db_lock:
-                db.session.commit()
-
-                # 把名字拼装成换行的列表格式写入日志
-                if sync_count > 0:
-                    names_str = "\n" + "\n".join([f"  - {name}" for name in sorted(synced_names)])
-                    logger.info(
-                        f"用户 {current_user.username} 实时同步完成！共入库/更新了 {sync_count} 项:{names_str}")
-                else:
-                    logger.info(f"用户 {current_user.username} 实时同步完成！本地记录已是最新，无新增。")
+            # 把名字拼装成换行的列表格式写入日志
+            if sync_count > 0:
+                names_str = "\n" + "\n".join([f"  - {name}" for name in sorted(synced_names)])
+                logger.info(
+                    f"[实时同步] 用户 {user.username} 实时同步完成！共入库/更新了 {sync_count} 项:{names_str}")
+            else:
+                logger.info(f"[实时同步] 用户 {user.username} 实时同步完成！本地记录已是最新，无新增。")
 
             yield f"data: {json.dumps({'status': 'done'})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
-            logger.error(f"SSE 实时同步流异常终止: {str(e)}")
+            logger.error(f"[实时同步] SSE 实时同步流异常终止: {str(e)}")
 
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
@@ -2429,10 +2469,11 @@ def delete_history():
                     p.is_deleted = True
 
         db.session.commit()
-        logger.info(f"用户 {current_user.username} 手动删除了 {len(records)} 条观影足迹及相关缓存。")
+        logger.info(f"[历史管理] 用户 {current_user.username} 手动删除了 {len(records)} 条观影足迹及相关缓存。")
         return jsonify({'success': True, 'message': f'成功移除了 {len(records)} 条足迹'})
     except Exception as e:
         db.session.rollback()
+        logger.error(f"[历史管理] 删除观影记录失败 (用户: {current_user.username}): {str(e)}")
         return jsonify({'success': False, 'message': f'删除失败: {str(e)}'})
 
 
@@ -2475,10 +2516,11 @@ def update_history_date():
                 p.last_watched_date = new_date
 
         db.session.commit()
-        logger.info(f"用户 {current_user.username} 批量修改了 {len(records)} 条观影足迹的时间。")
+        logger.info(f"[历史管理] 用户 {current_user.username} 批量修改了 {len(records)} 条观影足迹的时间。")
         return jsonify({'success': True, 'message': f'成功修改了 {len(records)} 项的时间！'})
     except Exception as e:
         db.session.rollback()
+        logger.error(f"[历史管理] 批量修改观影时间失败 (用户: {current_user.username}): {str(e)}")
         return jsonify({'success': False, 'message': f'修改失败: {str(e)}'})
 
 
@@ -2847,7 +2889,7 @@ def parse_watcharr():
                     dt = dt.replace(tzinfo=timezone.utc)
                 return dt.astimezone(local_tz).replace(tzinfo=None)
             except Exception as e:
-                logger.error(f"[TimeParse] 无法解析时间 {date_str}: {e}")
+                logger.error(f"[时间解析] 无法解析时间 {date_str}: {e}")
                 return now
 
         for item in data:
@@ -3018,9 +3060,15 @@ def check_missing_data():
                     "reason": " & ".join(reasons)
                 })
 
+        if results:
+            logger.warning(
+                f"[数据检查] 用户 {current_user.username} 扫描完成：共检查 {len(all_items)} 条，发现 {len(results)} 条缺失")
+        else:
+            logger.info(
+                f"[数据检查] 用户 {current_user.username} 扫描完成：共检查 {len(all_items)} 条，未发现缺失")
         return jsonify({"status": "success", "data": results})
     except Exception as e:
-        logger.error(f"[DataCheck] 扫描缺失数据异常: {e}")
+        logger.error(f"[数据检查] 扫描缺失数据异常: {e}")
         return jsonify({"status": "error", "message": "扫描数据库异常"})
 
 
@@ -3035,7 +3083,7 @@ def execute_data_completion():
         return jsonify({"status": "error", "message": "未收到任何补全任务"})
 
     def generate():
-        logger.info(f"[DataCompletion] 🚀 补全急救任务开始！共收到 {len(payload)} 个处理项")
+        logger.info(f"[数据补全] 补全急救任务开始！共收到 {len(payload)} 个处理项")
         yield f"data: {json.dumps({'status': 'syncing', 'name': '正在初始化急救引擎...'})}\n\n"
 
         # 代理与 Session 初始化
@@ -3093,15 +3141,15 @@ def execute_data_completion():
             year_match = re.search(r'\((\d{4})\)', raw_title)
             release_year = year_match.group(1) if year_match else None
 
-            logger.info(f"[DataCompletion] 🔄 [{idx}/{total_items}] 正在处理: {raw_title}")
-            logger.info(f"[DataCompletion]    ↳ 提取纯净搜索词: '{clean_title}', 识别年份: {release_year}")
+            logger.info(f"[数据补全] [{idx}/{total_items}] 正在处理: {raw_title}")
+            logger.info(f"[数据补全] 提取纯净搜索词: '{clean_title}', 识别年份: {release_year}")
 
             yield f"data: {json.dumps({'status': 'syncing', 'name': f'({idx}/{total_items}) 检索: {clean_title}'})}\n\n"
 
             try:
                 poster = WatchPoster.query.filter_by(id=poster_id, user_id=current_user.id).first()
                 if not poster:
-                    logger.warning(f"[DataCompletion]    ❌ 数据库未找到 ID={poster_id} 的记录，跳过。")
+                    logger.warning(f"[数据补全] 数据库未找到 ID={poster_id} 的记录，跳过。")
                     continue
 
                 target_tmdb_id = poster.tmdb_id
@@ -3123,11 +3171,11 @@ def execute_data_completion():
                         if results:
                             target_tmdb_id = str(results[0].get('id'))
                             poster.tmdb_id = target_tmdb_id
-                            logger.info(f"[DataCompletion]    ✅ 搜索命中！找回遗失的 TMDB ID: {target_tmdb_id}")
+                            logger.info(f"[数据补全] 搜索命中！找回遗失的 TMDB ID: {target_tmdb_id}")
                         else:
-                            logger.warning(f"[DataCompletion]    ⚠️ 搜索扑空：TMDB 未收录词条 '{clean_title}'")
+                            logger.warning(f"[数据补全] 搜索扑空：TMDB 未收录词条 '{clean_title}'")
                     else:
-                        logger.error(f"[DataCompletion]    ❌ 搜索请求失败！状态码: {resp.status_code}")
+                        logger.error(f"[数据补全] 搜索请求失败！状态码: {resp.status_code}")
 
                 # 2. 有了 ID 后，顺藤摸瓜把海报和详情都拉回来
                 if target_tmdb_id:
@@ -3163,21 +3211,21 @@ def execute_data_completion():
                             r.tmdb_id = target_tmdb_id
 
                         db.session.commit()
-                        logger.info(f"[DataCompletion]    🎉 {clean_title} 元数据与海报全部拼图补齐！")
+                        logger.info(f"[数据补全] {clean_title} 元数据与海报全部拼图补齐！")
                     else:
-                        logger.error(f"[DataCompletion]    ❌ TMDB 详情获取失败，状态码: {meta_resp.status_code}")
+                        logger.error(f"[数据补全] TMDB 详情获取失败，状态码: {meta_resp.status_code}")
                 else:
-                    logger.warning(f"[DataCompletion]    ⏭️ 缺失基础身份标识，放弃海报补全。")
+                    logger.warning(f"[数据补全] 缺失基础身份标识，放弃海报补全。")
 
             except Exception as e:
                 db.session.rollback()
-                logger.error(f"[DataCompletion]    💥 处理时发生异常崩断: {str(e)}")
+                logger.error(f"[数据补全] 处理时发生异常崩断: {str(e)}")
 
             # TMDB 频率安全锁
             time.sleep(0.5)
 
         session.close()
-        logger.info("[DataCompletion] 🏁 全部数据修补任务已经执行完毕！ 🏁")
+        logger.info("[数据补全] 全部数据修补任务已经执行完毕！")
         yield f"data: {json.dumps({'status': 'done'})}\n\n"
 
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
@@ -3192,11 +3240,11 @@ def execute_watcharr_import():
     """极致精简前端推送，但后台保持全面下载、中文化、精准时间继承与专业级详尽日志记录"""
     payload = request.json
     if not payload:
-        logger.warning("[WatcharrImport] Received empty payload. Aborting.")
+        logger.warning("[Watcharr导入] 收到空数据，导入任务中止。")
         return jsonify({"status": "error", "message": "未收到任何勾选数据"})
 
     def generate():
-        logger.info("[WatcharrImport] Task started. Initializing import engine.")
+        logger.info("[Watcharr导入] 任务开始，正在初始化导入引擎...")
         yield f"data: {json.dumps({'status': 'syncing', 'name': '正在初始化导入引擎...'})}\n\n"
 
         # ========================================================
@@ -3211,9 +3259,9 @@ def execute_watcharr_import():
                 if v:
                     clean_url = str(v).strip().lower().replace("https://", "").replace("http://", "")
                     safe_proxies[k] = f"http://{clean_url}"
-            logger.info(f"[WatcharrImport] Proxy mapped to safe HTTP tunnel: {safe_proxies}")
+            logger.info(f"[Watcharr导入] 代理已映射为安全 HTTP 通道: {safe_proxies}")
         else:
-            logger.info("[WatcharrImport] No proxy configured. Using direct connection.")
+            logger.info("[Watcharr导入] 未配置代理，使用直连。")
 
         session = requests.Session()
         session.trust_env = False
@@ -3224,11 +3272,11 @@ def execute_watcharr_import():
 
         retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
         session.mount('https://', HTTPAdapter(max_retries=retries, pool_connections=15, pool_maxsize=15))
-        logger.info("[WatcharrImport] HTTP connection pool and retry mechanism initialized.")
+        logger.info("[Watcharr导入] HTTP 连接池与重试机制初始化完成。")
 
         def download_tmdb_image(url_path, folder="posters", max_retries=3):
             if not url_path:
-                logger.debug(f"[ImageDownload] Missing URL path for {folder}. Using fallback placeholder.")
+                logger.debug(f"[图片下载] 缺少图片 URL 路径 (folder={folder})，使用占位图。")
                 return "images/logo.png"
 
             # 1. 提取 TMDB 原始文件名 (例如: ysSHtaqOwYvW9JUH8VJS1XVHOh5.jpg)
@@ -3242,12 +3290,12 @@ def execute_watcharr_import():
 
             # 3. 核心防重逻辑：如果本地已经存在这个文件，直接返回路径，瞬间跳过下载
             if os.path.exists(save_path):
-                logger.info(f"[ImageDownload] Skipped. Image already exists locally: {filename}")
+                logger.debug(f"[图片下载] 图片已存在本地，跳过: {filename}")
                 return relative_path
 
             base_url = "https://image.tmdb.org/t/p/w1280" if folder == "backdrops" else "https://image.tmdb.org/t/p/w500"
             img_url = base_url + url_path
-            logger.info(f"[ImageDownload] Starting download for {folder}: {img_url}")
+            logger.debug(f"[图片下载] 开始下载图片 (folder={folder}): {img_url}")
 
             for attempt in range(max_retries):
                 try:
@@ -3256,56 +3304,56 @@ def execute_watcharr_import():
                     if resp.status_code == 200:
                         with open(save_path, 'wb') as f:
                             f.write(resp.content)
-                        logger.info(f"[ImageDownload] Success: Saved to {save_path}")
+                        logger.debug(f"[图片下载] 下载成功: {save_path}")
                         return relative_path
                     else:
-                        logger.warning(f"[ImageDownload] HTTP {resp.status_code} for {img_url}. Preparing to retry...")
+                        logger.warning(f"[图片下载] HTTP 状态码 {resp.status_code}，准备重试: {img_url}")
 
                 except requests.exceptions.ReadTimeout:
-                    logger.warning(f"[ImageDownload] ReadTimeout on attempt {attempt + 1}/{max_retries} for {img_url}")
+                    logger.warning(f"[图片下载] 第 {attempt + 1}/{max_retries} 次尝试读取超时: {img_url}")
                 except requests.exceptions.ConnectionError:
                     logger.warning(
-                        f"[ImageDownload] ConnectionError on attempt {attempt + 1}/{max_retries} for {img_url}")
+                        f"[图片下载] 第 {attempt + 1}/{max_retries} 次尝试连接失败: {img_url}")
                 except Exception as e:
-                    logger.error(f"[ImageDownload] Fatal network exception for {img_url}: {e}")
+                    logger.error(f"[图片下载] 网络异常（致命）: {img_url}: {e}")
                     break
 
                 time.sleep(1.5)
 
-            logger.error(f"[ImageDownload] Abandoned after {max_retries} attempts: {img_url}. Using placeholder.")
+            logger.error(f"[图片下载] 重试 {max_retries} 次仍失败，放弃下载并使用占位图: {img_url}")
             return "images/logo.png"
 
         def fetch_tmdb_metadata(t_id, m_type):
             url = f"https://api.themoviedb.org/3/{m_type}/{t_id}"
-            logger.info(f"[TMDB_API] Fetching metadata from: {url}")
+            logger.debug(f"[TMDB接口] 获取元数据: {url}")
             try:
                 resp = session.get(url, params={"api_key": current_user.tmdb_api_key, "language": "zh-CN"}, timeout=10)
                 if resp.status_code == 200:
-                    logger.info(f"[TMDB_API] Successfully fetched metadata for ID {t_id}")
+                    logger.debug(f"[TMDB接口] 成功获取元数据: ID={t_id}")
                     return resp.json()
                 else:
-                    logger.warning(f"[TMDB_API] Failed to fetch metadata. HTTP status code: {resp.status_code}")
+                    logger.warning(f"[TMDB接口] 获取元数据失败，HTTP 状态码: {resp.status_code}")
             except Exception as e:
-                logger.error(f"[TMDB_API] Network exception during metadata fetch: {e}")
+                logger.error(f"[TMDB接口] 获取元数据时网络异常: {e}")
             return {}
 
         def fetch_tmdb_season(t_id, s_num):
             url = f"https://api.themoviedb.org/3/tv/{t_id}/season/{s_num}"
-            logger.info(f"[TMDB_API] Fetching season metadata from: {url}")
+            logger.debug(f"[TMDB接口] 获取季元数据: {url}")
             try:
                 resp = session.get(url, params={"api_key": current_user.tmdb_api_key, "language": "zh-CN"}, timeout=10)
                 if resp.status_code == 200:
-                    logger.info(f"[TMDB_API] Successfully fetched season {s_num} for ID {t_id}")
+                    logger.debug(f"[TMDB接口] 成功获取季元数据: ID={t_id}, 季={s_num}")
                     return resp.json()
                 else:
-                    logger.warning(f"[TMDB_API] Failed to fetch season metadata. HTTP status code: {resp.status_code}")
+                    logger.warning(f"[TMDB接口] 获取季元数据失败，HTTP 状态码: {resp.status_code}")
             except Exception as e:
-                logger.error(f"[TMDB_API] Network exception during season fetch: {e}")
+                logger.error(f"[TMDB接口] 获取季元数据时网络异常: {e}")
             return {}
 
         tmdb_season_cache = {}
         total_items = len(payload)
-        logger.info(f"[WatcharrImport] Total items detected in payload: {total_items}")
+        logger.info(f"[Watcharr导入] 共解析到 {total_items} 个待处理条目")
 
         try:
             for idx, item in enumerate(payload, 1):
@@ -3319,8 +3367,8 @@ def execute_watcharr_import():
                 fallback_title = item.get('title')
                 records = item.get('records', [])
 
-                logger.info(f"[WatcharrImport] ------------- Processing item {idx}/{total_items} -------------")
-                logger.info(f"[WatcharrImport] Original Title: {fallback_title} | Type: {item_type} | TMDB_ID: {tmdb_id}")
+                logger.info(f"[Watcharr导入] ------------- 正在处理第 {idx}/{total_items} 项 -------------")
+                logger.info(f"[Watcharr导入] 原始标题: {fallback_title} | 类型: {item_type} | TMDB_ID: {tmdb_id}")
 
                 tmdb_title = fallback_title
                 overview = ""
@@ -3334,9 +3382,9 @@ def execute_watcharr_import():
                     if meta:
                         tmdb_title = meta.get('title') if item_type == 'movie' else meta.get('name', fallback_title)
                         overview = meta.get('overview', '')
-                        logger.info(f"[WatcharrImport] Title localized to: {tmdb_title}")
+                        logger.info(f"[Watcharr导入] 标题已本地化: {tmdb_title}")
                     else:
-                        logger.warning(f"[WatcharrImport] Metadata fetch failed. Falling back to original title: {fallback_title}")
+                        logger.warning(f"[Watcharr导入] 元数据获取失败，回退使用原标题: {fallback_title}")
 
                 # 2. 推送已经中文化的标题给前端（在耗时的图片下载前推送，防止UI假死）
                 yield f"data: {json.dumps({'status': 'syncing', 'name': f'({idx}/{total_items}) {tmdb_title}'})}\n\n"
@@ -3376,16 +3424,16 @@ def execute_watcharr_import():
                             'specific_times': specific_times,
                             'season_meta': season_meta
                         })
-                        logger.info(f"[WatcharrImport] Processed TV Season {s_num}. Resolved episode mappings: {ep_list}")
+                        logger.info(f"[Watcharr导入] 已处理第 {s_num} 季，解析单集映射: {ep_list}")
 
                 try:
-                    logger.info(f"[Database] Acquiring DB lock for item: {tmdb_title}")
+                    logger.info(f"[数据库] 正在获取数据库锁: {tmdb_title}")
                     with db_lock:
                         poster_target = tmdb_id if (item_type == 'movie' and tmdb_id) else (core_id if item_type == 'movie' else f"{core_id}_S1")
                         poster = WatchPoster.query.filter_by(user_id=current_user.id, target_id=poster_target).first()
 
                         if not poster:
-                            logger.info(f"[Database] Creating new WatchPoster record. Target ID: {poster_target}")
+                            logger.info(f"[数据库] 新建海报记录，目标 ID: {poster_target}")
                             db.session.add(WatchPoster(
                                 user_id=current_user.id, target_id=poster_target,
                                 media_type="Movie" if item_type == 'movie' else "Series",
@@ -3397,7 +3445,7 @@ def execute_watcharr_import():
                                 last_watched_date=datetime.now(), tmdb_id=tmdb_id or None, is_deleted=False
                             ))
                         else:
-                            logger.info(f"[Database] Updating existing WatchPoster record. Target ID: {poster_target}")
+                            logger.info(f"[数据库] 更新已有海报记录，目标 ID: {poster_target}")
                             poster.display_title, poster.overview, poster.local_image_path, poster.is_deleted = tmdb_title, overview, local_poster, False
                             if local_backdrop: poster.backdrop_image_path = local_backdrop
 
@@ -3406,7 +3454,7 @@ def execute_watcharr_import():
                             rec_id = str(tmdb_id) if tmdb_id else f"watcharr_{core_id}"
                             rec = WatchRecord.query.filter_by(user_id=current_user.id, item_id=rec_id).first()
                             if not rec:
-                                logger.info(f"[Database] Creating new WatchRecord for movie. Record ID: {rec_id}")
+                                logger.info(f"[数据库] 新建电影观看记录，记录 ID: {rec_id}")
                                 db.session.add(WatchRecord(
                                     user_id=current_user.id, item_id=rec_id, item_type="Movie",
                                     library_name="Watcharr导入",
@@ -3414,7 +3462,7 @@ def execute_watcharr_import():
                                     is_deleted=False
                                 ))
                             else:
-                                logger.info(f"[Database] Updating existing WatchRecord for movie. Record ID: {rec_id}")
+                                logger.info(f"[数据库] 更新已有电影观看记录，记录 ID: {rec_id}")
                                 rec.date_played, rec.is_deleted = rec_date, False
 
                         elif item_type == 'tv':
@@ -3433,7 +3481,7 @@ def execute_watcharr_import():
 
                                     rec = WatchRecord.query.filter_by(user_id=current_user.id, item_id=rec_id).first()
                                     if not rec:
-                                        logger.info(f"[Database] Creating new WatchRecord for TV episode {e_num} with exact date: {actual_date}")
+                                        logger.info(f"[数据库] 新建剧集观看记录 (第 {e_num} 集)，时间: {actual_date}")
                                         db.session.add(WatchRecord(
                                             user_id=current_user.id, item_id=rec_id, item_type="Episode",
                                             library_name="Watcharr导入",
@@ -3443,12 +3491,12 @@ def execute_watcharr_import():
                                             date_played=actual_date, is_deleted=False
                                         ))
                                     else:
-                                        logger.info(f"[Database] Updating existing WatchRecord for TV episode {e_num} with exact date: {actual_date}")
+                                        logger.info(f"[数据库] 更新已有剧集观看记录 (第 {e_num} 集)，时间: {actual_date}")
                                         rec.date_played, rec.is_deleted = actual_date, False
 
                                     detail = EpisodeDetail.query.filter_by(item_id=rec_id).first()
                                     if not detail:
-                                        logger.info(f"[Database] Processing EpisodeDetail and downloading still image for: {rec_id}")
+                                        logger.info(f"[数据库] 处理单集详情并下载剧照: {rec_id}")
                                         local_still = download_tmdb_image(ep_data.get('still_path'), "stills")
                                         db.session.add(EpisodeDetail(
                                             item_id=rec_id, series_name=tmdb_title, season_num=s_num, episode_num=e_num,
@@ -3457,20 +3505,20 @@ def execute_watcharr_import():
                                             still_image_path=local_still
                                         ))
                     db.session.commit()
-                    logger.info(f"[Database] Successfully committed transactions for item: {tmdb_title}")
+                    logger.info(f"[数据库] 条目事务提交成功: {tmdb_title}")
                 except Exception as db_err:
                     db.session.rollback()
-                    logger.error(f"[Database] Rollback executed. Exception processing item '{fallback_title}': {str(db_err)}")
+                    logger.error(f"[数据库] 处理条目 '{fallback_title}' 时异常，已回滚: {str(db_err)}")
 
         except GeneratorExit:
-            logger.info("[WatcharrImport] Client actively aborted the import task. Backend process safely terminated.")
+            logger.info("[Watcharr导入] 客户端主动中止了导入任务，后台进程已安全结束。")
             session.close()
             return
         except Exception as e:
-            logger.error(f"[WatcharrImport] Unexpected exception in main loop: {e}")
+            logger.error(f"[Watcharr导入] 主循环出现未预期异常: {e}")
 
         session.close()
-        logger.info("[WatcharrImport] All import tasks completed successfully.")
+        logger.info("[Watcharr导入] 所有导入任务执行完毕。")
         yield f"data: {json.dumps({'status': 'done'})}\n\n"
 
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
@@ -3632,8 +3680,8 @@ if __name__ == '__main__':
                         run_port = int(u['web_port'])
                         break
     except Exception as e:
-        logger.warning(f"读取自定义端口失败，将使用默认端口 5000。原因: {e}")
+        logger.warning(f"[启动] 读取自定义端口失败，将使用默认端口 5000。原因: {e}")
 
-    logger.info(f"JellyWall v{APP_VERSION} 即将启动，运行端口: {run_port}")
+    logger.info(f"[启动] JellyWall v{APP_VERSION} 即将启动，运行端口: {run_port}")
 
     app.run(host='0.0.0.0', port=run_port)

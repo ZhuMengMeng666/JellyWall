@@ -208,7 +208,7 @@
     返回媒体库
 </a>
 <div class="detail-header" style="--bg-img: url('{{ url_for('static', filename=final_bg_path) }}');">
-    <img src="{{ url_for('static', filename=main_poster_path) }}" alt="主海报" class="detail-poster animate-up delay-1">
+    <img src="{{ url_for('static', filename=main_poster_path) }}" alt="主海报" class="detail-poster animate-up delay-1" fetchpriority="high" decoding="async">
     <div class="detail-info">
         <h1 class="detail-title animate-up delay-1">{{ title }}</h1>
 
@@ -232,7 +232,7 @@
 {% for season_num, episodes in seasons.items() %}
 <div class="season-card animate-up delay-4">
     <div class="season-header" onclick="toggleEpisodes(this)">
-        <img src="{{ url_for('static', filename=season_poster_map.get(season_num, main_poster_path)) }}" class="season-poster" alt="第 {{ season_num }} 季" loading="lazy">
+        <img src="{{ url_for('static', filename=season_poster_map.get(season_num, main_poster_path)) }}" class="season-poster" alt="第 {{ season_num }} 季" loading="lazy" decoding="async">
         <div class="season-info">
             <h2 class="season-title">第 {{ season_num }} 季</h2>
             <p class="season-overview">
@@ -250,7 +250,7 @@
         {% for ep in episodes %}
         <div class="episode-item">
             <div class="episode-still-wrapper">
-                <img src="{{ url_for('static', filename=ep.still_path|default('images/logo.png')) }}" class="episode-still" loading="lazy">
+                <img src="{{ url_for('static', filename=ep.still_path|default('images/logo.png')) }}" class="episode-still" loading="lazy" decoding="async">
                 <span class="episode-number-badge">S{{ "%02d"|format(season_num|int) }} {% if ep.episode_num %}E{{ "%02d"|format(ep.episode_num|int) }}{% else %}E{{ "%02d"|format(loop.index) }}{% endif %}</span>            </div>
             <div class="episode-info">
                 <h3 class="episode-title">{{ ep.title }}</h3>

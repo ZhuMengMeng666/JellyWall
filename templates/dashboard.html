@@ -218,7 +218,7 @@
                     <div class="timeline-marker"></div>
 
                     <div class="timeline-card">
-                        <img src="{{ url_for('static', filename=item.poster_path) }}" class="timeline-poster" loading="lazy" onerror="this.src='{{ url_for('static', filename='images/logo.png') }}'">
+                        <img src="{{ url_for('static', filename=item.poster_path) }}" class="timeline-poster" loading="lazy" decoding="async" onerror="this.src='{{ url_for('static', filename='images/logo.png') }}'">
 
                         <div class="timeline-content">
                             <div class="timeline-header">

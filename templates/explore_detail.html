@@ -208,7 +208,7 @@
 </a>
 
 <div class="detail-header" style="--bg-img: url('{{ bg_url }}');">
-    <img src="{{ poster_url }}" alt="主海报" class="detail-poster animate-up delay-1">
+    <img src="{{ poster_url }}" alt="主海报" class="detail-poster animate-up delay-1" fetchpriority="high" decoding="async">
 
     <div class="detail-info">
         <h1 class="detail-title animate-up delay-1">{{ title }} <span class="year">({{ year }})</span></h1>
@@ -256,7 +256,7 @@
 {% for season_num, episodes in seasons.items() %}
 <div class="season-card animate-up delay-4">
     <div class="season-header" onclick="toggleEpisodes(this)">
-        <img src="{{ season_poster_map.get(season_num, poster_url) }}" class="season-poster" alt="季海报" loading="lazy">
+        <img src="{{ season_poster_map.get(season_num, poster_url) }}" class="season-poster" alt="季海报" loading="lazy" decoding="async">
         <div class="season-info">
 
             <h2 class="season-title">
@@ -298,7 +298,7 @@
         {% for ep in episodes %}
         <div class="episode-item">
             <div class="episode-still-wrapper">
-                <img src="{{ ep.still_path }}" class="episode-still" loading="lazy">
+                <img src="{{ ep.still_path }}" class="episode-still" loading="lazy" decoding="async">
                 <span class="episode-number-badge">
                     {% if season_num == 0 %}S00{% else %}S{{ "%02d"|format(season_num|int) }}{% endif %}E{{ "%02d"|format(ep.episode_num|int) }}
                 </span>

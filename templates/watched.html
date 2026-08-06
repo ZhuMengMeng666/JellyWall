@@ -80,7 +80,7 @@
     {% for movie in movies %}
         <div class="poster-item">
             <div class="type-badge">{{ movie.type_icon }}</div>
-            <img src="{{ movie.local_img_url }}" alt="{{ movie.name }}" loading="lazy">
+            <img src="{{ movie.local_img_url }}" alt="{{ movie.name }}" loading="lazy" decoding="async">
             <div class="info-overlay">
                 <div class="info-title">{{ movie.name }}</div>
                 <div class="info-meta">{{ movie.date_formatted }}</div>
@@ -95,6 +95,22 @@
 </div>
 
 <script>
+    function preloadWallImages(wall) {
+        const images = Array.from(wall.querySelectorAll('img'));
+        return Promise.all(images.map(img => {
+            if (img.complete && img.naturalWidth > 0) {
+                return Promise.resolve();
+            }
+            if (typeof img.decode === 'function') {
+                return img.decode().catch(() => {});
+            }
+            return new Promise(resolve => {
+                img.addEventListener('load', resolve, { once: true });
+                img.addEventListener('error', resolve, { once: true });
+            });
+        }));
+    }
+
     function exportWall() {
         const wall = document.getElementById('poster-wall');
         const btn = document.querySelector('.export-btn');
@@ -106,11 +122,13 @@
 
         const currentBg = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-bg').trim() || '#1e1e1e';
 
-        html2canvas(wall, {
-            useCORS: true,
-            backgroundColor: currentBg,
-            scale: 2,
-            logging: false
+        preloadWallImages(wall).then(() => {
+            return html2canvas(wall, {
+                useCORS: true,
+                backgroundColor: currentBg,
+                scale: 1.5,
+                logging: false
+            });
         }).then(canvas => {
             const link = document.createElement('a');
             const timestamp = new Date().toISOString().slice(0,10);

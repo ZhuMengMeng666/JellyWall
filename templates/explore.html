@@ -182,7 +182,7 @@
             container.innerHTML = '';
             data.results.forEach(item => {
                 const posterHtml = item.poster_url
-                    ? `<img src="${item.poster_url}" class="poster-image" loading="lazy">`
+                    ? `<img src="${item.poster_url}" class="poster-image" loading="lazy" decoding="async">`
                     : `<div class="no-poster">暂无海报</div>`;
 
                 const typeLabel = item.media_type === 'movie' ? '电影' : '电视剧';

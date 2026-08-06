@@ -477,7 +477,7 @@
         for (const [seriesName, posterPath] of Object.entries(data.series_posters || {})) {
             htmlStr += `
             <a href="/detail/series/${encodeURIComponent(seriesName)}" class="poster-item" style="text-decoration: none;">
-                <img src="/static/${posterPath}" loading="lazy">
+                <img src="/static/${posterPath}" loading="lazy" decoding="async">
                 <div class="poster-info">
                     <div class="poster-title">${seriesName}</div>
                     <div class="poster-time">剧集</div>
@@ -489,7 +489,7 @@
             const pPath = mv.poster_path || 'images/logo.png';
             htmlStr += `
             <a href="/detail/movie/${encodeURIComponent(mv.name)}" class="poster-item" style="text-decoration: none;">
-                <img src="/static/${pPath}" loading="lazy">
+                <img src="/static/${pPath}" loading="lazy" decoding="async">
                 <div class="poster-info">
                     <div class="poster-title">${mv.name}</div>
                     <div class="poster-time">${mv.date}</div>

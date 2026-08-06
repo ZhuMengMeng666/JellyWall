@@ -49,7 +49,7 @@ TMDB_SEARCH_CACHE = OrderedDict()
 # TMDB 详情缓存
 TMDB_DETAIL_CACHE = OrderedDict()
 # 专门用来缓存剧集的官方总集数
-TMDB_TV_EP_COUNT_CACHE = {}
+TMDB_TV_EP_COUNT_CACHE = OrderedDict()
 # 缓存存活时间
 CACHE_TTL = 3600
 # 缓存最大条目数，超出后淘汰最久未使用的条目
@@ -1666,6 +1666,7 @@ def api_search_tmdb():
                     if tmdb_name in watched_series_set:
                         total_eps = 0
                         if item_id in TMDB_TV_EP_COUNT_CACHE:
+                            TMDB_TV_EP_COUNT_CACHE.move_to_end(item_id)
                             total_eps = TMDB_TV_EP_COUNT_CACHE[item_id]
                         else:
                             try:
@@ -1675,7 +1676,7 @@ def api_search_tmdb():
                                     proxies=get_user_proxies(current_user), timeout=3)
                                 if tv_resp.status_code == 200:
                                     total_eps = tv_resp.json().get('number_of_episodes', 0)
-                                    TMDB_TV_EP_COUNT_CACHE[item_id] = total_eps
+                                    _cache_put(TMDB_TV_EP_COUNT_CACHE, item_id, total_eps)
                             except:
                                 pass
 

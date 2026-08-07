@@ -83,7 +83,7 @@ Compress(app)
 # ==========================================
 # 应用版本号(后续迭代在此递增)
 # ==========================================
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.3"
 
 
 
@@ -2394,6 +2394,8 @@ def watched_list():
 def media_detail(media_type, title):
     """本地观影记录的详情展示页，用于看一看追剧的明细进度和所有单集的横幅图。"""
     season_poster_map, season_overview_map = {}, {}
+    # 从媒体库视图进入时携带 ?lib=，仅展示该媒体库的记录；从类型视图进入时不携带，做同集去重
+    lib_filter = request.args.get('lib', '').strip()
 
     if media_type == 'series':
         poster_info = WatchPoster.query.filter_by(user_id=current_user.id, media_type='Series', series_name=title,
@@ -2412,9 +2414,10 @@ def media_detail(media_type, title):
     seasons, movie_record = {}, None
 
     if media_type == 'series':
-        ep_records = [r for r in
-                      WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode', is_deleted=False).all() if
-                      getattr(r, 'series_name', r.title) == title]
+        ep_query = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Episode', is_deleted=False)
+        if lib_filter:
+            ep_query = ep_query.filter_by(library_name=lib_filter)
+        ep_records = [r for r in ep_query.all() if getattr(r, 'series_name', r.title) == title]
 
         # 优化:一次批量查询本剧所有单集详情,替代每集一次 SQL
         ep_ids = [ep.item_id for ep in ep_records]
@@ -2423,6 +2426,12 @@ def media_detail(media_type, title):
             ep_detail_map = {d.item_id: d for d in
                              EpisodeDetail.query.filter(EpisodeDetail.item_id.in_(ep_ids)).all()}
 
+        # 类型视图（无 lib 参数）：同一集可能因 Jellyfin 重复条目 / Watcharr 导入等多来源存在多条记录，
+        # 按最早观看时间正序后对"同季同集"去重，每集只展示最早的一条（首次观看）；
+        # 媒体库视图（带 lib 参数）：仅展示对应媒体库的记录，不去重
+        if not lib_filter:
+            ep_records.sort(key=lambda x: x.date_played)
+        seen_episodes = set()
         for ep in ep_records:
             ep_detail = ep_detail_map.get(ep.item_id)
             real_season_num = 1
@@ -2437,14 +2446,24 @@ def media_detail(media_type, title):
                 match = re.search(r'\d+', ep.season_name)
                 if match: real_season_num = int(match.group())
 
+            if not lib_filter:
+                # 去重键：同季同集合并；集数为空时按 item_id 保留原样
+                ep_key = (real_season_num, ep.episode_num if ep.episode_num is not None else ep.item_id)
+                if ep_key in seen_episodes:
+                    continue
+                seen_episodes.add(ep_key)
+
             if real_season_num not in seasons: seasons[real_season_num] = []
             seasons[real_season_num].append(ep)
         seasons = dict(sorted(seasons.items()))
         for s in seasons:
             seasons[s].sort(key=lambda x: x.episode_num if x.episode_num is not None else 9999)
     else:
-        movie_record = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', title=title,
-                                                   is_deleted=False).first()
+        movie_query = WatchRecord.query.filter_by(user_id=current_user.id, item_type='Movie', title=title,
+                                                  is_deleted=False)
+        if lib_filter:
+            movie_query = movie_query.filter_by(library_name=lib_filter)
+        movie_record = movie_query.first()
 
     return render_template('detail.html', media_type=media_type, title=title, poster=poster_info, seasons=seasons,
                            movie_record=movie_record, season_poster_map=season_poster_map,

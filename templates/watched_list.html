@@ -306,10 +306,12 @@
     const rawLibraryData = {{ library_data | tojson | safe }};
     const rawTypeData = {{ type_data | tojson | safe }};
     let currentGroupMode = 'library'; // 'library' or 'type'
+    let activeRenderMode = 'library'; // 当前渲染模式，供详情页链接区分媒体库/类型视图
     let isEditMode = false;
     let sortableInstance = null;
 
     function renderDynamicDOM(mode) {
+        activeRenderMode = mode;
         const dataDict = mode === 'type' ? rawTypeData : rawLibraryData;
         const container = document.getElementById('dynamic-render-container');
         let htmlStr = '';
@@ -401,12 +403,13 @@
         const fillEl = detailsEl.querySelector('.library-content-fill');
         if (!fillEl || fillEl.dataset.filled === '1') return;
         fillEl.dataset.filled = '1';
-        fillEl.innerHTML = buildLibraryContent(data);
+        const libName = activeRenderMode === 'library' ? detailsEl.getAttribute('data-id') : null;
+        fillEl.innerHTML = buildLibraryContent(data, libName);
         if (typeof lucide !== 'undefined') lucide.createIcons();
     }
 
     // 原 renderDynamicDOM 中构建媒体库内容的逻辑,原样搬移至此
-    function buildLibraryContent(data) {
+    function buildLibraryContent(data, libName) {
         let htmlStr = '<div class="list-container">';
         const hasEpisodes = Object.keys(data.episodes_tree || {}).length > 0;
         const hasMovies = (data.movies || []).length > 0;
@@ -475,8 +478,11 @@
 
         // 海报渲染区
         for (const [seriesName, posterPath] of Object.entries(data.series_posters || {})) {
+            const seriesHref = libName
+                ? `/detail/series/${encodeURIComponent(seriesName)}?lib=${encodeURIComponent(libName)}`
+                : `/detail/series/${encodeURIComponent(seriesName)}`;
             htmlStr += `
-            <a href="/detail/series/${encodeURIComponent(seriesName)}" class="poster-item" style="text-decoration: none;">
+            <a href="${seriesHref}" class="poster-item" style="text-decoration: none;">
                 <img src="/static/${posterPath}" loading="lazy" decoding="async">
                 <div class="poster-info">
                     <div class="poster-title">${seriesName}</div>
@@ -487,8 +493,11 @@
 
         (data.movies || []).forEach(mv => {
             const pPath = mv.poster_path || 'images/logo.png';
+            const mvHref = libName
+                ? `/detail/movie/${encodeURIComponent(mv.name)}?lib=${encodeURIComponent(libName)}`
+                : `/detail/movie/${encodeURIComponent(mv.name)}`;
             htmlStr += `
-            <a href="/detail/movie/${encodeURIComponent(mv.name)}" class="poster-item" style="text-decoration: none;">
+            <a href="${mvHref}" class="poster-item" style="text-decoration: none;">
                 <img src="/static/${pPath}" loading="lazy" decoding="async">
                 <div class="poster-info">
                     <div class="poster-title">${mv.name}</div>

@@ -207,7 +207,7 @@
     返回探索页
 </a>
 
-<div class="detail-header" style="--bg-img: url('{{ bg_url }}');">
+<div class="detail-header" style="{% if bg_url_1x %}--bg-img: image-set(url('{{ bg_url_1x }}') 1x, url('{{ bg_url }}') 2x);{% else %}--bg-img: url('{{ bg_url }}');{% endif %}">
     <img src="{{ poster_url }}" alt="主海报" class="detail-poster animate-up delay-1" fetchpriority="high" decoding="async">
 
     <div class="detail-info">

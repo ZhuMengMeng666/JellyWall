@@ -217,6 +217,16 @@
             /* 确保时间线的每一层父级都能收缩，不被长文本撑爆 */
             .timeline-container, .timeline-item, .timeline-card, .timeline-content, .timeline-title-wrapper { min-width: 0; }
         }
+
+        /* 尊重系统"减弱动态效果"设置：关闭动画与过渡，减少低端设备负担 */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
     </style>
 
     <script>

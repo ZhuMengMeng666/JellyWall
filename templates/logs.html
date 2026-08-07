@@ -201,7 +201,7 @@
             btnSysLogs.classList.remove('active'); btnSysLogs.classList.add('paused');
             btnSysLogs.innerHTML = `<i data-lucide="eye-off" style="width: 14px; height: 14px;"></i> 系统请求: 隐藏`;
         }
-        if (typeof lucide !== 'undefined') lucide.createIcons();
+        if (typeof lucide !== 'undefined') lucide.createIcons({}, [btnSysLogs]);
         if (isAutoScroll) scrollToBottom();
     }
 
@@ -227,7 +227,7 @@
             btnAutoScroll.classList.remove('active'); btnAutoScroll.classList.add('paused');
             btnAutoScroll.innerHTML = `<i data-lucide="pause-circle" style="width: 14px; height: 14px;"></i> 自动刷新: 暂停`;
         }
-        if (typeof lucide !== 'undefined') lucide.createIcons();
+        if (typeof lucide !== 'undefined') lucide.createIcons({}, [btnAutoScroll]);
     }
 
     function scrollToBottom() { logViewer.scrollTop = logViewer.scrollHeight; }

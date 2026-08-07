@@ -1033,6 +1033,8 @@ def explore_detail(media_type, item_id):
                 filename='images/logo.png')
             backdrop_path = data.get('backdrop_path')
             bg_url = f"https://image.tmdb.org/t/p/w1280{backdrop_path}" if backdrop_path else poster_url
+            # 小尺寸背景图（1x 设备用），配合模板 image-set() 按 DPR 选择，减少低分辨率屏下载量
+            bg_url_1x = f"https://image.tmdb.org/t/p/w780{backdrop_path}" if backdrop_path else None
             display_type = 'series' if media_type == 'tv' else 'movie'
 
             genres_list = [g.get('name') for g in data.get('genres', []) if g.get('name')]
@@ -1120,6 +1122,7 @@ def explore_detail(media_type, item_id):
                 'overview': overview,
                 'poster_url': poster_url,
                 'bg_url': bg_url,
+                'bg_url_1x': bg_url_1x,
                 'seasons': seasons_data,
                 'season_poster_map': season_poster_map,
                 'season_overview_map': season_overview_map

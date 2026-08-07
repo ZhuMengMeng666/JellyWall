@@ -303,20 +303,38 @@
     // ========================================================
     // ✨ 核心重构：注入 JSON，前端纯净 DOM 渲染引擎
     // ========================================================
-    const rawLibraryData = {{ library_data | tojson | safe }};
-    const rawTypeData = {{ type_data | tojson | safe }};
+    const watchedSummary = {{ summary | tojson | safe }};
     let currentGroupMode = 'library'; // 'library' or 'type'
     let activeRenderMode = 'library'; // 当前渲染模式，供详情页链接区分媒体库/类型视图
     let isEditMode = false;
     let sortableInstance = null;
+    // 按需加载缓存：展开过的库/类型区只请求一次，之后直接读缓存
+    const watchedDataCache = new Map();
+
+    function getWatchedData(mode, groupName) {
+        const key = mode + ':' + (groupName || '');
+        if (watchedDataCache.has(key)) return Promise.resolve(watchedDataCache.get(key));
+        const url = mode === 'type'
+            ? '/api/watched_type'
+            : '/api/watched_library?lib=' + encodeURIComponent(groupName);
+        // 缓存 Promise 本身：toggle 事件与 summary click 双触发时并发请求只发一次
+        const promise = fetch(url)
+            .then(r => r.json())
+            .then(data => {
+                return mode === 'type' ? (data[groupName] || null) : data;
+            })
+            .catch(() => null);
+        watchedDataCache.set(key, promise);
+        return promise;
+    }
 
     function renderDynamicDOM(mode) {
         activeRenderMode = mode;
-        const dataDict = mode === 'type' ? rawTypeData : rawLibraryData;
+        const groupNames = mode === 'type' ? watchedSummary.type_names : watchedSummary.library_names;
         const container = document.getElementById('dynamic-render-container');
         let htmlStr = '';
 
-        if (Object.keys(dataDict).length === 0) {
+        if (!groupNames.length) {
             htmlStr = `
             <div style="text-align: center; color: var(--text-muted); padding: 80px 20px; background-color: var(--sidebar-bg); border-radius: 10px; border: 1px solid var(--border-color);">
                 <i data-lucide="package-open" style="width: 64px; height: 64px; margin: 0 auto 15px auto; display: block; opacity: 0.5;"></i>
@@ -329,7 +347,7 @@
 
         // 恢复这组数据的保存折叠/展开状态
         const savedOrder = JSON.parse(localStorage.getItem('jellywall_order_' + mode)) || [];
-        const entries = Object.entries(dataDict);
+        const entries = groupNames.map(name => [name, null]);
 
         // 按照用户拖拽保存的顺序重新排列
         entries.sort((a, b) => {
@@ -374,7 +392,11 @@
         // 注意:必须等 container.innerHTML 注入后再挂载监听,否则监听器会挂在被替换的旧节点上
         container.querySelectorAll('details.library-details').forEach(det => {
             const fill = () => {
-                if (det.open) fillLibraryContent(det, dataDict[det.getAttribute('data-id')]);
+                if (det.open) {
+                    getWatchedData(mode, det.getAttribute('data-id')).then(data => {
+                        fillLibraryContent(det, data);
+                    });
+                }
             };
             det.addEventListener('toggle', fill);
             // 兜底:部分浏览器对 details 的 toggle 事件支持不佳,改为 summary 点击后延迟检查

@@ -241,7 +241,7 @@
             }
         })();
     </script>
-    <script src="{{ url_for('static', filename='js/lucide.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/lucide.subset.min.js') }}"></script>
 </head>
 <body>
 
@@ -281,6 +281,7 @@
             <li><a href="{{ url_for('watched_list') }}"><span class="icon"><i data-lucide="history"></i></span><span class="text">已观看记录</span></a></li>
             <li><a href="{{ url_for('logs_view') }}"><span class="icon"><i data-lucide="terminal-square"></i></span><span class="text">日志管理</span></a></li>
             <li><a href="{{ url_for('watched') }}"><span class="icon"><i data-lucide="library-big"></i></span><span class="text">海报墙</span></a></li>
+            <li><a href="{{ url_for('about') }}"><span class="icon"><i data-lucide="info"></i></span><span class="text">关于</span></a></li>
         </ul>
 
         <div class="sidebar-footer">
@@ -292,7 +293,6 @@
                 <span class="icon" style="color: #ef4444;"><i data-lucide="log-out"></i></span>
                 <span class="text">登出</span>
             </a>
-            <div class="sidebar-version">JellyWall v{{ app_version }}</div>
         </div>
     </div>
 

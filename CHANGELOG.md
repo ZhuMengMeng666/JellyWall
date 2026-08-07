@@ -1,0 +1,44 @@
+# JellyWall 更新日志
+
+## [**🌟 v1.0.3**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.3)
+**最新**
+2026/08/07
+
+**🐛 Bug修复**
+- fix: 详情页重复单集按媒体库过滤/类型视图去重，JOJO 等双来源剧集不再重复显示
+
+**🚀 优化**
+- perf: 新增"关于"页面，展示版本信息与 GitHub 仓库入口
+- perf: 历史记录页改为按需加载，首屏 HTML 从 1.7MB 降至 72KB
+- perf: lucide 图标子集化，全站图标库从 402KB 降至 13KB
+- perf: 动效减弱媒体查询、日志面板局部图标扫描、探索页背景图 image-set
+- perf: 图片加载细节优化（decoding/fetchpriority/海报墙导出预加载）
+- perf: 调试模式改由 FLASK_DEBUG 环境变量控制，生产默认关闭
+- perf: Watcharr 导入改为批量提交，减少事务开销
+- perf: TMDB 缓存加 LRU 上限，防止内存无限增长
+- perf: 背景图下载加 quality 压缩，单图体积降 40~60%
+- perf: 海报墙与历史页只加载渲染所需列
+- perf: 探索详情并发拉取各季，多季剧页面提速
+- perf: 同步引擎统一核心并复用连接池，网络抖动自动重试
+- perf: 仪表板热力图改为 SQL 分组聚合
+- perf: 全项目日志统一格式与级别分类，补充关键操作日志
+
+**📚 文档更新**
+- docs: README 补充生产部署调试模式说明
+
+## [**🌟 v1.0.1**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.1)
+2026/08/05
+
+**🐛 Bug修复**
+- fix: 修复部署时图片缓存目录缺失与未持久化问题
+- fix: 调整 static/images 卷映射，避免覆盖镜像内 logo
+- fix: 日志面板按日志自身时间分钟分组
+
+**📚 文档更新**
+- docs: 性能优化与项目文档完善
+
+## [**🌟 v1.0.0**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.0)
+2026/08/04
+
+**🚀 优化**
+- feat: 发布初始版本，新增版本号与项目 README

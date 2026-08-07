@@ -1,0 +1,278 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    /* ===== 关于页：暗色影院风 ===== */
+    .about-page {
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 36px 20px 56px;
+        position: relative;
+    }
+    .about-hero {
+        text-align: center;
+        padding: 44px 24px 32px;
+        position: relative;
+    }
+    .about-logo-wrap {
+        width: 96px;
+        height: 96px;
+        margin: 0 auto 26px;
+        border-radius: 28px;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(145deg,
+                    color-mix(in srgb, var(--primary-color) 22%, transparent),
+                    color-mix(in srgb, var(--primary-color) 5%, transparent));
+        border: 1px solid color-mix(in srgb, var(--primary-color) 38%, transparent);
+        animation: about-float 5s ease-in-out infinite;
+    }
+    .about-logo-wrap img {
+        width: 56px;
+        height: 56px;
+    }
+    /* 地面影子：随 logo 浮动同步缩放/变淡 */
+    .about-logo-wrap::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        bottom: -20px;
+        transform: translateX(-50%);
+        width: 72%;
+        height: 14px;
+        border-radius: 50%;
+        background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.3), transparent 70%);
+        animation: about-shadow 5s ease-in-out infinite;
+        pointer-events: none;
+    }
+    /* 浅色主题：影子恢复为黑色 */
+    [data-theme="light"] .about-logo-wrap::after {
+        background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35), transparent 70%);
+    }
+    @keyframes about-float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-6px); }
+    }
+    @keyframes about-shadow {
+        0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.85; }
+        50% { transform: translateX(-50%) scale(0.7); opacity: 0.4; }
+    }
+    .about-name {
+        font-size: 34px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        margin: 0 0 16px;
+        background: linear-gradient(90deg, var(--text-main), var(--primary-color));
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        color: transparent;
+    }
+    .about-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 16px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--primary-color);
+        background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--primary-color) 35%, transparent);
+        margin-bottom: 18px;
+    }
+    .about-desc {
+        color: var(--text-muted);
+        font-size: 15px;
+        line-height: 1.8;
+        max-width: 480px;
+        margin: 0 auto;
+    }
+    .about-actions {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 30px;
+    }
+    .about-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 26px;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .about-btn-primary {
+        color: #fff;
+        background: linear-gradient(135deg, var(--primary-color),
+                    color-mix(in srgb, var(--primary-color) 70%, #000));
+        box-shadow: 0 10px 26px color-mix(in srgb, var(--primary-color) 35%, transparent);
+    }
+    .about-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 14px 34px color-mix(in srgb, var(--primary-color) 45%, transparent);
+    }
+
+    /* ===== 更新日志 ===== */
+    .changelog-section {
+        margin-top: 48px;
+    }
+    .changelog-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+    }
+    .changelog-head h2 {
+        font-size: 20px;
+        margin: 0;
+    }
+    .changelog-head::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent);
+    }
+    /* 更新日志卡片 */
+    .changelog-content {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+    .cl-card {
+        background: var(--sidebar-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 22px 26px;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+                    box-shadow 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+                    border-color 0.25s;
+    }
+    .cl-card:hover {
+        transform: translateY(-4px);
+        border-color: rgba(0, 164, 220, 0.5);
+        box-shadow: 0 20px 44px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(0, 164, 220, 0.25);
+    }
+    .cl-version {
+        font-size: 18px;
+        font-weight: 700;
+        margin: 0 0 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .cl-version a {
+        color: var(--primary-color);
+        text-decoration: none;
+    }
+    .cl-version a:hover {
+        text-decoration: underline;
+    }
+    .cl-ver-icon {
+        width: 18px;
+        height: 18px;
+        color: var(--primary-color);
+    }
+    .cl-cat-icon {
+        width: 15px;
+        height: 15px;
+        margin-right: 6px;
+        vertical-align: -2px;
+        color: var(--primary-color);
+    }
+    .cl-latest {
+        display: inline-flex;
+        padding: 2px 12px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #10b981;
+        background: rgba(16, 185, 129, 0.12);
+        border: 1px solid rgba(16, 185, 129, 0.32);
+        margin: 0 8px 0 0;
+    }
+    .cl-date {
+        color: var(--text-muted);
+        font-size: 13px;
+        margin: 0 0 4px;
+        display: inline-flex;
+        align-items: center;
+    }
+    .cl-category {
+        font-size: 14px;
+        font-weight: 700;
+        margin: 14px 0 4px;
+        color: var(--text-main);
+        display: flex;
+        align-items: center;
+    }
+    .cl-list {
+        margin: 0;
+        padding-left: 4px;
+        list-style: none;
+    }
+    .cl-list li {
+        position: relative;
+        padding: 6px 0 6px 18px;
+        color: var(--text-muted);
+        font-size: 14px;
+        line-height: 1.75;
+    }
+    .cl-list li::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 15px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--primary-color);
+        opacity: 0.7;
+    }
+    .cl-plain {
+        color: var(--text-muted);
+        font-size: 14px;
+    }
+
+    /* ===== 进入动画 ===== */
+    .about-fade {
+        animation: about-fadeUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+    .d-2 {
+        animation-delay: 0.15s;
+    }
+    @keyframes about-fadeUp {
+        from { opacity: 0; transform: translateY(14px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+</style>
+
+<div class="about-page">
+    <div class="about-hero about-fade">
+        <div class="about-logo-wrap">
+            <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="JellyWall" decoding="async">
+        </div>
+        <h1 class="about-name">JellyWall</h1>
+        <div class="about-badge">当前版本 v{{ app_version }}</div>
+        <p class="about-desc">把 Jellyfin 的观看历史，变成一份值得长期翻阅的个人观影档案。</p>
+        <div class="about-actions">
+            <a class="about-btn about-btn-primary" href="https://github.com/ZhuMengMeng666/JellyWall" target="_blank" rel="noopener">
+                <i data-lucide="external-link"></i> GitHub 仓库
+            </a>
+        </div>
+    </div>
+
+    <div class="changelog-section about-fade d-2">
+        <div class="changelog-head">
+            <h2>更新日志</h2>
+        </div>
+        <div class="changelog-content">{{ changelog_html | safe }}</div>
+    </div>
+</div>
+{% endblock %}

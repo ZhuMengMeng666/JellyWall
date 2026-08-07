@@ -1817,6 +1817,94 @@ def watched():
     return render_template('watched.html', title="海报墙", movies=movies_data)
 
 
+def _render_changelog_markdown(text):
+    """将 CHANGELOG.md 的子集转换为带语义 class 的 HTML：版本卡片、分类图标、简约符号。"""
+    # 分类 emoji → lucide 图标映射（页面展示用；CHANGELOG.md 原文保留 emoji 供 GitHub 渲染）
+    category_icons = {
+        '\U0001f41b Bug\u4fee\u590d': 'bug',
+        '\U0001f680 \u4f18\u5316': 'zap',
+        '\U0001f4da \u6587\u6863\u66f4\u65b0': 'book-open',
+    }
+    lines = text.strip().splitlines()
+    html = []
+    in_list = False
+    in_card = False
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            if in_list:
+                html.append('</ul>')
+                in_list = False
+            continue
+        if line.startswith('#'):
+            if in_list:
+                html.append('</ul>')
+                in_list = False
+            level = min(len(line) - len(line.lstrip('#')), 3)
+            content = line.lstrip('#').strip()
+            if level == 1:
+                # 跳过文件主标题（页面已有"更新日志"标题）
+                continue
+            elif level == 2:
+                if in_card:
+                    html.append('</div>')
+                html.append('<div class="cl-card">')
+                html.append(f'<h2 class="cl-version">{content}</h2>')
+                in_card = True
+            else:
+                html.append(f'<h{level}>{content}</h{level}>')
+        elif line.startswith('- '):
+            if not in_list:
+                html.append('<ul class="cl-list">')
+                in_list = True
+            html.append(f'<li>{line[2:]}</li>')
+        else:
+            if in_list:
+                html.append('</ul>')
+                in_list = False
+            if line == '**\u6700\u65b0**':
+                html.append('<p class="cl-latest">\u6700\u65b0</p>')
+            elif re.match(r'^\d{4}/\d{2}/\d{2}', line):
+                html.append(f'<p class="cl-date">{line}</p>')
+            elif line.startswith('**') and line.endswith('**') and len(line) > 4:
+                icon = category_icons.get(line[2:-2], '')
+                if icon:
+                    html.append(
+                        f'<h3 class="cl-category"><i data-lucide="{icon}" class="cl-cat-icon"></i>{line[2:-2]}</h3>')
+                else:
+                    html.append(f'<h3 class="cl-category">{line}</h3>')
+            else:
+                html.append(f'<p class="cl-plain">{line}</p>')
+    if in_list:
+        html.append('</ul>')
+    if in_card:
+        html.append('</div>')
+    result = '\n'.join(html)
+    result = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', result)
+    result = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" target="_blank" rel="noopener">\1</a>', result)
+    # 版本标题：去掉 emoji 星标，改用 lucide star 图标
+    result = result.replace('\u2b50 ', '')
+    result = re.sub(r'<h2 class="cl-version">(<a[^>]*>)',
+                    r'<h2 class="cl-version"><i data-lucide="star" class="cl-ver-icon"></i>\1', result)
+    return result
+
+
+def _load_changelog_html():
+    """读取 CHANGELOG.md 并渲染为 HTML，供关于页面展示。"""
+    path = os.path.join(app.root_path, 'CHANGELOG.md')
+    if not os.path.exists(path):
+        return ''
+    with open(path, 'r', encoding='utf-8') as f:
+        return _render_changelog_markdown(f.read())
+
+
+@app.route('/about')
+@login_required
+def about():
+    """关于页面：展示版本信息、GitHub 仓库入口与更新日志。"""
+    return render_template('about.html', title="关于", changelog_html=_load_changelog_html())
+
+
 @app.route('/image/<item_id>')
 @login_required
 def proxy_image(item_id):
@@ -2207,19 +2295,17 @@ def api_sync_stream():
 
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
-@app.route('/watched_list')
-@login_required
-def watched_list():
+def _build_watched_data(user_id):
     """历史记录展示大全，采用双轨引擎：按媒体库展示不去重（保留数据源真实性），按类型展示严格去重。"""
     raw_records = db.session.query(
         WatchRecord.id, WatchRecord.item_type, WatchRecord.title, WatchRecord.series_name,
         WatchRecord.season_name, WatchRecord.tmdb_id, WatchRecord.library_name, WatchRecord.date_played
-    ).filter_by(user_id=current_user.id, is_deleted=False).order_by(WatchRecord.date_played.desc()).all()
+    ).filter_by(user_id=user_id, is_deleted=False).order_by(WatchRecord.date_played.desc()).all()
 
     posters = db.session.query(
         WatchPoster.media_type, WatchPoster.display_title, WatchPoster.series_name,
         WatchPoster.tmdb_id, WatchPoster.local_image_path, WatchPoster.series_image_path
-    ).filter_by(user_id=current_user.id, is_deleted=False).all()
+    ).filter_by(user_id=user_id, is_deleted=False).all()
 
     # 构建双维度海报映射字典，极大提高命中率
     movie_poster_map = {}
@@ -2386,7 +2472,38 @@ def watched_list():
     if type_data['剧集区']['episodes_tree']:
         final_type_data['剧集区'] = type_data['剧集区']
 
-    return render_template('watched_list.html', library_data=library_data, type_data=final_type_data)
+    return library_data, final_type_data
+
+
+@app.route('/watched_list')
+@login_required
+def watched_list():
+    """历史记录页：只内联轻量摘要（库名/类型区名），展开时按需请求数据，避免全量 JSON 进页面。"""
+    library_data, type_data = _build_watched_data(current_user.id)
+    summary = {
+        'library_names': list(library_data.keys()),
+        'type_names': list(type_data.keys())
+    }
+    return render_template('watched_list.html', summary=summary)
+
+
+@app.route('/api/watched_library')
+@login_required
+def api_watched_library():
+    """按媒体库返回观看历史数据（展开某个库时前端调用）"""
+    lib = request.args.get('lib', '').strip()
+    if not lib:
+        return jsonify({})
+    library_data, _ = _build_watched_data(current_user.id)
+    return jsonify(library_data.get(lib, {}))
+
+
+@app.route('/api/watched_type')
+@login_required
+def api_watched_type():
+    """返回按类型去重后的观看历史数据（类型视图展开时前端调用）"""
+    _, type_data = _build_watched_data(current_user.id)
+    return jsonify(type_data)
 
 
 @app.route('/detail/<media_type>/<path:title>')

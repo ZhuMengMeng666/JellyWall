@@ -47,8 +47,30 @@
             margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             display: flex; justify-content: center; align-items: center; min-height: 100vh;
             background-color: var(--bg-color); color: var(--text-main);
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
             transition: background-color 0.3s, color 0.3s;
             position: relative;
+        }
+        /* 背景氛围光晕：精简为左下角一团，避免与照片背景冲突 */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(520px circle at 8% 92%,
+                    color-mix(in srgb, var(--primary-color) 9%, transparent), transparent 65%);
+            z-index: 1;
+        }
+        /* 电影遮幅式遮罩 */
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background: linear-gradient(180deg, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.30) 35%, rgba(0, 0, 0, 0.68));
+            z-index: 0;
         }
 
         .top-navbar {
@@ -63,52 +85,154 @@
         .color-dot:hover { transform: scale(1.2); }
 
         .login-card {
-            background-color: var(--sidebar-bg);
-            padding: 40px;
-            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.08);
+            -webkit-backdrop-filter: blur(24px) saturate(160%);
+            backdrop-filter: blur(24px) saturate(160%);
+            padding: 44px 40px 38px;
+            border-radius: 20px;
             width: 100%;
             max-width: 400px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            border: 1px solid var(--border-color);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.16);
             display: flex;
             flex-direction: column;
             align-items: center;
+            position: relative;
+            z-index: 2;
+            animation: login-card-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        }
+        [data-theme="light"] .login-card {
+            background: rgba(255, 255, 255, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.75);
+        }
+        @keyframes login-card-in {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes login-fade {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .login-logo-wrap {
+            animation: login-float 5s ease-in-out infinite, login-fade 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both;
+        }
+        .login-title {
+            animation: login-fade 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s both;
+        }
+        .login-subtitle {
+            animation: login-fade 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.25s both;
+        }
+        .login-form {
+            animation: login-fade 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.3s both;
+        }
+        .login-footer {
+            animation: login-fade 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.35s both;
+            color: var(--text-muted);
+            font-size: 12px;
+            margin-top: 22px;
         }
 
-        .logo-img {
+        /* Logo 渐变容器 + 浮动动画 + 地面影子 */
+        .login-logo-wrap {
+            width: 88px;
+            height: 88px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 18px;
+            position: relative;
+            animation: login-float 5s ease-in-out infinite;
+        }
+        .login-logo-wrap img {
             width: 72px;
             height: 72px;
             object-fit: contain;
-            border-radius: 12px;
-            margin-bottom: 15px;
+        }
+        .login-logo-wrap::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            bottom: -18px;
+            transform: translateX(-50%);
+            width: 72%;
+            height: 13px;
+            border-radius: 50%;
+            background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.28), transparent 70%);
+            animation: login-shadow 5s ease-in-out infinite;
+            pointer-events: none;
+        }
+        [data-theme="light"] .login-logo-wrap::after {
+            background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35), transparent 70%);
+        }
+        @keyframes login-float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+        @keyframes login-shadow {
+            0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.85; }
+            50% { transform: translateX(-50%) scale(0.72); opacity: 0.4; }
         }
 
-        .login-title { font-size: 24px; font-weight: 800; color: var(--text-main); margin: 0 0 5px 0; letter-spacing: -0.5px; }
+        .login-title {
+            font-size: 26px; font-weight: 800; margin: 0 0 5px 0; letter-spacing: -0.5px;
+            background: linear-gradient(90deg, var(--text-main), var(--primary-color));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            color: transparent;
+        }
         .login-subtitle { color: var(--primary-color); font-size: 14px; margin-bottom: 30px; font-weight: 600; }
 
         .login-form { width: 100%; }
 
         .input-group { margin-bottom: 20px; width: 100%; }
         .input-group label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-muted); font-weight: 500; }
+        .input-icon-wrap { position: relative; width: 100%; }
+        .input-icon {
+            position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+            width: 18px; height: 18px; color: var(--text-muted); pointer-events: none;
+        }
         .input-group input {
-            width: 100%; padding: 12px 15px; border-radius: 8px;
-            background-color: var(--bg-color); color: var(--text-main);
-            border: 1px solid var(--border-color); font-size: 15px;
+            width: 100%; padding: 12px 15px 12px 44px; border-radius: 10px;
+            background-color: rgba(255, 255, 255, 0.06); color: var(--text-main);
+            border: 1px solid rgba(255, 255, 255, 0.1); font-size: 15px;
             transition: all 0.2s; box-sizing: border-box; outline: none;
         }
         .input-group input:focus {
             border-color: var(--primary-color);
             box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 20%, transparent);
         }
+        [data-theme="light"] .input-group input {
+            background-color: rgba(0, 0, 0, 0.04);
+            border-color: rgba(0, 0, 0, 0.12);
+        }
+
+        /* 品牌区与表单区的分隔线 */
+        .login-divider {
+            width: 100%;
+            height: 1px;
+            margin: 0 0 24px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+        }
 
         .submit-btn {
             width: 100%; padding: 14px; border-radius: 8px;
-            background-color: var(--primary-color); color: #fff;
+            background: linear-gradient(135deg, var(--primary-color),
+                    color-mix(in srgb, var(--primary-color) 70%, #000));
+            color: #fff;
             border: none; font-size: 16px; font-weight: 600; cursor: pointer;
-            transition: transform 0.2s, filter 0.2s;
+            transition: transform 0.2s, filter 0.2s, box-shadow 0.2s;
+            box-shadow: 0 10px 24px color-mix(in srgb, var(--primary-color) 35%, transparent);
             margin-top: 10px;
         }
-        .submit-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            filter: brightness(1.08);
+            box-shadow: 0 14px 32px color-mix(in srgb, var(--primary-color) 45%, transparent);
+        }
+        .submit-btn:active {
+            transform: scale(0.98);
+        }
 
         /* ====== ✨ 新增：注册链接样式 ====== */
         .register-link {
@@ -134,9 +258,106 @@
             background-color: rgba(239, 68, 68, 0.1); color: #ef4444;
             border: 1px solid rgba(239, 68, 68, 0.2); font-size: 14px; text-align: center;
         }
+
+        /* 尊重系统"减弱动态效果"设置 */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        /* ===== 忘记密码毛玻璃弹窗 ===== */
+        .fp-row {
+            text-align: right;
+            margin: -8px 0 14px;
+        }
+        .fp-link {
+            color: var(--primary-color);
+            font-size: 13px;
+            text-decoration: none;
+            transition: filter 0.2s;
+        }
+        .fp-link:hover {
+            filter: brightness(1.2);
+            text-decoration: underline;
+        }
+        .fp-modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.55);
+            -webkit-backdrop-filter: blur(6px);
+            backdrop-filter: blur(6px);
+        }
+        .fp-modal-overlay[hidden] {
+            display: none !important;
+        }
+        .fp-modal {
+            background: rgba(255, 255, 255, 0.08);
+            -webkit-backdrop-filter: blur(24px) saturate(160%);
+            backdrop-filter: blur(24px) saturate(160%);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 20px;
+            padding: 36px 40px;
+            max-width: 360px;
+            width: calc(100% - 48px);
+            text-align: center;
+            position: relative;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+            animation: fp-in 0.2s ease-out both;
+        }
+        [data-theme="light"] .fp-modal {
+            background: rgba(255, 255, 255, 0.75);
+            border-color: rgba(255, 255, 255, 0.85);
+        }
+        .fp-close {
+            position: absolute;
+            top: 14px;
+            right: 16px;
+            width: 28px;
+            height: 28px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: background 0.2s, color 0.2s;
+        }
+        .fp-close:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+        }
+        .fp-modal-icon {
+            width: 44px;
+            height: 44px;
+            color: var(--primary-color);
+            margin-bottom: 14px;
+        }
+        .fp-modal-title {
+            font-size: 19px;
+            font-weight: 700;
+            margin: 0 0 10px;
+        }
+        .fp-modal-text {
+            color: var(--text-muted);
+            font-size: 14px;
+            line-height: 1.8;
+            margin: 0;
+        }
+        @keyframes fp-in {
+            from { opacity: 0; transform: scale(0.96) translateY(8px); }
+            to { opacity: 1; transform: none; }
+        }
     </style>
 </head>
-<body>
+<body style="{% if bg_url %}background-image:url('{{ bg_url }}');{% endif %}">
 
     <div class="top-navbar">
         <button class="theme-switch" onclick="toggleDarkMode(event)" id="mode-btn">🌙 深色模式</button>
@@ -150,9 +371,12 @@
     </div>
 
     <div class="login-card">
-        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="logo-img" decoding="async">
+        <div class="login-logo-wrap">
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="logo-img" decoding="async">
+        </div>
         <h1 class="login-title">JellyWall</h1>
         <div class="login-subtitle">登入你的观影控制台</div>
+        <div class="login-divider"></div>
 
         {% with messages = get_flashed_messages() %}
             {% if messages %}
@@ -165,18 +389,26 @@
         <form class="login-form" method="POST" action="{{ url_for('login') }}">
             <div class="input-group">
                 <label for="username">用户名</label>
-                <input type="text" id="username" name="username" required placeholder="请输入用户名">
+<div class="input-icon-wrap">
+                    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <input type="text" id="username" name="username" required placeholder="请输入用户名">
+                </div>
             </div>
             <div class="input-group">
                 <label for="password">密码</label>
-                <input type="password" id="password" name="password" required placeholder="请输入密码">
+<div class="input-icon-wrap">
+                    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    <input type="password" id="password" name="password" required placeholder="请输入密码">
+                </div>
             </div>
+            <div class="fp-row"><a href="#" class="fp-link" id="forgot-password-link">忘记密码？</a></div>
             <button type="submit" class="submit-btn">立即登录</button>
         </form>
 
         <div class="register-link">
             还没有账号？ <a href="{{ url_for('register') }}">立即注册</a>
         </div>
+        <div class="login-footer">JellyWall v{{ app_version }}</div>
     </div>
 
     <script>
@@ -232,6 +464,52 @@
                 document.documentElement.style.setProperty('--primary-color', savedColor);
             }
         });
+    </script>
+    <script>
+        // 随机背景：同一会话刷新保持同一张图，新会话才换新图
+        (function () {
+            try {
+                var key = 'jellywall_login_bg';
+                var saved = sessionStorage.getItem(key);
+                var current = document.body.style.backgroundImage;
+                var m = current && current.match(/url\(['"]?(.+?)['"]?\)/);
+                if (saved) {
+                    document.body.style.backgroundImage = "url('" + saved + "')";
+                } else if (m) {
+                    sessionStorage.setItem(key, m[1]);
+                }
+            } catch (e) { }
+        })();
+    </script>
+    <div class="fp-modal-overlay" id="fp-modal" hidden>
+        <div class="fp-modal" role="dialog" aria-modal="true" aria-labelledby="fp-title">
+            <button class="fp-close" id="fp-close" aria-label="关闭">×</button>
+            <svg class="fp-modal-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            <h2 class="fp-modal-title" id="fp-title">忘记密码</h2>
+            <p class="fp-modal-text">请联系管理员对此账号密码进行修改或重置</p>
+        </div>
+    </div>
+    <script>
+        // 忘记密码弹窗：打开与三种关闭方式
+        (function () {
+            var link = document.getElementById('forgot-password-link');
+            var modal = document.getElementById('fp-modal');
+            var closeBtn = document.getElementById('fp-close');
+            if (!link || !modal || !closeBtn) return;
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+                modal.hidden = false;
+            });
+            closeBtn.addEventListener('click', function () {
+                modal.hidden = true;
+            });
+            modal.addEventListener('click', function (e) {
+                if (e.target === modal) modal.hidden = true;
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && !modal.hidden) modal.hidden = true;
+            });
+        })();
     </script>
 </body>
 </html>

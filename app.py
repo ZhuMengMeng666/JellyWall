@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import sys
 import threading
@@ -83,7 +84,7 @@ Compress(app)
 # ==========================================
 # 应用版本号(后续迭代在此递增)
 # ==========================================
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 
 
 
@@ -576,6 +577,20 @@ def load_user(user_id):
     return None
 
 
+def _random_backdrop():
+    """从本地背景图目录随机选一张 1080p 级背景图（backdrops 为 Jellyfin 1920 宽横图）；
+    目录为空或异常时返回 None，由页面回退到纯色光晕样式。"""
+    try:
+        backdrop_dir = os.path.join(app.root_path, 'static', 'backdrops')
+        files = [f for f in os.listdir(backdrop_dir)
+                 if f.endswith('.jpg') and not f.startswith('.')]
+        if not files:
+            return None
+        return url_for('static', filename='backdrops/' + random.choice(files))
+    except Exception:
+        return None
+
+
 # ================= 路由逻辑 =================
 
 @app.route('/')
@@ -609,7 +624,7 @@ def login():
             logger.warning(f"[登录] 登录失败，用户名或密码错误: username={username}, ip={request.remote_addr}")
             flash('用户名或密码错误，请重试。')
 
-    return render_template('login.html')
+    return render_template('login.html', bg_url=_random_backdrop(), app_version=APP_VERSION)
 
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -650,7 +665,7 @@ def register():
         flash('注册成功！请登录。')
         return redirect(url_for('login'))
 
-    return render_template('register.html')
+    return render_template('register.html', bg_url=_random_backdrop(), app_version=APP_VERSION)
 
 
 @app.route('/onboarding', methods=['GET', 'POST'])

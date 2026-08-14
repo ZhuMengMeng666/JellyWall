@@ -1,7 +1,14 @@
 # JellyWall 更新日志
+## [**🌟 v1.0.4**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.4)
+**最新**
+2026/08/14
+
+**🚀 优化**
+- feat: 登录/注册页“影帧”视觉升级：随机 1080p 背景、电影遮幅、毛玻璃卡片、输入图标、进入动画、页脚版本号
+- feat: 登录页新增“忘记密码”提示弹窗
+
 
 ## [**🌟 v1.0.3**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.3)
-**最新**
 2026/08/07
 
 **🐛 Bug修复**

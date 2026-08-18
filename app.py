@@ -84,7 +84,7 @@ Compress(app)
 # ==========================================
 # 应用版本号(后续迭代在此递增)
 # ==========================================
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 
 
 
@@ -737,6 +737,23 @@ def dashboard():
         user_id=current_user.id, item_type='Episode', is_deleted=False
     ).distinct().count()
 
+    # 近30天观影统计（电影部数 / 剧集集数）
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    recent_30d_rows = db.session.query(
+        WatchRecord.item_type, func.count(WatchRecord.id)
+    ).filter(
+        WatchRecord.user_id == current_user.id,
+        WatchRecord.is_deleted == False,
+        WatchRecord.date_played >= thirty_days_ago
+    ).group_by(WatchRecord.item_type).all()
+    movies_30d = 0
+    episodes_30d = 0
+    for rec_type, cnt in recent_30d_rows:
+        if rec_type == 'Movie':
+            movies_30d = cnt
+        else:
+            episodes_30d = cnt
+
     recent_records_raw = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False) \
         .order_by(WatchRecord.date_played.desc()).limit(8).all()
 
@@ -797,6 +814,7 @@ def dashboard():
                            movie_total=movie_total, movie_jf=movie_jf, movie_tmdb=movie_tmdb,
                            ep_total=ep_total, ep_jf=ep_jf, ep_tmdb=ep_tmdb,
                            unique_series=unique_series,
+                           movies_30d=movies_30d, episodes_30d=episodes_30d,
                            recent_feed=recent_feed,
                            heatmap_data=heatmap_data)
 

@@ -2,6 +2,7 @@
 
 {% block content %}
 <script src="{{ url_for('static', filename='js/Sortable.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/poster-tilt.js') }}"></script>
 
 <style>
     /* ====== CSS 渲染优化黑魔法 ====== */
@@ -86,7 +87,21 @@
 
     /* ====== 海报卡片样式 ====== */
     .poster-item { position: relative; border-radius: 12px; overflow: hidden; aspect-ratio: 2/3; box-shadow: 0 6px 15px rgba(0,0,0,0.1); transition: transform 0.3s, box-shadow 0.3s; background-color: #222; cursor: pointer; }
-    .poster-item:hover { transform: translateY(-5px); box-shadow: 0 12px 25px rgba(0,0,0,0.2); }
+    .poster-item:hover { z-index: 10; box-shadow: 0 12px 25px rgba(0,0,0,0.2); }
+    /* 镜面反光：随卡片倾斜角度移动的对角光带（与海报墙一致） */
+    .poster-item::after {
+        content: ''; position: absolute; left: -100%; top: -100%; right: -100%; bottom: -100%;
+        z-index: 6; pointer-events: none;
+        background: linear-gradient(115deg,
+            transparent 42%, transparent 45%,
+            rgba(255,255,255,0.28) 47%, rgba(255,255,255,0.45) 49%, rgba(255,255,255,0.28) 51%,
+            transparent 53%, transparent 56%,
+            rgba(255,255,255,0.16) 58%, rgba(255,255,255,0.28) 59.5%, rgba(255,255,255,0.16) 61%,
+            transparent 63%, transparent 100%);
+        opacity: 0; transition: opacity 0.25s ease; mix-blend-mode: screen;
+        transform: translate(var(--shine-x, 0%), var(--shine-y, 0%));
+    }
+    .poster-item.poster-tilt-active::after { opacity: 1; }
     .poster-item img { width: 100%; height: 100%; object-fit: cover; }
     .poster-info { position: absolute; bottom: 0; left: 0; right: 0; padding: 40px 15px 15px 15px; background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 60%, transparent 100%); color: #fff; }
     .poster-title { font-weight: bold; font-size: 14px; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -864,5 +879,6 @@
             window.showToast("执行异常阻断");
         }
     };
+
 </script>
 {% endblock %}

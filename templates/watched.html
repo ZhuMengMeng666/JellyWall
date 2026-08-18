@@ -2,6 +2,7 @@
 
 {% block content %}
 <script src="{{ url_for('static', filename='js/html2canvas.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/poster-tilt.js') }}"></script>
 
 <style>
     .toolbar {
@@ -29,7 +30,21 @@
         background-color: var(--bg-color); box-shadow: 0 6px 12px rgba(0,0,0,0.15);
         transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    .poster-item:hover { transform: scale(1.03); z-index: 10; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
+    .poster-item:hover { z-index: 10; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
+    /* 镜面反光：随卡片倾斜角度移动的对角光带（Steam 风格） */
+    .poster-item::after {
+        content: ''; position: absolute; left: -100%; top: -100%; right: -100%; bottom: -100%;
+        z-index: 6; pointer-events: none;
+        background: linear-gradient(115deg,
+            transparent 42%, transparent 45%,
+            rgba(255,255,255,0.28) 47%, rgba(255,255,255,0.45) 49%, rgba(255,255,255,0.28) 51%,
+            transparent 53%, transparent 56%,
+            rgba(255,255,255,0.16) 58%, rgba(255,255,255,0.28) 59.5%, rgba(255,255,255,0.16) 61%,
+            transparent 63%, transparent 100%);
+        opacity: 0; transition: opacity 0.25s ease; mix-blend-mode: screen;
+        transform: translate(var(--shine-x, 0%), var(--shine-y, 0%));
+    }
+    .poster-item.poster-tilt-active::after { opacity: 1; }
     .poster-item img { width: 100%; height: 100%; object-fit: cover; display: block; transition: filter 0.3s; }
 
     .info-overlay {
@@ -120,6 +135,9 @@
         btn.disabled = true; btn.style.opacity = '0.7';
         icon.innerHTML = '⚙️'; text.innerHTML = '渲染引擎处理中...';
 
+        // 导出期间禁用 3D 倾斜并复位所有海报，避免快照捕获到倾斜/变形帧
+        window.__setPosterTilt && window.__setPosterTilt(false);
+
         const currentBg = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-bg').trim() || '#1e1e1e';
 
         preloadWallImages(wall).then(() => {
@@ -138,7 +156,9 @@
         }).finally(() => {
             btn.disabled = false; btn.style.opacity = '1';
             icon.innerHTML = '📸'; text.innerHTML = '生成编年史快照';
+            window.__setPosterTilt && window.__setPosterTilt(true);
         });
     }
+
 </script>
 {% endblock %}

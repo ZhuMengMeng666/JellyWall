@@ -8,8 +8,7 @@
        ================================== */
     .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
 
-    .stat-card { background: var(--sidebar-bg); padding: 25px; border-radius: 16px; border: 1px solid var(--border-color); display: flex; flex-direction: column; transition: transform 0.3s, box-shadow 0.3s; position: relative; overflow: hidden; }
-    .stat-card:hover { transform: translateY(-5px); box-shadow: 0 12px 24px rgba(0,0,0,0.15); border-color: color-mix(in srgb, var(--primary-color) 50%, transparent); }
+    .stat-card { background: var(--sidebar-bg); padding: 25px; border-radius: 16px; border: 1px solid var(--border-color); display: flex; flex-direction: column; position: relative; overflow: hidden; }
 
     .stat-header { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
     .stat-icon { width: 48px; height: 48px; border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 15%, transparent); color: var(--primary-color); display: flex; align-items: center; justify-content: center; }
@@ -220,7 +219,7 @@
     </style>
 
 <div class="grid-stack" id="dash-grid">
-    <div class="grid-stack-item" gs-w="6" gs-h="2" gs-x="0" gs-y="0" gs-id="stat-movies">
+    <div class="grid-stack-item" gs-w="4" gs-h="2" gs-x="0" gs-y="0" gs-id="stat-movies">
     <div class="grid-stack-item-content"><div class="stat-card">
         <div class="stat-header">
             <div class="stat-icon"><i data-lucide="film"></i></div>
@@ -235,7 +234,7 @@
     </div>
 </div>
 
-    <div class="grid-stack-item" gs-w="6" gs-h="2" gs-x="6" gs-y="0" gs-id="stat-episodes">
+    <div class="grid-stack-item" gs-w="4" gs-h="2" gs-x="4" gs-y="0" gs-id="stat-episodes">
     <div class="grid-stack-item-content"><div class="stat-card">
         <div class="stat-header">
             <div class="stat-icon"><i data-lucide="tv"></i></div>
@@ -245,6 +244,20 @@
         <div class="source-tags">
             <span class="tag tag-jf"><i data-lucide="server" style="width:12px; height:12px;"></i> Jellyfin: {{ ep_jf }}</span>
             <span class="tag tag-tmdb"><i data-lucide="globe" style="width:12px; height:12px;"></i> TMDB: {{ ep_tmdb }}</span>
+        </div>
+    </div>
+    </div>
+</div>
+
+    <div class="grid-stack-item" gs-w="4" gs-h="2" gs-x="8" gs-y="0" gs-id="stat-30d">
+    <div class="grid-stack-item-content"><div class="stat-card">
+        <div class="stat-header">
+            <div class="stat-icon"><i data-lucide="calendar-clock"></i></div>
+            <h3 class="stat-title">近30天观影</h3>
+        </div>
+        <div class="stat-number" style="flex-wrap: wrap; row-gap: 8px;">
+            <span><span class="stat-count" data-target="{{ movies_30d }}">0</span> <span class="stat-unit">部电影</span></span>
+            <span><span class="stat-count" data-target="{{ episodes_30d }}">0</span> <span class="stat-unit">集剧集</span></span>
         </div>
     </div>
     </div>
@@ -500,11 +513,15 @@
             var gridEl = document.getElementById('dash-grid');
             if (!gridEl || typeof GridStack === 'undefined') return;
             var key = 'jellywall_dashboard_grid';
+            var layoutV = 2; // 布局版本：新增"近30天"统计卡后升级，旧版本地存储自动作废回默认布局
             var saved = null;
-            try { saved = JSON.parse(localStorage.getItem(key)); } catch (e) { saved = null; }
+            try {
+                var raw = JSON.parse(localStorage.getItem(key));
+                if (raw && raw.v === layoutV && Array.isArray(raw.items)) saved = raw.items;
+            } catch (e) { saved = null; }
             var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
             // 首帧前把保存布局写入 DOM 的 gs-* 属性，init 后直接就是保存布局，避免默认→保存的过渡动画
-            if (saved && Array.isArray(saved) && saved.length) {
+            if (saved && saved.length) {
                 saved.forEach(function (w) {
                     if (!w || !w.id) return;
                     var el = gridEl.querySelector('[gs-id="' + w.id + '"]');
@@ -523,8 +540,12 @@
                 animate: !reduce
             }, gridEl);
             window.__dashGrid = grid; // 调试/未来功能用
+            // 旧版或无有效布局：立即用新默认布局落盘，保证刷新后布局版本一致
+            if (!saved) {
+                try { localStorage.setItem(key, JSON.stringify({v: layoutV, items: grid.save(false)})); } catch (e) { }
+            }
             grid.on('change', function () {
-                try { localStorage.setItem(key, JSON.stringify(grid.save(false))); } catch (e) { }
+                try { localStorage.setItem(key, JSON.stringify({v: layoutV, items: grid.save(false)})); } catch (e) { }
             });
             var mq = window.matchMedia('(max-width: 768px)');
             function applyResponsive() {

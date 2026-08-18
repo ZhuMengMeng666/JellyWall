@@ -1,6 +1,19 @@
 # JellyWall 更新日志
-## [**🌟 v1.0.4**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.4)
+## [**🌟 v1.0.5**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.5)
 **最新**
+2026/08/18
+
+**🚀 优化**
+- feat: Dashboard 新增 GridStack 可调整布局：卡片可拖拽调大小/换位、自动重排，移动端自动禁用，localStorage 持久化
+- feat: Dashboard 统计大数字滚动动画（0.8s easeOutCubic），减弱动效时直接显示
+- feat: Dashboard 时间线改为相对时间（今天/昨天/N 天前，超 7 天回退原格式），滚动条主题化
+- feat: Dashboard 新增"近30天观影"统计卡（电影部数/剧集集数），三张统计卡调整为 4/4/4 同排布局
+- feat: 海报墙与已观看记录海报视图改用 Steam 风格 3D 倾斜悬停效果（凹向光标 15°、放大 1.1、镜面反光带、停留 0.1s 触发）
+- refactor: GridStack 布局存储升级为带版本号格式（v2），旧版 localStorage 布局自动迁移至新默认布局
+- refactor: 3D 倾斜逻辑抽为公共文件 static/js/poster-tilt.js，两页共用，减弱动效时自动禁用，导出快照期间自动复位
+
+
+## [**🌟 v1.0.4**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.4)
 2026/08/14
 
 **🚀 优化**

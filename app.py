@@ -754,6 +754,56 @@ def dashboard():
         else:
             episodes_30d = cnt
 
+    # 最近观看：剧集按"部"(series_name)去重、电影按片名去重，各取最近5条
+    recent_series_rows = db.session.query(
+        WatchRecord.series_name, func.max(WatchRecord.date_played).label('latest_date')
+    ).filter(
+        WatchRecord.user_id == current_user.id,
+        WatchRecord.item_type == 'Episode',
+        WatchRecord.is_deleted == False,
+        WatchRecord.series_name.isnot(None)
+    ).group_by(WatchRecord.series_name).order_by(func.max(WatchRecord.date_played).desc()).limit(10).all()
+
+    recent_movies_rows = db.session.query(
+        WatchRecord.title, func.max(WatchRecord.date_played).label('latest_date')
+    ).filter(
+        WatchRecord.user_id == current_user.id,
+        WatchRecord.item_type == 'Movie',
+        WatchRecord.is_deleted == False
+    ).group_by(WatchRecord.title).order_by(func.max(WatchRecord.date_played).desc()).limit(10).all()
+
+    # 批量取海报，避免逐条查询
+    series_poster_map = {}
+    if recent_series_rows:
+        series_names = [r[0] for r in recent_series_rows]
+        for p in WatchPoster.query.filter(
+            WatchPoster.user_id == current_user.id,
+            WatchPoster.media_type == 'Series',
+            WatchPoster.series_name.in_(series_names),
+            WatchPoster.is_deleted == False
+        ).all():
+            series_poster_map.setdefault(p.series_name, p.series_image_path or p.local_image_path)
+
+    movie_poster_map = {}
+    if recent_movies_rows:
+        movie_titles = [r[0] for r in recent_movies_rows]
+        for p in WatchPoster.query.filter(
+            WatchPoster.user_id == current_user.id,
+            WatchPoster.media_type == 'Movie',
+            WatchPoster.display_title.in_(movie_titles),
+            WatchPoster.is_deleted == False
+        ).all():
+            movie_poster_map.setdefault(p.display_title, p.local_image_path)
+
+    recent_series = [
+        {'name': r[0], 'poster_path': series_poster_map.get(r[0]) or 'images/logo.png'}
+        for r in recent_series_rows
+    ]
+    recent_movies = [
+        {'name': r[0], 'poster_path': movie_poster_map.get(r[0]) or 'images/logo.png'}
+        for r in recent_movies_rows
+    ]
+
     recent_records_raw = WatchRecord.query.filter_by(user_id=current_user.id, is_deleted=False) \
         .order_by(WatchRecord.date_played.desc()).limit(8).all()
 
@@ -815,6 +865,7 @@ def dashboard():
                            ep_total=ep_total, ep_jf=ep_jf, ep_tmdb=ep_tmdb,
                            unique_series=unique_series,
                            movies_30d=movies_30d, episodes_30d=episodes_30d,
+                           recent_series=recent_series, recent_movies=recent_movies,
                            recent_feed=recent_feed,
                            heatmap_data=heatmap_data)
 

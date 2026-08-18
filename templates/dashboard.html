@@ -165,6 +165,175 @@
     }
 
     /* ==================================
+       7. 最近观看海报卡
+       ================================== */
+    .recent-card { display: flex; flex-direction: column; gap: 14px; }
+    .recent-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .recent-subtitle { font-size: 13px; font-weight: 700; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+    .recent-row { display: flex; gap: 12px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
+    .recent-row::-webkit-scrollbar { height: 6px; }
+    .recent-row::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+    .recent-poster {
+        position: relative; flex: 1 1 110px; min-width: 110px; max-width: 180px; aspect-ratio: 2/3; border-radius: 8px; overflow: hidden;
+        background-color: var(--bg-color); box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        text-decoration: none; transition: transform 0.25s, box-shadow 0.25s;
+    }
+    .recent-poster:hover { transform: translateY(-4px) scale(1.03); box-shadow: 0 10px 22px rgba(0,0,0,0.35); z-index: 5; }
+    .recent-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .recent-poster-title {
+        position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 8px 7px;
+        background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.45) 55%, transparent 100%);
+        color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .recent-empty { color: var(--text-muted); font-size: 13px; padding: 24px 0; text-align: center; width: 100%; }
+
+    /* ==================================
+       8. 右下角悬浮控制按钮
+       ================================== */
+    .fab-wrap {
+        position: fixed; right: 24px; bottom: 24px; z-index: 1000;
+    }
+    /* 弹出菜单锚点：主按钮圆心 */
+    .fab-menu {
+        position: absolute; right: 27px; bottom: 27px; width: 0; height: 0;
+    }
+    /* 圆形按钮：初始收拢在主按钮圆心，hover 时"有丝分裂"式向上弹出（垂直堆叠） */
+    .fab-item {
+        position: absolute; left: 0; top: 0; width: 54px; height: 54px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        border: none; cursor: pointer; padding: 0; z-index: 2;
+        opacity: 0; transform: translate(-50%, -50%) scale(0); pointer-events: none;
+        box-shadow: 0 8px 22px rgba(0,0,0,0.3);
+        transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+    }
+    .fab-item svg { width: 22px; height: 22px; }
+    .fab-reset { background: #FFF7E5; color: #FFB400; }
+    .fab-select { background: #E7F7FF; color: #16B1FF; border: 1px solid var(--border-color); }
+
+    /* 分裂弹出：正上方位移 + 从 0 生长到 1（带弹性回弹） */
+    .fab-wrap.fab-open .fab-reset,
+    .fab-wrap:focus-within .fab-reset {
+        opacity: 1; transform: translate(-50%, calc(-50% - 130px)) scale(1);
+        transition-delay: 0.06s; pointer-events: auto;
+    }
+    .fab-wrap.fab-open .fab-select,
+    .fab-wrap:focus-within .fab-select {
+        opacity: 1; transform: translate(-50%, calc(-50% - 65px)) scale(1);
+        transition-delay: 0s; pointer-events: auto;
+    }
+    /* 收起：两个圆同时合并回圆心 */
+    .fab-wrap:not(.fab-open):not(:focus-within) .fab-reset { transition-delay: 0s; }
+    .fab-wrap:not(.fab-open):not(:focus-within) .fab-select { transition-delay: 0s; }
+
+    /* 圆形按钮上的文字标签：悬停单个按钮时显示在左侧 */
+    .fab-label {
+        position: absolute; right: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+        padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap;
+        background: var(--sidebar-bg); color: var(--text-main); border: 1px solid var(--border-color);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        opacity: 0; pointer-events: none;
+        transition: opacity 0.2s ease;
+    }
+    .fab-item:hover .fab-label { opacity: 1; }
+
+    .fab-btn {
+        width: 54px; height: 54px; border-radius: 50%; border: none;
+        background: var(--primary-color); color: #fff;
+        display: flex; align-items: center; justify-content: center; cursor: pointer;
+        box-shadow: 0 8px 24px color-mix(in srgb, var(--primary-color) 45%, transparent);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .fab-btn svg { width: 24px; height: 24px; transition: transform 0.35s ease; }
+    .fab-wrap:hover .fab-btn { transform: scale(1.06); }
+    .fab-wrap:hover .fab-btn svg { transform: rotate(90deg); }
+
+    @media (prefers-reduced-motion: reduce) {
+        .fab-item { transition: none; }
+        .fab-btn svg { transition: none; }
+    }
+
+    /* ==================================
+       9. 设置仪表板弹窗
+       ================================== */
+    .modal-overlay {
+        position: fixed; inset: 0; z-index: 9999;
+        background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(6px);
+        display: flex; align-items: center; justify-content: center;
+        opacity: 0; visibility: hidden;
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+    }
+    .modal-overlay.show { opacity: 1; visibility: visible; }
+    .dash-settings {
+        width: 420px; max-width: calc(100vw - 40px); max-height: 80vh;
+        background: var(--sidebar-bg); border: 1px solid var(--border-color);
+        border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+        padding: 24px; display: flex; flex-direction: column;
+        transform: translateY(12px) scale(0.98);
+        transition: transform 0.25s ease;
+    }
+    .modal-overlay.show .dash-settings { transform: translateY(0) scale(1); }
+    .ds-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .ds-title { margin: 0; font-size: 18px; font-weight: 800; }
+    .ds-close {
+        background: transparent; border: none; color: var(--text-muted); cursor: pointer;
+        padding: 6px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+        transition: color 0.2s, background 0.2s;
+    }
+    .ds-close:hover { color: var(--text-main); background: color-mix(in srgb, var(--text-muted) 12%, transparent); }
+    .ds-subtitle { margin: 6px 0 16px; font-size: 13px; color: var(--text-muted); }
+    /* 九宫格卡片式勾选 */
+    .ds-grid {
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+        overflow-y: auto; flex: 1; min-height: 0; align-content: start; padding: 2px;
+    }
+    .ds-tile {
+        position: relative; display: flex; align-items: center; gap: 8px;
+        padding: 12px 10px; border-radius: 12px; cursor: pointer; user-select: none; box-sizing: border-box;
+        overflow: hidden;
+        border: 1px solid var(--border-color); font-size: 13px; font-weight: 700;
+        color: var(--text-muted); transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    .ds-tile:hover {
+        border-color: var(--primary-color);
+        background: color-mix(in srgb, var(--primary-color) 16%, #ffffff);
+    }
+    /* 选中竖条：独立元素直上直下，不随圆角弯曲，也不占用布局宽度 */
+    .ds-tile::before {
+        content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+        background: var(--primary-color);
+        opacity: 0; transition: opacity 0.2s;
+    }
+    .ds-check { display: none; }
+    .ds-dot {
+        width: 18px; height: 18px; border-radius: 50%; box-sizing: border-box;
+        border: 2px solid var(--text-muted); position: relative; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center; background: transparent;
+        transition: background 0.2s, border-color 0.2s;
+    }
+    .ds-dot svg { width: 12px; height: 12px; color: #fff; opacity: 0; transition: opacity 0.2s; }
+    .ds-check:checked ~ .ds-dot { background: var(--primary-color); border-color: var(--primary-color); }
+    .ds-check:checked ~ .ds-dot svg { opacity: 1; }
+    .ds-check:checked ~ .ds-tile-name { color: #000; }
+    .ds-tile:has(.ds-check:checked) {
+        background: color-mix(in srgb, var(--primary-color) 16%, #ffffff);
+        border-color: color-mix(in srgb, var(--primary-color) 40%, var(--border-color));
+    }
+    .ds-tile:has(.ds-check:checked)::before { opacity: 1; }
+    @media (max-width: 480px) {
+        .ds-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    .ds-footer {
+        display: flex; justify-content: flex-end; margin-top: 16px; padding-top: 14px;
+        border-top: 1px solid var(--border-color);
+    }
+    .ds-save {
+        padding: 9px 24px; border-radius: 10px; border: none; cursor: pointer;
+        background: var(--primary-color); color: #fff; font-size: 14px; font-weight: 700;
+        transition: filter 0.2s, transform 0.2s;
+    }
+    .ds-save:hover { filter: brightness(1.1); }
+
+    /* ==================================
        6. 移动端防挤压适配优化
        ================================== */
     @media (max-width: 768px) {
@@ -263,6 +432,41 @@
     </div>
 </div>
 
+    <div class="grid-stack-item" gs-w="7" gs-h="4" gs-x="5" gs-y="5" gs-id="panel-recent">
+    <div class="grid-stack-item-content"><div class="panel-card recent-card">
+            <h2 class="section-title" style="margin-top: 0; margin-bottom: 6px;"><i data-lucide="history"></i> 最近观看</h2>
+
+            <div class="recent-section">
+                <div class="recent-subtitle"><i data-lucide="tv" style="width:14px; height:14px;"></i> 最近剧集</div>
+                <div class="recent-row">
+                    {% for item in recent_series %}
+                    <a class="recent-poster" href="{{ url_for('media_detail', media_type='series', title=item.name) }}" title="{{ item.name }}">
+                        <img src="{{ url_for('static', filename=item.poster_path) }}" loading="lazy" decoding="async" onerror="this.src='{{ url_for('static', filename='images/logo.png') }}'">
+                        <span class="recent-poster-title">{{ item.name }}</span>
+                    </a>
+                    {% else %}
+                    <div class="recent-empty">暂无剧集观看记录</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="recent-section">
+                <div class="recent-subtitle"><i data-lucide="film" style="width:14px; height:14px;"></i> 最近电影</div>
+                <div class="recent-row">
+                    {% for item in recent_movies %}
+                    <a class="recent-poster" href="{{ url_for('media_detail', media_type='movie', title=item.name) }}" title="{{ item.name }}">
+                        <img src="{{ url_for('static', filename=item.poster_path) }}" loading="lazy" decoding="async" onerror="this.src='{{ url_for('static', filename='images/logo.png') }}'">
+                        <span class="recent-poster-title">{{ item.name }}</span>
+                    </a>
+                    {% else %}
+                    <div class="recent-empty">暂无电影观看记录</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 
 
 
@@ -346,6 +550,119 @@
 </div>
     
 
+
+
+<!-- 右下角悬浮控制按钮：样式先行，功能后续接入 -->
+<div class="fab-wrap" id="dashboard-fab">
+    <div class="fab-menu">
+        <button type="button" class="fab-item fab-reset" title="重置布局">
+            <i data-lucide="refresh-cw"></i>
+            <span class="fab-label">重置布局</span>
+        </button>
+        <button type="button" class="fab-item fab-select" title="选择显示卡片">
+            <i data-lucide="layout-grid"></i>
+            <span class="fab-label">选择显示卡片</span>
+        </button>
+    </div>
+    <button type="button" class="fab-btn" aria-label="仪表板控制"><i data-lucide="settings"></i></button>
+</div>
+
+<!-- 设置仪表板弹窗：样式先行，保存/勾选功能后续接入 -->
+<div class="modal-overlay" id="dash-settings-modal">
+    <div class="dash-settings">
+        <div class="ds-header">
+            <h2 class="ds-title">设置仪表板</h2>
+            <button type="button" class="ds-close" aria-label="关闭"><i data-lucide="x"></i></button>
+        </div>
+        <p class="ds-subtitle">选择您想在页面显示的内容</p>
+        <div class="ds-grid">
+            <label class="ds-tile" data-card="stat-movies"><input type="checkbox" class="ds-check" checked><span class="ds-dot"><i data-lucide="check"></i></span><span class="ds-tile-name">已阅电影总计</span></label>
+            <label class="ds-tile" data-card="stat-episodes"><input type="checkbox" class="ds-check" checked><span class="ds-dot"><i data-lucide="check"></i></span><span class="ds-tile-name">已阅剧集总计</span></label>
+            <label class="ds-tile" data-card="stat-30d"><input type="checkbox" class="ds-check" checked><span class="ds-dot"><i data-lucide="check"></i></span><span class="ds-tile-name">近30天观影</span></label>
+            <label class="ds-tile" data-card="panel-recent"><input type="checkbox" class="ds-check" checked><span class="ds-dot"><i data-lucide="check"></i></span><span class="ds-tile-name">最近观看</span></label>
+            <label class="ds-tile" data-card="panel-timeline"><input type="checkbox" class="ds-check" checked><span class="ds-dot"><i data-lucide="check"></i></span><span class="ds-tile-name">最近同步</span></label>
+            <label class="ds-tile" data-card="panel-heatmap"><input type="checkbox" class="ds-check" checked><span class="ds-dot"><i data-lucide="check"></i></span><span class="ds-tile-name">观影活跃度</span></label>
+        </div>
+        <div class="ds-footer">
+            <button type="button" class="ds-save">保存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 悬浮控制按钮：仅鼠标悬停齿轮按钮时弹出；移向/停留在弹出按钮期间保持展开
+    (function () {
+        var wrap = document.getElementById('dashboard-fab');
+        if (!wrap) return;
+        var gear = wrap.querySelector('.fab-btn');
+        var menu = wrap.querySelector('.fab-menu');
+        var hideTimer = null;
+        function open() { clearTimeout(hideTimer); wrap.classList.add('fab-open'); }
+        function scheduleClose() {
+            clearTimeout(hideTimer);
+            hideTimer = setTimeout(function () { wrap.classList.remove('fab-open'); }, 250);
+        }
+        gear.addEventListener('mouseenter', open);
+        gear.addEventListener('mouseleave', scheduleClose);
+        menu.addEventListener('mouseenter', open);
+        menu.addEventListener('mouseleave', scheduleClose);
+        // 重置布局：带动画切回默认布局（不刷新页面）
+        var resetBtn = wrap.querySelector('.fab-reset');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', function () {
+                if (window.__resetDashLayout) window.__resetDashLayout();
+                wrap.classList.remove('fab-open');
+            });
+        }
+        // 设置仪表板弹窗：中性按钮打开，×/遮罩/Esc 关闭；保存时应用显示/隐藏
+        var selectBtn = wrap.querySelector('.fab-select');
+        var modal = document.getElementById('dash-settings-modal');
+        if (selectBtn && modal) {
+            var visKey2 = 'jellywall_dashboard_visible';
+            function currentHidden() {
+                var d = null;
+                try { d = JSON.parse(localStorage.getItem(visKey2)); } catch (e) { d = null; }
+                return (d && d.v === 1 && d.hidden) ? d.hidden : {};
+            }
+            selectBtn.addEventListener('click', function () {
+                // 打开时按当前显示设置同步勾选状态
+                var hidden = currentHidden();
+                modal.querySelectorAll('.ds-tile').forEach(function (tile) {
+                    var check = tile.querySelector('.ds-check');
+                    var id = tile.getAttribute('data-card');
+                    if (check && id) check.checked = !hidden[id];
+                });
+                modal.classList.add('show');
+                wrap.classList.remove('fab-open');
+            });
+            var closeBtn = modal.querySelector('.ds-close');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function () { modal.classList.remove('show'); });
+            }
+            modal.addEventListener('click', function (e) {
+                if (e.target === modal) modal.classList.remove('show');
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') modal.classList.remove('show');
+            });
+            // 保存：勾选的显示、未勾选的不显示
+            var saveBtn = modal.querySelector('.ds-save');
+            if (saveBtn) {
+                saveBtn.addEventListener('click', function () {
+                    if (!window.__dashSetHidden) return;
+                    var hidden = {};
+                    modal.querySelectorAll('.ds-tile').forEach(function (tile) {
+                        var check = tile.querySelector('.ds-check');
+                        var id = tile.getAttribute('data-card');
+                        if (check && id && !check.checked) hidden[id] = {};
+                    });
+                    window.__dashSetHidden(hidden);
+                    modal.classList.remove('show');
+                });
+            }
+        }
+    })();
+</script>
 
 
 <script>
@@ -513,13 +830,29 @@
             var gridEl = document.getElementById('dash-grid');
             if (!gridEl || typeof GridStack === 'undefined') return;
             var key = 'jellywall_dashboard_grid';
-            var layoutV = 2; // 布局版本：新增"近30天"统计卡后升级，旧版本地存储自动作废回默认布局
+            var layoutV = 7; // 布局版本：最近观看卡片高度改为 4 格后升级
             var saved = null;
             try {
                 var raw = JSON.parse(localStorage.getItem(key));
                 if (raw && raw.v === layoutV && Array.isArray(raw.items)) saved = raw.items;
             } catch (e) { saved = null; }
             var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            // 卡片显示设置：hidden 记录被隐藏的卡片及其位置（用于恢复）
+            var visKey = 'jellywall_dashboard_visible';
+            var visData = null;
+            try { visData = JSON.parse(localStorage.getItem(visKey)); } catch (e) { visData = null; }
+            var hiddenMap = (visData && visData.v === 1 && visData.hidden) ? visData.hidden : {};
+            // 捕获模板默认布局（在写入保存布局之前），供"重置布局"带动画恢复
+            var defaultLayout = [];
+            gridEl.querySelectorAll('.grid-stack-item').forEach(function (el) {
+                defaultLayout.push({
+                    id: el.getAttribute('gs-id'),
+                    x: parseInt(el.getAttribute('gs-x'), 10) || 0,
+                    y: parseInt(el.getAttribute('gs-y'), 10) || 0,
+                    w: parseInt(el.getAttribute('gs-w'), 10) || 1,
+                    h: parseInt(el.getAttribute('gs-h'), 10) || 1
+                });
+            });
             // 首帧前把保存布局写入 DOM 的 gs-* 属性，init 后直接就是保存布局，避免默认→保存的过渡动画
             if (saved && saved.length) {
                 saved.forEach(function (w) {
@@ -532,6 +865,17 @@
                     if (w.h !== undefined) el.setAttribute('gs-h', w.h);
                 });
             }
+            // 隐藏的卡片：恢复其保存的位置（隐藏卡片不在已存布局里），并先隐藏避免闪烁
+            Object.keys(hiddenMap).forEach(function (id) {
+                var el = gridEl.querySelector('[gs-id="' + id + '"]');
+                var p = hiddenMap[id];
+                if (!el || !p) return;
+                if (p.x !== undefined) el.setAttribute('gs-x', p.x);
+                if (p.y !== undefined) el.setAttribute('gs-y', p.y);
+                if (p.w !== undefined) el.setAttribute('gs-w', p.w);
+                if (p.h !== undefined) el.setAttribute('gs-h', p.h);
+                el.style.display = 'none';
+            });
             var grid = GridStack.init({
                 column: 12,
                 cellHeight: 120,
@@ -540,6 +884,58 @@
                 animate: !reduce
             }, gridEl);
             window.__dashGrid = grid; // 调试/未来功能用
+            // 应用显示设置：隐藏的卡片移出布局引擎，其余卡片自动补位
+            Object.keys(hiddenMap).forEach(function (id) {
+                var el = gridEl.querySelector('[gs-id="' + id + '"]');
+                if (!el) return;
+                grid.removeWidget(el, false);
+            });
+            // 更新卡片显示：newHidden = {卡片id: {x,y,w,h}}，未列出的一律显示
+            window.__dashSetHidden = function (newHidden) {
+                var prevHidden = hiddenMap;
+                // 1) 隐藏新取消勾选的卡片
+                Object.keys(newHidden).forEach(function (id) {
+                    var el = gridEl.querySelector('[gs-id="' + id + '"]');
+                    var p = newHidden[id] || {};
+                    if (prevHidden[id]) {
+                        if (p.x === undefined) p.x = prevHidden[id].x;
+                        if (p.y === undefined) p.y = prevHidden[id].y;
+                        if (p.w === undefined) p.w = prevHidden[id].w;
+                        if (p.h === undefined) p.h = prevHidden[id].h;
+                    }
+                    if (el) {
+                        if (p.x === undefined) p.x = parseInt(el.getAttribute('gs-x'), 10) || 0;
+                        if (p.y === undefined) p.y = parseInt(el.getAttribute('gs-y'), 10) || 0;
+                        if (p.w === undefined) p.w = parseInt(el.getAttribute('gs-w'), 10) || 1;
+                        if (p.h === undefined) p.h = parseInt(el.getAttribute('gs-h'), 10) || 1;
+                        if (el.style.display !== 'none') {
+                            grid.removeWidget(el, false);
+                            el.style.display = 'none';
+                        }
+                    }
+                    newHidden[id] = p;
+                });
+                // 2) 显示重新勾选的卡片（回到隐藏前的位置）
+                Object.keys(prevHidden).forEach(function (id) {
+                    if (newHidden[id]) return;
+                    var el = gridEl.querySelector('[gs-id="' + id + '"]');
+                    if (!el) return;
+                    var p = prevHidden[id] || { x: 0, y: 0, w: 4, h: 2 };
+                    el.setAttribute('gs-x', p.x); el.setAttribute('gs-y', p.y);
+                    el.setAttribute('gs-w', p.w); el.setAttribute('gs-h', p.h);
+                    el.style.display = '';
+                    grid.addWidget(el, { x: p.x, y: p.y, w: p.w, h: p.h });
+                });
+                hiddenMap = newHidden;
+                try { localStorage.setItem(visKey, JSON.stringify({ v: 1, hidden: newHidden })); } catch (e) { }
+            };
+            // 重置布局：清除已保存布局，带动画切回默认（不刷新页面）
+            window.__resetDashLayout = function () {
+                // 只重置可见卡片，隐藏的卡片保持隐藏
+                var visibleDefault = defaultLayout.filter(function (w) { return !hiddenMap[w.id]; });
+                try { localStorage.removeItem(key); } catch (e) { }
+                grid.load(visibleDefault, false, !reduce);
+            };
             // 旧版或无有效布局：立即用新默认布局落盘，保证刷新后布局版本一致
             if (!saved) {
                 try { localStorage.setItem(key, JSON.stringify({v: layoutV, items: grid.save(false)})); } catch (e) { }

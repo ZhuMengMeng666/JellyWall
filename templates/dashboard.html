@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/gridstack.min.css') }}">
 <style>
     /* ==================================
        1. 核心数据卡片网格 (顶部数据大盘)
@@ -179,38 +180,82 @@
         .timeline-title { font-size: 15px; }
         .timeline-time { margin-left: 0; font-size: 11px; opacity: 0.8; }
     }
-</style>
 
-<div class="dash-grid">
-    <div class="stat-card">
+        /* ===== GridStack 可调整布局 ===== */
+        .grid-stack { margin: 0; }
+        .grid-stack-item-content { height: 100%; }
+        .grid-stack-item-content .stat-card,
+        .grid-stack-item-content .panel-card,
+        .grid-stack-item-content .heatmap-card { height: 100%; box-sizing: border-box; }
+        .grid-stack-item-content .panel-card { overflow-y: auto; }
+        .grid-stack-item-content .heatmap-card .heatmap-wrapper { flex: 1; min-height: 0; }
+        /* 卡片间距：content 内缩 10px 制造视觉间距 */
+        .grid-stack > .grid-stack-item > .grid-stack-item-content {
+            top: 10px !important;
+            left: 10px !important;
+            right: 10px !important;
+            bottom: 10px !important;
+            width: auto !important;
+            height: auto !important;
+        }
+        /* 时间线卡片滚动条主题化 */
+        .grid-stack > .grid-stack-item > .grid-stack-item-content .panel-card {
+            scrollbar-width: thin;
+            scrollbar-color: color-mix(in srgb, var(--text-muted) 35%, transparent) transparent;
+        }
+        .grid-stack > .grid-stack-item > .grid-stack-item-content .panel-card::-webkit-scrollbar { width: 6px; }
+        .grid-stack > .grid-stack-item > .grid-stack-item-content .panel-card::-webkit-scrollbar-track { background: transparent; }
+        .grid-stack > .grid-stack-item > .grid-stack-item-content .panel-card::-webkit-scrollbar-thumb {
+            background: color-mix(in srgb, var(--text-muted) 30%, transparent);
+            border-radius: 3px;
+        }
+        .grid-stack > .grid-stack-item > .grid-stack-item-content .panel-card::-webkit-scrollbar-thumb:hover { background: var(--primary-color); }
+
+        @media (max-width: 768px) {
+            .grid-stack { height: auto !important; }
+            .grid-stack > .grid-stack-item { width: 100% !important; left: 0 !important; top: auto !important; position: relative !important; margin-bottom: 16px; }
+            .grid-stack > .grid-stack-item > .grid-stack-item-content { position: relative !important; top: 0 !important; }
+            .ui-resizable-handle { display: none !important; }
+        }
+    </style>
+
+<div class="grid-stack" id="dash-grid">
+    <div class="grid-stack-item" gs-w="6" gs-h="2" gs-x="0" gs-y="0" gs-id="stat-movies">
+    <div class="grid-stack-item-content"><div class="stat-card">
         <div class="stat-header">
             <div class="stat-icon"><i data-lucide="film"></i></div>
             <h3 class="stat-title">已阅电影总计</h3>
         </div>
-        <div class="stat-number">{{ movie_total }} <span class="stat-unit">部</span></div>
+        <div class="stat-number"><span class="stat-count" data-target="{{ movie_total }}">0</span> <span class="stat-unit">部</span></div>
         <div class="source-tags">
             <span class="tag tag-jf"><i data-lucide="server" style="width:12px; height:12px;"></i> Jellyfin: {{ movie_jf }}</span>
             <span class="tag tag-tmdb"><i data-lucide="globe" style="width:12px; height:12px;"></i> TMDB: {{ movie_tmdb }}</span>
         </div>
     </div>
+    </div>
+</div>
 
-    <div class="stat-card">
+    <div class="grid-stack-item" gs-w="6" gs-h="2" gs-x="6" gs-y="0" gs-id="stat-episodes">
+    <div class="grid-stack-item-content"><div class="stat-card">
         <div class="stat-header">
             <div class="stat-icon"><i data-lucide="tv"></i></div>
             <h3 class="stat-title">已阅剧集总计 (共 {{ unique_series }} 部)</h3>
         </div>
-        <div class="stat-number">{{ ep_total }} <span class="stat-unit">集</span></div>
+        <div class="stat-number"><span class="stat-count" data-target="{{ ep_total }}">0</span> <span class="stat-unit">集</span></div>
         <div class="source-tags">
             <span class="tag tag-jf"><i data-lucide="server" style="width:12px; height:12px;"></i> Jellyfin: {{ ep_jf }}</span>
             <span class="tag tag-tmdb"><i data-lucide="globe" style="width:12px; height:12px;"></i> TMDB: {{ ep_tmdb }}</span>
         </div>
     </div>
+    </div>
 </div>
 
-<div class="dashboard-content-grid">
 
-    <div class="left-column">
-        <div class="panel-card">
+
+
+    
+        <div class="grid-stack-item" gs-w="5" gs-h="7" gs-x="0" gs-y="2" gs-id="panel-timeline">
+    <div class="grid-stack-item-content"><div class="panel-card">
             <h2 class="section-title" style="margin-top: 0;"><i data-lucide="clock-4"></i> 最近同步</h2>
             <div class="timeline-container">
                 {% for item in recent_feed[:7] %}
@@ -234,7 +279,7 @@
                                     {% endif %}
                                 </div>
 
-                                <div class="timeline-time">{{ item.date_played.strftime('%Y-%m-%d · %H:%M') }}</div>
+                                <div class="timeline-time" data-date="{{ item.date_played.strftime('%Y-%m-%d') }}" data-time="{{ item.date_played.strftime('%H:%M') }}" data-fallback="{{ item.date_played.strftime('%Y-%m-%d · %H:%M') }}"></div>
                             </div>
 
                             <div class="timeline-tags">
@@ -257,9 +302,12 @@
             </div>
         </div>
     </div>
+</div>
+    
 
-    <div class="right-column">
-        <div class="heatmap-card">
+    
+        <div class="grid-stack-item" gs-w="7" gs-h="3" gs-x="5" gs-y="2" gs-id="panel-heatmap">
+    <div class="grid-stack-item-content"><div class="heatmap-card">
             <h2 class="section-title" style="margin-top: 0; margin-bottom: 10px;">
                 <i data-lucide="activity"></i> 观影活跃度
             </h2>
@@ -282,8 +330,10 @@
             </div>
         </div>
     </div>
-
 </div>
+    
+
+
 
 <script>
     // ==========================================
@@ -384,5 +434,105 @@
     });
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
-</script>
+
+</script><script>
+        // 数字滚动动画：0.8s 从 0 滚到目标值，减弱动效下直接显示
+        (function () {
+            var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            var counters = document.querySelectorAll('.stat-count[data-target]');
+            if (!counters.length) return;
+            if (reduce) {
+                counters.forEach(function (el) { el.textContent = el.getAttribute('data-target'); });
+                return;
+            }
+            var duration = 800;
+            var start = null;
+            function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+            function tick(ts) {
+                if (start === null) start = ts;
+                var p = Math.min((ts - start) / duration, 1);
+                counters.forEach(function (el) {
+                    var target = parseInt(el.getAttribute('data-target'), 10) || 0;
+                    el.textContent = Math.round(easeOutCubic(p) * target);
+                });
+                if (p < 1) requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+        })();
+    </script>
+    <script>
+        // 相对时间：今天/昨天/N 天前(带时间)，超过 7 天回退原格式（纯日期字符串比较，无时区歧义）
+        (function () {
+            var els = document.querySelectorAll('.timeline-time[data-date]');
+            if (!els.length) return;
+            var now = new Date();
+            function pad(n) { return (n < 10 ? '0' : '') + n; }
+            var todayStr = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+            var todayMs = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+            var dayMs = 86400000;
+            els.forEach(function (el) {
+                var dateStr = el.getAttribute('data-date');
+                var timeStr = el.getAttribute('data-time') || '';
+                if (!dateStr) return;
+                var parts = dateStr.split('-').map(Number);
+                if (parts.length !== 3) return;
+                var dateMs = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+                var diffDays = Math.round((todayMs - dateMs) / dayMs);
+                var suffix = timeStr ? ' ' + timeStr : '';
+                if (diffDays <= 0) {
+                    el.textContent = '今天' + suffix;
+                } else if (diffDays === 1) {
+                    el.textContent = '昨天' + suffix;
+                } else if (diffDays < 7) {
+                    el.textContent = diffDays + ' 天前' + suffix;
+                } else {
+                    el.textContent = el.getAttribute('data-fallback');
+                }
+            });
+        })();
+    </script>
+
+
+<script src="{{ url_for('static', filename='js/gridstack-all.min.js') }}"></script>
+<script>
+        // GridStack 可调整布局：拖动调整/换位，localStorage 持久化，移动端自动禁用
+        (function () {
+            var gridEl = document.getElementById('dash-grid');
+            if (!gridEl || typeof GridStack === 'undefined') return;
+            var key = 'jellywall_dashboard_grid';
+            var saved = null;
+            try { saved = JSON.parse(localStorage.getItem(key)); } catch (e) { saved = null; }
+            var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            // 首帧前把保存布局写入 DOM 的 gs-* 属性，init 后直接就是保存布局，避免默认→保存的过渡动画
+            if (saved && Array.isArray(saved) && saved.length) {
+                saved.forEach(function (w) {
+                    if (!w || !w.id) return;
+                    var el = gridEl.querySelector('[gs-id="' + w.id + '"]');
+                    if (!el) return;
+                    if (w.x !== undefined) el.setAttribute('gs-x', w.x);
+                    if (w.y !== undefined) el.setAttribute('gs-y', w.y);
+                    if (w.w !== undefined) el.setAttribute('gs-w', w.w);
+                    if (w.h !== undefined) el.setAttribute('gs-h', w.h);
+                });
+            }
+            var grid = GridStack.init({
+                column: 12,
+                cellHeight: 120,
+                margin: 20,
+                float: false,
+                animate: !reduce
+            }, gridEl);
+            window.__dashGrid = grid; // 调试/未来功能用
+            grid.on('change', function () {
+                try { localStorage.setItem(key, JSON.stringify(grid.save(false))); } catch (e) { }
+            });
+            var mq = window.matchMedia('(max-width: 768px)');
+            function applyResponsive() {
+                if (mq.matches) { grid.disable(); } else { grid.enable(); }
+            }
+            applyResponsive();
+            if (mq.addEventListener) mq.addEventListener('change', applyResponsive);
+            else if (mq.addListener) mq.addListener(applyResponsive);
+        })();
+    </script>
 {% endblock %}

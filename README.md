@@ -78,13 +78,15 @@ python app.py
 
 服务默认监听 5000 端口。首次使用需注册账号,并按引导绑定 Jellyfin 服务器;在配置中心填写 TMDB API Key 后,即可启用元数据补全与探索功能。
 
-使用 Docker 部署时,调整 `docker-compose.yml` 中的卷映射路径后执行:
+使用 Docker 部署时,默认无需修改任何配置,直接执行:
 
 ```bash
 docker compose up -d
 ```
 
-配置、数据库、图片缓存与日志目录均通过卷映射持久化,容器重建不影响数据。
+配置、数据库、图片缓存与日志默认持久化在 compose 文件旁的 `data/` 目录(首次启动自动创建),容器重建不影响数据。
+
+如需自定义存储位置,在 compose 同级目录创建 `.env` 文件并写入 `JELLYWALL_DATA_DIR=/volume2/HDD-Docker/JellyWall`(替换为你自己的路径),然后重新执行 `docker compose up -d` 即可。迁移或备份时,整体复制 `data/` 目录即可。
 
 生产部署默认以关闭调试模式运行:未设置 `FLASK_DEBUG` 环境变量时,Flask 调试器与模板热重载保持关闭,避免额外的性能开销与调试接口暴露,启动日志会输出"生产模式:调试器已关闭"用于确认。如需在本地开发环境启用调试能力,启动前设置 `FLASK_DEBUG=1` 即可;Docker 部署场景下,可在 `docker-compose.yml` 的 `environment` 节追加 `FLASK_DEBUG=1`。生产环境请保持该项不设置,以获得最佳运行表现。
 

@@ -66,3 +66,11 @@ logs/*
 !static/posters/.gitkeep
 !static/stills/.gitkeep
 logs/.gitkeep
+
+# ==================================
+# 5. Docker 部署相关 (运行时生成, 勿提交)
+# ==================================
+# .env 用于自定义数据目录 (JELLYWALL_DATA_DIR), 不随仓库分发
+.env
+# compose 相对路径 ./data 生成的运行时数据 (首次部署后出现)
+data/

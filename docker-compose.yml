@@ -9,18 +9,20 @@ services:
       # 左边是你 NAS 上想用的访问端口，右边是容器内端口
       - "5000:5000"
     volumes:
+      # 数据根目录：默认相对路径 ./data（compose 文件旁，clone 后无需改配置即可部署）
+      # 如需自定义存储位置，在 .env 中设置 JELLYWALL_DATA_DIR=/volume2/HDD-Docker/JellyWall
       # 映射配置文件 (users.json 等)
-      - /volume2/HDD-Docker/JellyWall/config:/app/config
+      - ${JELLYWALL_DATA_DIR:-./data}/config:/app/config
       # 映射 SQLite 数据库
-      - /volume2/HDD-Docker/JellyWall/instance:/app/instance
+      - ${JELLYWALL_DATA_DIR:-./data}/instance:/app/instance
       # 映射本地化的缓存海报与剧照
-      - /volume2/HDD-Docker/JellyWall/static/posters:/app/static/posters
-      - /volume2/HDD-Docker/JellyWall/static/stills:/app/static/stills
-      - /volume2/HDD-Docker/JellyWall/static/backdrops:/app/static/backdrops
+      - ${JELLYWALL_DATA_DIR:-./data}/static/posters:/app/static/posters
+      - ${JELLYWALL_DATA_DIR:-./data}/static/stills:/app/static/stills
+      - ${JELLYWALL_DATA_DIR:-./data}/static/backdrops:/app/static/backdrops
       # 映射 TMDB 补全/导入产生的图片缓存子目录 (保留 images 根目录在镜像内,避免覆盖 logo)
-      - /volume2/HDD-Docker/JellyWall/static/images/backdrops:/app/static/images/backdrops
-      - /volume2/HDD-Docker/JellyWall/static/images/posters:/app/static/images/posters
-      - /volume2/HDD-Docker/JellyWall/static/images/stills:/app/static/images/stills
-      - /volume2/HDD-Docker/JellyWall/logs:/app/logs
+      - ${JELLYWALL_DATA_DIR:-./data}/static/images/backdrops:/app/static/images/backdrops
+      - ${JELLYWALL_DATA_DIR:-./data}/static/images/posters:/app/static/images/posters
+      - ${JELLYWALL_DATA_DIR:-./data}/static/images/stills:/app/static/images/stills
+      - ${JELLYWALL_DATA_DIR:-./data}/logs:/app/logs
     environment:
       - TZ=Asia/Shanghai  # 确保日志和同步时间时区正确

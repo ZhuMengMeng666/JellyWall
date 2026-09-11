@@ -1,6 +1,29 @@
 # JellyWall 更新日志
-## [**🌟 v1.0.5**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.5)
+## [**🌟 v1.0.6**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.6)
 **最新**
+2026/09/11
+
+**🚀 优化**
+- feat: Dashboard 新增"最近观看"卡片，展示最近 10 部剧集与 10 部电影海报，可点击跳转详情页
+- feat: Dashboard 新增右下角悬浮控制按钮（圆形齿轮，悬停时两个圆形按钮向上弹出）
+- feat: Dashboard"重置布局"按钮带动画切回默认布局，无需刷新页面
+- feat: Dashboard 新增"设置仪表板"弹窗，九宫格勾选卡片显隐、设置持久化，隐藏卡片自动补位
+- feat: 海报墙新增类型筛选（全部/电影/剧集）与排序（由远及近/由近及远），带结果计数与一键清除
+- feat: 海报墙导出图改版：新增页眉（标题、统计、首次观看时间跨度、当前视图）、页脚（版本与生成时间）与每张海报的独立标题行，导出固定 6 列
+- feat: 导出文件名带当前视图后缀（如 _电影_由近及远），筛选结果为空时禁用导出按钮
+- perf: 导出编码改为 JPEG（质量 0.95），画质优先且体积远小于 PNG；长边上限仅作画布安全阀、不低于 1:1 原生分辨率
+- refactor: 移除海报墙海报右上角的类型徽标
+- chore: docker-compose 数据目录改为默认相对路径 ./data，clone 后无需改配置即可部署，可用 .env 的 JELLYWALL_DATA_DIR 自定义
+
+**🐛 Bug修复**
+- fix: 修复海报墙未滚动到底时懒加载图片导致导出永久卡住的问题
+- fix: 修复导出过程会改动真实页面导致页面闪烁的问题（改用 html2canvas onclone，只修改克隆副本）
+
+**📚 文档更新**
+- docs: README 更新 Docker 部署说明（数据目录、自定义路径、备份迁移）与功能描述措辞
+
+
+## [**🌟 v1.0.5**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.5)
 2026/08/18
 
 **🚀 优化**

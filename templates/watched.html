@@ -6,12 +6,46 @@
 
 <style>
     .toolbar {
-        display: flex; justify-content: space-between; align-items: center;
+        display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
         margin-bottom: 25px; padding: 15px 20px; border-radius: 10px;
         background-color: var(--sidebar-bg); border: 1px solid var(--border-color);
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
-    .timeline-info { color: var(--text-muted); font-size: 14px; letter-spacing: 1px; }
+    .toolbar-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+    /* ====== 自定义下拉组件（与"已观看记录"页保持一致） ====== */
+    .custom-dropdown { position: relative; display: inline-block; width: 150px; z-index: 100; flex-shrink: 0; }
+    .dropdown-selected {
+        padding: 8px 12px; border-radius: 8px; background-color: var(--bg-color); color: var(--text-main);
+        border: 1px solid var(--border-color); font-size: 14px; font-weight: bold; cursor: pointer;
+        display: flex; justify-content: space-between; align-items: center; gap: 8px; transition: all 0.2s;
+        height: 38px; box-sizing: border-box;
+    }
+    .dropdown-selected:hover { border-color: var(--primary-color); }
+    .dropdown-icon { transition: transform 0.2s; flex-shrink: 0; }
+    .custom-dropdown.open .dropdown-icon { transform: rotate(180deg); }
+    .dropdown-options {
+        position: absolute; top: calc(100% + 6px); left: 0; background-color: var(--sidebar-bg);
+        min-width: 100%; width: max-content; max-width: 70vw;
+        border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        display: none; flex-direction: column; overflow: hidden; z-index: 101;
+        animation: fadeIn 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .dropdown-options.show { display: flex; }
+    .dropdown-option {
+        padding: 10px 12px; font-size: 14px; font-weight: bold; color: var(--text-muted);
+        cursor: pointer; transition: all 0.2s; white-space: nowrap;
+    }
+    .dropdown-option:hover { background-color: rgba(128, 128, 128, 0.05); color: var(--text-main); }
+    .dropdown-option.active { color: var(--primary-color); background-color: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+    .result-count { color: var(--text-muted); font-size: 13px; letter-spacing: 0.5px; }
+    .clear-filter {
+        color: var(--text-muted); font-size: 13px; text-decoration: none;
+        padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border-color); transition: all 0.2s;
+    }
+    .clear-filter:hover { color: var(--primary-color); border-color: var(--primary-color); }
 
     .export-btn {
         padding: 10px 24px; font-size: 15px; font-weight: 600;
@@ -19,6 +53,8 @@
         display: inline-flex; align-items: center; gap: 10px; transition: transform 0.2s, filter 0.2s;
     }
     .export-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
+    .export-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .export-btn:disabled:hover { transform: none; filter: none; }
 
     #poster-wall {
         display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 20px;
@@ -58,14 +94,25 @@
     .info-title { font-size: 13px; font-weight: 600; line-height: 1.3; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; }
     .info-meta { font-size: 11px; color: var(--primary-color); text-align: center; font-family: monospace; }
 
-    .type-badge {
-        position: absolute; top: 8px; right: 8px; background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px);
-        padding: 4px 6px; border-radius: 4px; font-size: 12px; border: 1px solid rgba(255,255,255,0.1); z-index: 5;
-    }
+    /* ====== 导出专用元素：默认隐藏，仅导出时显示，不影响页面观感 ====== */
+    .export-header, .export-footer, .poster-caption { display: none; }
+    #poster-wall.exporting .export-header,
+    #poster-wall.exporting .export-footer { display: block; grid-column: 1 / -1; }
+    #poster-wall.exporting .poster-caption { display: block; }
+    #poster-wall.exporting .poster-cell { display: flex; flex-direction: column; gap: 8px; }
+    .export-header { padding-bottom: 18px; border-bottom: 1px solid var(--border-color); margin-bottom: 4px; }
+    .export-title { margin: 0; font-size: 40px; font-weight: 900; letter-spacing: 1px; color: var(--text-main); text-align: center; }
+    .export-meta { margin-top: 12px; font-size: 20px; color: var(--text-muted); letter-spacing: 0.5px; text-align: left; }
+    .export-filter { margin-top: 8px; font-size: 20px; font-weight: 700; color: var(--primary-color); text-align: left; }
+    .export-footer { margin-top: 6px; padding-top: 16px; border-top: 1px solid var(--border-color); font-size: 12px; color: var(--text-muted); text-align: right; }
+    .poster-caption { text-align: center; }
+    .caption-title { font-size: 12px; font-weight: 700; color: var(--text-main); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .caption-date { font-size: 11px; color: var(--text-muted); margin-top: 3px; font-family: monospace; }
 
     /* ====== ✨ 响应式防挤压修复 ====== */
     @media (max-width: 768px) {
         .toolbar { flex-direction: column; align-items: flex-start; gap: 15px; }
+        .toolbar-controls { width: 100%; }
         .export-btn { width: 100%; justify-content: center; }
         /* 强制手机端海报墙一行 3 个 */
         #poster-wall {
@@ -79,83 +126,259 @@
         .info-title { font-size: 11px; }
         .info-meta { font-size: 10px; }
 
-        /* 右上角的角标也稍微缩小一点 */
-        .type-badge { transform: scale(0.8); transform-origin: top right; }
     }
 </style>
 
 <div class="toolbar">
-    <div class="timeline-info"><span>⏱️ 时间轴排序规则：由远及近</span></div>
-    <button class="export-btn" onclick="exportWall()">
-        <span id="export-icon">📸</span> <span id="export-text">生成编年史快照</span>
+    <div class="toolbar-controls">
+        <div class="custom-dropdown" id="type-dropdown">
+            <div class="dropdown-selected" onclick="toggleDropdown(event, 'type')">
+                <span>{% if type_filter == 'movie' %}电影{% elif type_filter == 'series' %}剧集{% else %}全部类型{% endif %}</span>
+                <i data-lucide="chevron-down" class="dropdown-icon" style="width:16px; height:16px;"></i>
+            </div>
+            <div class="dropdown-options" id="type-dropdown-options">
+                <div class="dropdown-option{% if type_filter == 'all' %} active{% endif %}" onclick="selectFilter('type', 'all', event)">全部类型</div>
+                <div class="dropdown-option{% if type_filter == 'movie' %} active{% endif %}" onclick="selectFilter('type', 'movie', event)">电影</div>
+                <div class="dropdown-option{% if type_filter == 'series' %} active{% endif %}" onclick="selectFilter('type', 'series', event)">剧集</div>
+            </div>
+        </div>
+        <div class="custom-dropdown" id="sort-dropdown">
+            <div class="dropdown-selected" onclick="toggleDropdown(event, 'sort')">
+                <span>{% if sort_order == 'desc' %}由近及远{% else %}由远及近{% endif %}</span>
+                <i data-lucide="chevron-down" class="dropdown-icon" style="width:16px; height:16px;"></i>
+            </div>
+            <div class="dropdown-options" id="sort-dropdown-options">
+                <div class="dropdown-option{% if sort_order == 'asc' %} active{% endif %}" onclick="selectFilter('sort', 'asc', event)">首次观看 · 由远及近</div>
+                <div class="dropdown-option{% if sort_order == 'desc' %} active{% endif %}" onclick="selectFilter('sort', 'desc', event)">首次观看 · 由近及远</div>
+            </div>
+        </div>
+        <span class="result-count">共 {{ filtered_count }} 部{% if filtered_count != total_count %} · 全部 {{ total_count }} 部{% endif %}</span>
+        {% if type_filter != 'all' or sort_order != 'asc' %}
+        <a class="clear-filter" href="{{ url_for('watched') }}">清除</a>
+        {% endif %}
+    </div>
+    <button class="export-btn" onclick="exportWall()"{% if filtered_count == 0 %} disabled title="当前筛选没有可导出的内容"{% endif %}>
+        <span id="export-text">导出海报墙</span>
     </button>
 </div>
 
 <div id="poster-wall">
+    <div class="export-header">
+        <h1 class="export-title">观影海报墙</h1>
+        <div class="export-meta">共 {{ filtered_count }} 部{% if filtered_count != total_count %} · 全部 {{ total_count }} 部{% endif %} · 电影 {{ filtered_movie_count }} · 剧集 {{ filtered_series_count }}{% if range_start %} · 首次观看 {{ range_start }} → {{ range_end }}{% endif %}</div>
+        {% if type_filter != 'all' or sort_order != 'asc' %}
+        <div class="export-filter">当前视图：{% if type_filter == 'movie' %}电影{% elif type_filter == 'series' %}剧集{% else %}全部类型{% endif %} · {% if sort_order == 'desc' %}由近及远{% else %}由远及近{% endif %}</div>
+        {% endif %}
+    </div>
     {% for movie in movies %}
-        <div class="poster-item">
-            <div class="type-badge">{{ movie.type_icon }}</div>
-            <img src="{{ movie.local_img_url }}" alt="{{ movie.name }}" loading="lazy" decoding="async">
-            <div class="info-overlay">
-                <div class="info-title">{{ movie.name }}</div>
-                <div class="info-meta">{{ movie.date_formatted }}</div>
+        <div class="poster-cell">
+            <div class="poster-item">
+                <img src="{{ movie.local_img_url }}" alt="{{ movie.name }}" loading="lazy" decoding="async">
+                <div class="info-overlay">
+                    <div class="info-title">{{ movie.name }}</div>
+                    <div class="info-meta">{{ movie.date_formatted }}</div>
+                </div>
+            </div>
+            <div class="poster-caption">
+                <div class="caption-title">{{ movie.name }}</div>
+                <div class="caption-date">{{ movie.date_formatted }}</div>
             </div>
         </div>
     {% else %}
         <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted);">
+            {% if total_count == 0 %}
             <div style="font-size: 40px; margin-bottom: 15px;">🏜️</div>
             <p>数据库中尚未探测到任何观影记录，请先去 [已观看记录] 页面进行同步。</p>
+            {% else %}
+            <div style="font-size: 40px; margin-bottom: 15px;">🔍</div>
+            <p>当前筛选条件下没有匹配的作品。</p>
+            <p style="margin-top: 14px;"><a class="clear-filter" href="{{ url_for('watched') }}">清除筛选</a></p>
+            {% endif %}
         </div>
     {% endfor %}
+    <div class="export-footer" data-version="{{ app_version }}"></div>
 </div>
 
 <script>
+    // ====== 筛选与排序控件：服务端参数驱动，切换后重新加载当前视图 ======
+    const FILTER_STATE = { type: {{ type_filter | tojson }}, sort: {{ sort_order | tojson }} };
+    const WATCHED_URL = {{ url_for('watched') | tojson }};
+
+    function closeAllDropdowns() {
+        document.querySelectorAll('.custom-dropdown').forEach(el => el.classList.remove('open'));
+        document.querySelectorAll('.dropdown-options').forEach(el => el.classList.remove('show'));
+    }
+
+    function toggleDropdown(e, key) {
+        e.stopPropagation();
+        const box = document.getElementById(key + '-dropdown');
+        const options = document.getElementById(key + '-dropdown-options');
+        const wasOpen = options.classList.contains('show');
+        closeAllDropdowns();
+        if (!wasOpen) {
+            options.classList.add('show');
+            if (box) box.classList.add('open');
+        }
+    }
+
+    function selectFilter(key, value, e) {
+        e.stopPropagation();
+        if (FILTER_STATE[key] === value) { closeAllDropdowns(); return; }
+        FILTER_STATE[key] = value;
+        const params = new URLSearchParams();
+        if (FILTER_STATE.type !== 'all') params.set('type', FILTER_STATE.type);
+        if (FILTER_STATE.sort !== 'asc') params.set('sort', FILTER_STATE.sort);
+        const qs = params.toString();
+        window.location.href = qs ? WATCHED_URL + '?' + qs : WATCHED_URL;
+    }
+
+    // 点击空白处收起下拉
+    document.addEventListener('click', closeAllDropdowns);
+
+    // 预加载全部海报：用离屏 Image 对象预热缓存，完全不触碰页面 DOM
+    // （懒加载图片未进入视口时不会自行加载，直接等待会永久卡住导出）
     function preloadWallImages(wall) {
-        const images = Array.from(wall.querySelectorAll('img'));
-        return Promise.all(images.map(img => {
-            if (img.complete && img.naturalWidth > 0) {
-                return Promise.resolve();
-            }
-            if (typeof img.decode === 'function') {
-                return img.decode().catch(() => {});
-            }
-            return new Promise(resolve => {
-                img.addEventListener('load', resolve, { once: true });
-                img.addEventListener('error', resolve, { once: true });
-            });
-        }));
+        const srcs = Array.from(wall.querySelectorAll('img'))
+            .map(img => img.currentSrc || img.getAttribute('src'))
+            .filter(Boolean);
+        return Promise.all([...new Set(srcs)].map(src => loadImageToCache(src, 15000)));
+    }
+
+    // 加载单张图片到浏览器缓存；超时兜底，避免个别图片让导出永久卡住
+    function loadImageToCache(src, timeoutMs) {
+        return new Promise(resolve => {
+            const img = new Image();
+            let settled = false;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve();
+            };
+            const timer = setTimeout(finish, timeoutMs);
+            img.onload = finish;
+            img.onerror = finish;
+            img.src = src;
+        });
+    }
+
+    // 海报墙导出参数：画质优先、体积次之；统一用 JPEG 编码，不做降分辨率
+    const EXPORT_SCALE = 1.5;              // 渲染倍率（CSS 像素 → 位图像素）
+    const EXPORT_QUALITY = 0.95;           // JPEG 质量（越高越清晰、体积越大）
+    const EXPORT_SAFETY_MAX_EDGE = 20000;  // 仅防浏览器画布尺寸上限，不用于压体积
+    const EXPORT_COLUMNS = 6;              // 导出时的固定列数（保证不同窗口宽度版式一致）
+
+    // 计算导出尺寸：只在超过画布安全上限时缩小，且绝不低于 1:1 原生分辨率
+    function fitExportSize(source, cssWidth, cssHeight) {
+        const longEdge = Math.max(source.width, source.height);
+        if (longEdge <= EXPORT_SAFETY_MAX_EDGE) return source;
+        const nativeLongEdge = Math.max(cssWidth, cssHeight);
+        const targetLongEdge = Math.max(nativeLongEdge, EXPORT_SAFETY_MAX_EDGE);
+        if (longEdge <= targetLongEdge) return source;
+        const ratio = targetLongEdge / longEdge;
+        const out = document.createElement('canvas');
+        out.width = Math.max(1, Math.round(source.width * ratio));
+        out.height = Math.max(1, Math.round(source.height * ratio));
+        const ctx = out.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(source, 0, 0, out.width, out.height);
+        return out;
+    }
+
+    // 编码并下载：统一 JPEG；toBlob 直接产出二进制，避免 base64 内存放大
+    function encodeAndDownload(canvas, baseName) {
+        const filename = baseName + '.jpg';
+        if (!canvas.toBlob) {
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/jpeg', EXPORT_QUALITY);
+            link.click();
+            return;
+        }
+        canvas.toBlob(blob => {
+            if (!blob) return;
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = url;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+        }, 'image/jpeg', EXPORT_QUALITY);
+    }
+
+    // 只作用于 html2canvas 内部克隆的副本：显示页眉/页脚/标题行 + 固定列数
+    // 真实页面不做任何改动（不改类、不改列数），所以导出过程页面不会闪动
+    function prepareExportClone(clonedDocument) {
+        const clonedWall = clonedDocument.getElementById('poster-wall');
+        if (!clonedWall) return;
+        clonedWall.classList.add('exporting');
+        // 内联 !important 才能覆盖移动端媒体查询里的固定 3 列
+        clonedWall.style.setProperty('grid-template-columns', 'repeat(' + EXPORT_COLUMNS + ', 1fr)', 'important');
+        const footer = clonedWall.querySelector('.export-footer');
+        if (footer) {
+            const now = new Date();
+            const pad = n => (n < 10 ? '0' : '') + n;
+            const stamp = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
+                + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes());
+            footer.textContent = '由 JellyWall v' + (footer.dataset.version || '') + ' 生成 · ' + stamp;
+        }
+    }
+
+    // 导出布局比页面多了页眉/页脚/标题行，1:1 基准要按导出高度估算，避免误降分辨率
+    function estimateExportHeight(wall, liveHeight) {
+        const posterCount = wall.querySelectorAll('.poster-item').length;
+        const rows = Math.max(1, Math.ceil(posterCount / EXPORT_COLUMNS));
+        return liveHeight + 170 + rows * 56; // 页眉+页脚约占 170px，每行独立标题约占 56px
+    }
+
+    // 文件名后缀：把当前筛选/排序状态带进文件名，避免同一天多份导出互相混淆
+    function viewSuffix() {
+        const parts = [];
+        if (FILTER_STATE.type === 'movie') parts.push('电影');
+        else if (FILTER_STATE.type === 'series') parts.push('剧集');
+        if (FILTER_STATE.sort === 'desc') parts.push('由近及远');
+        return parts.length ? '_' + parts.join('_') : '';
     }
 
     function exportWall() {
         const wall = document.getElementById('poster-wall');
         const btn = document.querySelector('.export-btn');
-        const icon = document.getElementById('export-icon');
         const text = document.getElementById('export-text');
 
+        // 兜底：当前视图没有任何海报时不导出（按钮已置灰，这里防程序化调用）
+        if (!wall.querySelector('.poster-item')) {
+            if (window.showToast) window.showToast('当前筛选没有可导出的内容');
+            return;
+        }
+
         btn.disabled = true; btn.style.opacity = '0.7';
-        icon.innerHTML = '⚙️'; text.innerHTML = '渲染引擎处理中...';
+        text.innerHTML = '正在导出…';
 
         // 导出期间禁用 3D 倾斜并复位所有海报，避免快照捕获到倾斜/变形帧
         window.__setPosterTilt && window.__setPosterTilt(false);
 
         const currentBg = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-bg').trim() || '#1e1e1e';
+        const wallRect = wall.getBoundingClientRect();
+        const nativeHeight = estimateExportHeight(wall, wallRect.height);
 
         preloadWallImages(wall).then(() => {
             return html2canvas(wall, {
                 useCORS: true,
                 backgroundColor: currentBg,
-                scale: 1.5,
-                logging: false
+                scale: EXPORT_SCALE,
+                logging: false,
+                // 导出专用版式只改克隆副本，页面保持原样
+                onclone: prepareExportClone
             });
         }).then(canvas => {
-            const link = document.createElement('a');
+            // 照片类内容用有损编码比 PNG 小一个量级，且有纯色背景无需透明通道
+            const finalCanvas = fitExportSize(canvas, wallRect.width, nativeHeight);
             const timestamp = new Date().toISOString().slice(0,10);
-            link.download = `JellyWall_Timeline_${timestamp}.png`;
-            link.href = canvas.toDataURL('image/png', 0.95);
-            link.click();
+            encodeAndDownload(finalCanvas, `JellyWall_PosterWall${viewSuffix()}_${timestamp}`);
         }).finally(() => {
             btn.disabled = false; btn.style.opacity = '1';
-            icon.innerHTML = '📸'; text.innerHTML = '生成编年史快照';
+            text.innerHTML = '导出海报墙';
             window.__setPosterTilt && window.__setPosterTilt(true);
         });
     }

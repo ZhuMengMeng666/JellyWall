@@ -1854,7 +1854,6 @@ def watched():
         if item_type == "Movie":
             key = f"movie_tmdb_{tmdb_id}" if valid_tmdb else f"movie_title_{record.title}"
             name = record.title
-            type_icon = "M"
             # 智能匹配图片
             if valid_tmdb and str(tmdb_id) in movie_tmdb_map:
                 img_file = movie_tmdb_map[str(tmdb_id)]
@@ -1864,7 +1863,6 @@ def watched():
             series_name = getattr(record, 'series_name', record.title)
             key = f"series_tmdb_{tmdb_id}" if valid_tmdb else f"series_title_{series_name}"
             name = series_name
-            type_icon = "S"
             # 智能匹配图片
             if valid_tmdb and str(tmdb_id) in series_tmdb_map:
                 img_file = series_tmdb_map[str(tmdb_id)]
@@ -1878,27 +1876,60 @@ def watched():
             aggregated_dict[key] = {
                 "id": record.id,
                 "name": name,
-                "type_icon": type_icon,
+                "item_type": item_type,
                 "local_img_url": url_for('static', filename=img_file) if img_file else url_for('static',
                                                                                                filename='images/logo.png'),
                 "date_actual": record.date_played
             }
 
-    # 4. 把字典转回列表，再执行一次排序（确保渲染时的严格顺序）
-    final_posters = list(aggregated_dict.values())
-    final_posters.sort(key=lambda x: x["date_actual"])
+    # ==========================================
+    # 4. 筛选与排序（参数做白名单校验，非法值回退默认）
+    # ==========================================
+    all_posters = list(aggregated_dict.values())
+    total_count = len(all_posters)
+
+    type_filter = request.args.get('type', 'all')
+    if type_filter not in ('all', 'movie', 'series'):
+        type_filter = 'all'
+
+    sort_order = request.args.get('sort', 'asc')
+    if sort_order not in ('asc', 'desc'):
+        sort_order = 'asc'
+
+    if type_filter == 'movie':
+        final_posters = [p for p in all_posters if p["item_type"] == "Movie"]
+    elif type_filter == 'series':
+        final_posters = [p for p in all_posters if p["item_type"] != "Movie"]
+    else:
+        final_posters = all_posters
+
+    # 首次观看时间排序：asc 由远及近、desc 由近及远；时间相同按名称排序保证顺序稳定
+    final_posters.sort(key=lambda x: (x["date_actual"], x["name"]), reverse=(sort_order == 'desc'))
+
+    # 导出页眉用的统计信息（基于当前筛选结果）
+    filtered_movie_count = sum(1 for p in final_posters if p["item_type"] == "Movie")
+    filtered_series_count = len(final_posters) - filtered_movie_count
+    if final_posters:
+        range_start = min(p["date_actual"] for p in final_posters).strftime("%Y-%m-%d")
+        range_end = max(p["date_actual"] for p in final_posters).strftime("%Y-%m-%d")
+    else:
+        range_start = range_end = ""
 
     movies_data = []
     for item in final_posters:
         movies_data.append({
             "id": item["id"],
             "name": item["name"],
-            "type_icon": item["type_icon"],
             "local_img_url": item["local_img_url"],
             "date_formatted": item["date_actual"].strftime("%Y-%m-%d %H:%M")
         })
 
-    return render_template('watched.html', title="海报墙", movies=movies_data)
+    return render_template('watched.html', title="海报墙", movies=movies_data,
+                           total_count=total_count, filtered_count=len(movies_data),
+                           filtered_movie_count=filtered_movie_count,
+                           filtered_series_count=filtered_series_count,
+                           range_start=range_start, range_end=range_end,
+                           type_filter=type_filter, sort_order=sort_order)
 
 
 def _render_changelog_markdown(text):

@@ -73,7 +73,7 @@
     .timeline-card {
         display: flex; align-items: center; gap: 15px; flex: 1; padding: 12px 16px;
         border-radius: 12px; border: 1px solid transparent;
-        transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1); cursor: pointer; min-width: 0;
+        transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1); min-width: 0;
     }
     .timeline-card:hover {
         background-color: var(--bg-color); border-color: var(--border-color);
@@ -90,7 +90,8 @@
     .timeline-content { flex: 1; display: flex; flex-direction: column; justify-content: center; min-width: 0; gap: 8px; }
     .timeline-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
     .timeline-title-wrapper { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .timeline-title { font-size: 16px; font-weight: 800; color: var(--primary-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .timeline-title { font-size: 16px; font-weight: 800; color: var(--primary-color); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .timeline-title:hover { text-decoration: underline; }
 
     .timeline-time { font-size: 12px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; margin-left: auto; }
     .timeline-tags { display: flex; align-items: center; gap: 8px; overflow: hidden; width: 100%; }
@@ -334,6 +335,67 @@
     .ds-save:hover { filter: brightness(1.1); }
 
     /* ==================================
+       10. 最近趋势折线图
+       ================================== */
+    .trend-card { display: flex; flex-direction: column; gap: 12px; }
+    .trend-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .trend-chart-wrap { flex: 1; min-height: 0; position: relative; }
+    .trend-chart { width: 100%; height: 100%; display: block; }
+    .trend-grid-line { stroke: var(--border-color); stroke-width: 1; }
+    .trend-axis-line { stroke: var(--border-color); stroke-width: 1; }
+    .trend-axis-label { fill: var(--text-muted); font-size: 11px; }
+    .trend-area { fill: color-mix(in srgb, var(--primary-color) 14%, transparent); }
+    .trend-line { fill: none; stroke: var(--primary-color); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .trend-node { fill: var(--primary-color); stroke: var(--sidebar-bg); stroke-width: 2; transition: r 0.15s ease; }
+    @media (prefers-reduced-motion: reduce) { .trend-node { transition: none; } }
+
+    /* 下拉组件（与海报墙、已观看记录页保持一致） */
+    .custom-dropdown { position: relative; display: inline-block; width: 132px; z-index: 100; flex-shrink: 0; }
+    .dropdown-selected {
+        padding: 8px 12px; border-radius: 8px; background-color: var(--bg-color); color: var(--text-main);
+        border: 1px solid var(--border-color); font-size: 14px; font-weight: bold; cursor: pointer;
+        display: flex; justify-content: space-between; align-items: center; gap: 8px; transition: all 0.2s;
+        height: 38px; box-sizing: border-box;
+    }
+    .dropdown-selected:hover { border-color: var(--primary-color); }
+    .dropdown-icon { transition: transform 0.2s; flex-shrink: 0; }
+    .custom-dropdown.open .dropdown-icon { transform: rotate(180deg); }
+    .dropdown-options {
+        position: absolute; top: calc(100% + 6px); right: 0; background-color: var(--sidebar-bg);
+        min-width: 100%; width: max-content; max-width: 70vw;
+        border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        display: none; flex-direction: column; overflow: hidden; z-index: 101;
+        animation: fadeIn 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .dropdown-options.show { display: flex; }
+    .dropdown-option {
+        padding: 10px 12px; font-size: 14px; font-weight: bold; color: var(--text-muted);
+        cursor: pointer; transition: all 0.2s; white-space: nowrap;
+    }
+    .dropdown-option:hover { background-color: rgba(128, 128, 128, 0.05); color: var(--text-main); }
+    .dropdown-option.active { color: var(--primary-color); background-color: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ==================================
+       11. 卡片拖动把手（右上角 9 点网格）
+       ================================== */
+    .grid-drag-handle {
+        position: absolute; top: 8px; right: 8px; z-index: 6;
+        display: none; align-items: center; justify-content: center;
+        width: 26px; height: 26px;
+    }
+    /* 只有鼠标放到卡片上才显示；拖动过程中保持显示 */
+    .grid-stack-item:hover .grid-drag-handle,
+    .grid-stack-item.ui-draggable-dragging .grid-drag-handle { display: flex; }
+    .grid-drag-dots {
+        display: grid; grid-template-columns: repeat(3, 3px); grid-template-rows: repeat(3, 3px); gap: 3px;
+        pointer-events: none;
+    }
+    .grid-drag-dots span {
+        width: 3px; height: 3px; border-radius: 50%; background: var(--text-muted); pointer-events: none;
+    }
+
+    /* ==================================
        6. 移动端防挤压适配优化
        ================================== */
     @media (max-width: 768px) {
@@ -485,9 +547,9 @@
                         <div class="timeline-content">
                             <div class="timeline-header">
                                 <div class="timeline-title-wrapper">
-                                    <div class="timeline-title" title="{% if item.item_type == 'Movie' %}{{ item.title }}{% else %}{{ item.series_name }}{% endif %}">
+                                    <a class="timeline-title" href="{{ item.detail_url }}" title="{% if item.item_type == 'Movie' %}{{ item.title }}{% else %}{{ item.series_name }}{% endif %}">
                                         {% if item.item_type == 'Movie' %}{{ item.title }}{% else %}{{ item.series_name }}{% endif %}
-                                    </div>
+                                    </a>
 
                                     {% if item.source == 'tmdb' %}
                                         <span class="tag tag-tmdb"><i data-lucide="globe" style="width:12px; height:12px;"></i> TMDB</span>
@@ -548,7 +610,29 @@
         </div>
     </div>
 </div>
-    
+
+    <div class="grid-stack-item" gs-w="12" gs-h="4" gs-x="0" gs-y="9" gs-id="panel-trend">
+    <div class="grid-stack-item-content"><div class="panel-card trend-card">
+            <div class="trend-header">
+                <h2 class="section-title" style="margin: 0;"><i data-lucide="trending-up"></i> 最近趋势</h2>
+                <div class="custom-dropdown" id="trend-dropdown">
+                    <div class="dropdown-selected" onclick="toggleTrendDropdown(event)">
+                        <span id="trend-range-text">最近 7 天</span>
+                        <i data-lucide="chevron-down" class="dropdown-icon" style="width:16px; height:16px;"></i>
+                    </div>
+                    <div class="dropdown-options" id="trend-dropdown-options">
+                        <div class="dropdown-option active" data-days="7" onclick="selectTrendRange(7, event)">最近 7 天</div>
+                        <div class="dropdown-option" data-days="14" onclick="selectTrendRange(14, event)">最近 14 天</div>
+                        <div class="dropdown-option" data-days="30" onclick="selectTrendRange(30, event)">最近 30 天</div>
+                    </div>
+                </div>
+            </div>
+            <div class="trend-chart-wrap">
+                <svg class="trend-chart" id="trend-chart"></svg>
+            </div>
+        </div>
+    </div>
+</div>
 
 
 
@@ -582,6 +666,7 @@
             <label class="ds-tile" data-card="panel-recent"><input type="checkbox" class="ds-check" checked><span class="ds-dot"><i data-lucide="check"></i></span><span class="ds-tile-name">最近观看</span></label>
             <label class="ds-tile" data-card="panel-timeline"><input type="checkbox" class="ds-check" checked><span class="ds-dot"><i data-lucide="check"></i></span><span class="ds-tile-name">最近同步</span></label>
             <label class="ds-tile" data-card="panel-heatmap"><input type="checkbox" class="ds-check" checked><span class="ds-dot"><i data-lucide="check"></i></span><span class="ds-tile-name">观影活跃度</span></label>
+            <label class="ds-tile" data-card="panel-trend"><input type="checkbox" class="ds-check" checked><span class="ds-dot"><i data-lucide="check"></i></span><span class="ds-tile-name">最近趋势</span></label>
         </div>
         <div class="ds-footer">
             <button type="button" class="ds-save">保存</button>
@@ -620,9 +705,12 @@
         if (selectBtn && modal) {
             var visKey2 = 'jellywall_dashboard_visible';
             function currentHidden() {
-                var d = null;
-                try { d = JSON.parse(localStorage.getItem(visKey2)); } catch (e) { d = null; }
-                return (d && d.v === 1 && d.hidden) ? d.hidden : {};
+                // 优先用 GridStack 脚本暴露的当前显隐（含默认隐藏项）
+                if (window.__dashGetHidden) return window.__dashGetHidden();
+                try {
+                    var d = JSON.parse(localStorage.getItem(visKey2));
+                    return (d && typeof d === 'object' && !Array.isArray(d)) ? d : {};
+                } catch (e) { return {}; }
             }
             selectBtn.addEventListener('click', function () {
                 // 打开时按当前显示设置同步勾选状态
@@ -766,6 +854,245 @@
     if (typeof lucide !== 'undefined') lucide.createIcons();
 
 </script><script>
+    // ==========================================
+    // 最近趋势折线图（手写 SVG，数据复用热力图的按天聚合）
+    // ==========================================
+    (function () {
+        const svg = document.getElementById('trend-chart');
+        if (!svg) return;
+
+        const activityData = {{ heatmap_data | default({}) | tojson | safe }};
+        const RANGE_KEY = 'jellywall_trend_range';
+        const RANGES = [7, 14, 30];
+        const PAD = { top: 12, right: 10, bottom: 24, left: 34 };
+
+        let days = parseInt(localStorage.getItem(RANGE_KEY), 10);
+        if (RANGES.indexOf(days) === -1) days = 7;
+
+        const dropdownEl = document.getElementById('trend-dropdown');
+        const optionsEl = document.getElementById('trend-dropdown-options');
+        const labelEl = document.getElementById('trend-range-text');
+
+        let tooltip = document.getElementById('trend-tooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.id = 'trend-tooltip';
+            tooltip.className = 'global-heatmap-tooltip';
+            document.body.appendChild(tooltip);
+        }
+
+        const pad2 = n => (n < 10 ? '0' : '') + n;
+
+        // 生成最近 N 天的数据（没有记录的日期补 0，最后一天是今天）
+        function buildSeries(n) {
+            const series = [];
+            const today = new Date();
+            for (let i = n - 1; i >= 0; i--) {
+                const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+                const key = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+                const item = activityData[key];
+                const movies = item ? item.movies : 0;
+                const episodes = item ? item.episodes : 0;
+                series.push({
+                    label: pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()),
+                    movies: movies,
+                    episodes: episodes,
+                    total: movies + episodes
+                });
+            }
+            return series;
+        }
+
+        // Y 轴刻度步长：让网格线保持在 4~6 条
+        function niceStep(max) {
+            if (max <= 4) return 1;
+            if (max <= 10) return 2;
+            if (max <= 20) return 5;
+            if (max <= 50) return 10;
+            if (max <= 100) return 20;
+            return Math.ceil(max / 250) * 50;
+        }
+
+        // X 轴标签抽稀：7 天全标、14 天隔天标、30 天每 5 天标
+        function labelStep(n) {
+            if (n <= 7) return 1;
+            return n <= 14 ? 2 : 5;
+        }
+
+        const NS = 'http://www.w3.org/2000/svg';
+        function svgEl(tag, attrs, text) {
+            const node = document.createElementNS(NS, tag);
+            Object.keys(attrs || {}).forEach(k => node.setAttribute(k, attrs[k]));
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        function render() {
+            const w = Math.round(svg.clientWidth);
+            const h = Math.round(svg.clientHeight);
+            if (!w || !h) return; // 卡片被隐藏或尚未完成布局时跳过
+
+            const series = buildSeries(days);
+            const n = series.length;
+            const plotW = Math.max(10, w - PAD.left - PAD.right);
+            const plotH = Math.max(10, h - PAD.top - PAD.bottom);
+
+            const maxTotal = series.reduce((m, p) => Math.max(m, p.total), 0);
+            const step = niceStep(Math.max(1, maxTotal));
+            const yMax = Math.max(step, Math.ceil(maxTotal / step) * step);
+
+            svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+            while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+            const xAt = i => (n === 1 ? PAD.left + plotW / 2 : PAD.left + (plotW * i) / (n - 1));
+            const yAt = v => PAD.top + plotH - (v / yMax) * plotH;
+
+            // 网格线 + Y 轴刻度
+            for (let v = 0; v <= yMax; v += step) {
+                const y = yAt(v);
+                svg.appendChild(svgEl('line', { class: 'trend-grid-line', x1: PAD.left, y1: y, x2: PAD.left + plotW, y2: y }));
+                svg.appendChild(svgEl('text', { class: 'trend-axis-label', x: PAD.left - 8, y: y + 4, 'text-anchor': 'end' }, String(v)));
+            }
+            // 坐标轴
+            svg.appendChild(svgEl('line', { class: 'trend-axis-line', x1: PAD.left, y1: PAD.top, x2: PAD.left, y2: PAD.top + plotH }));
+            svg.appendChild(svgEl('line', { class: 'trend-axis-line', x1: PAD.left, y1: PAD.top + plotH, x2: PAD.left + plotW, y2: PAD.top + plotH }));
+
+            // 平滑曲线：Catmull-Rom 转三次贝塞尔，控制点限制在绘图区内避免过冲
+            function curveD(points) {
+                const k = 0.6; // 平滑强度：1 为标准 Catmull-Rom，越小越接近折线
+                const clampY = y => Math.max(PAD.top, Math.min(PAD.top + plotH, y));
+                let d = 'M' + points[0][0].toFixed(1) + ',' + points[0][1].toFixed(1);
+                for (let i = 0; i < points.length - 1; i++) {
+                    const p0 = points[i - 1] || points[i];
+                    const p1 = points[i];
+                    const p2 = points[i + 1];
+                    const p3 = points[i + 2] || p2;
+                    const c1x = p1[0] + (p2[0] - p0[0]) / 6 * k;
+                    const c1y = clampY(p1[1] + (p2[1] - p0[1]) / 6 * k);
+                    const c2x = p2[0] - (p3[0] - p1[0]) / 6 * k;
+                    const c2y = clampY(p2[1] - (p3[1] - p1[1]) / 6 * k);
+                    d += ' C' + c1x.toFixed(1) + ',' + c1y.toFixed(1) + ' '
+                        + c2x.toFixed(1) + ',' + c2y.toFixed(1) + ' '
+                        + p2[0].toFixed(1) + ',' + p2[1].toFixed(1);
+                }
+                return d;
+            }
+
+            // 曲线折线与面积
+            const pts = series.map((p, i) => [xAt(i), yAt(p.total)]);
+            const lineD = curveD(pts);
+            const baseY = (PAD.top + plotH).toFixed(1);
+            const areaD = lineD + ' L' + pts[pts.length - 1][0].toFixed(1) + ',' + baseY
+                + ' L' + pts[0][0].toFixed(1) + ',' + baseY + ' Z';
+            svg.appendChild(svgEl('path', { class: 'trend-area', d: areaD }));
+            svg.appendChild(svgEl('path', { class: 'trend-line', d: lineD }));
+
+            // X 轴刻度
+            const lstep = labelStep(n);
+            series.forEach((p, i) => {
+                if (i % lstep !== 0 && i !== n - 1) return;
+                svg.appendChild(svgEl('text', {
+                    class: 'trend-axis-label', x: xAt(i), y: PAD.top + plotH + 16, 'text-anchor': 'middle'
+                }, p.label));
+            });
+
+            // 节点默认全部显示，悬停时该节点缩小并弹出当日明细
+            const NODE_R = 4;
+            const NODE_R_ACTIVE = 2.5;
+            const nodes = pts.map(pt => {
+                const c = svgEl('circle', { class: 'trend-node', r: NODE_R, cx: pt[0], cy: pt[1] });
+                svg.appendChild(c);
+                return c;
+            });
+
+            const overlay = svgEl('rect', { x: PAD.left, y: PAD.top, width: plotW, height: plotH, fill: 'transparent' });
+            svg.appendChild(overlay);
+
+            let activeIdx = -1;
+            function setActiveNode(idx) {
+                if (activeIdx === idx) return;
+                if (activeIdx >= 0 && nodes[activeIdx]) nodes[activeIdx].setAttribute('r', NODE_R);
+                activeIdx = idx;
+                if (idx >= 0 && nodes[idx]) nodes[idx].setAttribute('r', NODE_R_ACTIVE);
+            }
+
+            overlay.addEventListener('mousemove', function (e) {
+                const rect = svg.getBoundingClientRect();
+                const relX = ((e.clientX - rect.left) * (w / rect.width) - PAD.left) / plotW;
+                const idx = Math.max(0, Math.min(n - 1, Math.round(relX * (n - 1))));
+                const p = series[idx];
+                const px = pts[idx][0];
+                const py = pts[idx][1];
+                setActiveNode(idx);
+                tooltip.innerHTML = p.total > 0
+                    ? p.label + ' · 电影 ' + p.movies + ' 部 · 剧集 ' + p.episodes + ' 集 · 合计 ' + p.total
+                    : p.label + ' · 无观看记录';
+                tooltip.style.left = (rect.left + window.scrollX + px * (rect.width / w)) + 'px';
+                tooltip.style.top = (rect.top + window.scrollY + py * (rect.height / h)) + 'px';
+                tooltip.style.opacity = '1';
+            });
+            overlay.addEventListener('mouseleave', function () {
+                setActiveNode(-1);
+                tooltip.style.opacity = '0';
+            });
+        }
+
+        // 下拉：切换区间不刷新页面，选择写入 localStorage
+        function closeTrendDropdown() {
+            if (optionsEl) optionsEl.classList.remove('show');
+            if (dropdownEl) dropdownEl.classList.remove('open');
+        }
+
+        function syncDropdown() {
+            if (labelEl) labelEl.textContent = '最近 ' + days + ' 天';
+            if (!optionsEl) return;
+            Array.prototype.forEach.call(optionsEl.children, function (opt) {
+                opt.classList.toggle('active', parseInt(opt.getAttribute('data-days'), 10) === days);
+            });
+        }
+
+        window.toggleTrendDropdown = function (e) {
+            e.stopPropagation();
+            if (!optionsEl) return;
+            const isOpen = optionsEl.classList.contains('show');
+            closeTrendDropdown();
+            if (!isOpen) {
+                optionsEl.classList.add('show');
+                if (dropdownEl) dropdownEl.classList.add('open');
+            }
+        };
+
+        window.selectTrendRange = function (n, e) {
+            e.stopPropagation();
+            if (RANGES.indexOf(n) === -1) return;
+            days = n;
+            try { localStorage.setItem(RANGE_KEY, String(n)); } catch (err) { }
+            syncDropdown();
+            closeTrendDropdown();
+            render();
+        };
+
+        document.addEventListener('click', closeTrendDropdown);
+
+        // 尺寸变化（窗口缩放、拖拽调整卡片）时重绘；隐藏时尺寸为 0 自动跳过
+        let rafId = null;
+        function scheduleRender() {
+            if (rafId) return;
+            rafId = requestAnimationFrame(function () { rafId = null; render(); });
+        }
+        if (typeof ResizeObserver !== 'undefined') {
+            new ResizeObserver(scheduleRender).observe(svg.parentElement);
+        } else {
+            window.addEventListener('resize', scheduleRender);
+        }
+
+        syncDropdown();
+        render();
+
+        // 供自动化测试与排查使用
+        window.__trendDebug = { buildSeries: buildSeries, niceStep: niceStep, labelStep: labelStep, getDays: () => days };
+    })();
+    </script><script>
         // 数字滚动动画：0.8s 从 0 滚到目标值，减弱动效下直接显示
         (function () {
             var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -823,6 +1150,21 @@
     </script>
 
 
+<script>
+    // 为每张卡片注入右上角拖动把手（9 点网格），必须在 GridStack 初始化之前执行
+    (function () {
+        const dots = '<span></span>'.repeat(9);
+        document.querySelectorAll('#dash-grid > .grid-stack-item > .grid-stack-item-content').forEach(function (content) {
+            if (content.querySelector('.grid-drag-handle')) return;
+            // 必须是普通元素：GridStack 会拦截从 button/input 等交互元素上开始的拖动
+            const handle = document.createElement('div');
+            handle.className = 'grid-drag-handle';
+            handle.innerHTML = '<span class="grid-drag-dots">' + dots + '</span>';
+            content.insertBefore(handle, content.firstChild);
+        });
+    })();
+</script>
+
 <script src="{{ url_for('static', filename='js/gridstack-all.min.js') }}"></script>
 <script>
         // GridStack 可调整布局：拖动调整/换位，localStorage 持久化，移动端自动禁用
@@ -830,18 +1172,34 @@
             var gridEl = document.getElementById('dash-grid');
             if (!gridEl || typeof GridStack === 'undefined') return;
             var key = 'jellywall_dashboard_grid';
-            var layoutV = 7; // 布局版本：最近观看卡片高度改为 4 格后升级
             var saved = null;
             try {
                 var raw = JSON.parse(localStorage.getItem(key));
-                if (raw && raw.v === layoutV && Array.isArray(raw.items)) saved = raw.items;
+                saved = Array.isArray(raw) ? raw : null;
             } catch (e) { saved = null; }
             var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-            // 卡片显示设置：hidden 记录被隐藏的卡片及其位置（用于恢复）
+            // 卡片显示设置：记录被隐藏的卡片及其位置（用于恢复）
             var visKey = 'jellywall_dashboard_visible';
-            var visData = null;
-            try { visData = JSON.parse(localStorage.getItem(visKey)); } catch (e) { visData = null; }
-            var hiddenMap = (visData && visData.v === 1 && visData.hidden) ? visData.hidden : {};
+            // 默认隐藏的卡片（可在"设置仪表板"里勾选显示）
+            var DEFAULT_HIDDEN = { 'panel-trend': { x: 0, y: 9, w: 12, h: 4 } };
+            // 没存过设置时用默认值；存过（哪怕空对象）就完全按用户的来
+            var hiddenMap = null;
+            try {
+                var rawVis = localStorage.getItem(visKey);
+                if (rawVis) {
+                    var parsedVis = JSON.parse(rawVis);
+                    if (parsedVis && typeof parsedVis === 'object' && !Array.isArray(parsedVis)) {
+                        var validMap = {};
+                        var allKeysValid = true;
+                        Object.keys(parsedVis).forEach(function (id) {
+                            if (gridEl.querySelector('[gs-id="' + id + '"]')) validMap[id] = parsedVis[id] || {};
+                            else allKeysValid = false; // 出现无法识别的键 → 视为无效数据
+                        });
+                        hiddenMap = allKeysValid ? validMap : null;
+                    }
+                }
+            } catch (e) { hiddenMap = null; }
+            if (!hiddenMap) hiddenMap = JSON.parse(JSON.stringify(DEFAULT_HIDDEN));
             // 捕获模板默认布局（在写入保存布局之前），供"重置布局"带动画恢复
             var defaultLayout = [];
             gridEl.querySelectorAll('.grid-stack-item').forEach(function (el) {
@@ -881,9 +1239,12 @@
                 cellHeight: 120,
                 margin: 20,
                 float: false,
-                animate: !reduce
+                animate: !reduce,
+                // 只有右上角把手能拖动卡片（默认是整块内容区）
+                draggable: { handle: '.grid-drag-handle' }
             }, gridEl);
             window.__dashGrid = grid; // 调试/未来功能用
+            window.__dashGetHidden = function () { return hiddenMap; }; // 供设置弹窗读取当前显隐
             // 应用显示设置：隐藏的卡片移出布局引擎，其余卡片自动补位
             Object.keys(hiddenMap).forEach(function (id) {
                 var el = gridEl.querySelector('[gs-id="' + id + '"]');
@@ -927,7 +1288,7 @@
                     grid.addWidget(el, { x: p.x, y: p.y, w: p.w, h: p.h });
                 });
                 hiddenMap = newHidden;
-                try { localStorage.setItem(visKey, JSON.stringify({ v: 1, hidden: newHidden })); } catch (e) { }
+                try { localStorage.setItem(visKey, JSON.stringify(newHidden)); } catch (e) { }
             };
             // 重置布局：清除已保存布局，带动画切回默认（不刷新页面）
             window.__resetDashLayout = function () {
@@ -938,10 +1299,10 @@
             };
             // 旧版或无有效布局：立即用新默认布局落盘，保证刷新后布局版本一致
             if (!saved) {
-                try { localStorage.setItem(key, JSON.stringify({v: layoutV, items: grid.save(false)})); } catch (e) { }
+                try { localStorage.setItem(key, JSON.stringify(grid.save(false))); } catch (e) { }
             }
             grid.on('change', function () {
-                try { localStorage.setItem(key, JSON.stringify({v: layoutV, items: grid.save(false)})); } catch (e) { }
+                try { localStorage.setItem(key, JSON.stringify(grid.save(false))); } catch (e) { }
             });
             var mq = window.matchMedia('(max-width: 768px)');
             function applyResponsive() {

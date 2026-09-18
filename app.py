@@ -84,7 +84,7 @@ Compress(app)
 # ==========================================
 # 应用版本号(后续迭代在此递增)
 # ==========================================
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 
 
 
@@ -828,6 +828,15 @@ def dashboard():
         e_num = rec.episode_num if rec.episode_num is not None else 0
         se_tag = f"S{s_num:02d}E{e_num:02d}" if rec.item_type == 'Episode' else "Movie"
 
+        # 详情页跳转：电影进电影详情；剧集进剧详情并定位到对应单集（有集号时才带锚点）
+        if rec.item_type == 'Movie':
+            detail_url = url_for('media_detail', media_type='movie', title=rec.title)
+        else:
+            detail_url = url_for('media_detail', media_type='series',
+                                 title=getattr(rec, 'series_name', None) or rec.title)
+            if rec.episode_num is not None:
+                detail_url += f"#ep-s{s_num:02d}e{rec.episode_num:02d}"
+
         recent_feed.append({
             'item_type': rec.item_type,
             'title': rec.title,
@@ -835,7 +844,8 @@ def dashboard():
             'se_tag': se_tag,
             'source': rec.source,
             'date_played': rec.date_played,
-            'poster_path': poster_path
+            'poster_path': poster_path,
+            'detail_url': detail_url
         })
 
     one_year_ago = datetime.now() - timedelta(days=365)

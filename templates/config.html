@@ -557,15 +557,15 @@
         const port = document.getElementById('proxy_port').value.trim();
         const btn = document.getElementById('btn-test-proxy');
         const originalHtml = btn.innerHTML;
-        if(!url || !port) { window.showToast("❌ 请先填写代理的网址和端口"); return; }
+        if(!url || !port) { window.showToast('<i data-lucide="x-circle" class="toast-inline-icon toast-inline-error"></i> 请先填写代理的网址和端口'); return; }
         btn.disabled = true; btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> <span>测试中...</span>`;
         if (typeof lucide !== 'undefined') lucide.createIcons();
-        window.showToast("⏳ 正在测试代理连通性...");
+        window.showToast('<i data-lucide="loader-2" class="toast-inline-icon spin-icon"></i> 正在测试代理连通性...');
         try {
             const response = await fetch('/test_proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, port }) });
             const result = await response.json();
             window.showToast(result.message);
-        } catch (error) { window.showToast("❌ 请求发送失败，请检查网络是否通畅。"); } finally {
+        } catch (error) { window.showToast('<i data-lucide="x-circle" class="toast-inline-icon toast-inline-error"></i> 请求发送失败，请检查网络是否通畅。'); } finally {
             btn.disabled = false; btn.innerHTML = originalHtml;
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }
@@ -575,15 +575,15 @@
         const apiKey = document.getElementById('tmdb_api_key').value.trim();
         const btn = document.getElementById('btn-test-tmdb');
         const originalHtml = btn.innerHTML;
-        if(!apiKey) { window.showToast("❌ 请先填写 TMDB API Key"); return; }
+        if(!apiKey) { window.showToast('<i data-lucide="x-circle" class="toast-inline-icon toast-inline-error"></i> 请先填写 TMDB API Key'); return; }
         btn.disabled = true; btn.innerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> <span>测试中...</span>`;
         if (typeof lucide !== 'undefined') lucide.createIcons();
-        window.showToast("⏳ 正在测试 TMDB 连接...");
+        window.showToast('<i data-lucide="loader-2" class="toast-inline-icon spin-icon"></i> 正在测试 TMDB 连接...');
         try {
             const response = await fetch('/test_tmdb', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: apiKey }) });
             const result = await response.json();
             window.showToast(result.message);
-        } catch (error) { window.showToast("❌ 请求发送失败，请检查网络。"); } finally {
+        } catch (error) { window.showToast('<i data-lucide="x-circle" class="toast-inline-icon toast-inline-error"></i> 请求发送失败，请检查网络。'); } finally {
             btn.disabled = false; btn.innerHTML = originalHtml;
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }

@@ -1,6 +1,22 @@
 # JellyWall 更新日志
-## [**🌟 v1.0.6**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.6)
+## [**🌟 v1.0.7**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.7)
 **最新**
+2026/09/18
+
+**🚀 优化**
+- feat: 仪表板新增"最近趋势"折线图卡片（7/14/30 天切换、悬停当日明细），默认隐藏，可在"设置仪表板"中开启
+- feat: 仪表板卡片改为仅右上角把手可拖动，避免卡片内的链接与拖拽冲突
+- feat: "最近同步"标题可点击跳转详情页，剧集自动展开并定位到对应单集
+- feat: 探索、配置、登录注册等页面的 emoji 替换为图标集图标
+- feat: 登录/注册页主题色与主面板统一为 8 色，并补齐移动端适配
+- refactor: 去掉仪表板布局版本机制，布局与卡片显隐改为直接存储
+
+**🐛 Bug修复**
+- fix: 修复拖动把手无法拖动卡片的问题
+- fix: 修复 @keyframes spin 未定义导致配置页测试按钮动画失效的问题
+
+
+## [**🌟 v1.0.6**](https://github.com/ZhuMengMeng666/JellyWall/releases/tag/v1.0.6)
 2026/09/11
 
 **🚀 优化**

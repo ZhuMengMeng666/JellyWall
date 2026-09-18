@@ -141,6 +141,14 @@
         .toast-body { font-size: 14px; line-height: 1.5; color: var(--text-muted); }
         .toast-body ul::-webkit-scrollbar { width: 6px; }
         .toast-body ul::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 4px; }
+        /* toast 内联图标（替代 emoji）：默认随文字色，可配合语义色类 */
+        .toast-inline-icon { width: 14px; height: 14px; vertical-align: -2px; }
+        .toast-inline-error { color: #ef4444; }
+        .toast-inline-ok { color: #10b981; }
+        /* 旋转图标（加载中提示） */
+        .spin-icon { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) { .spin-icon { animation: none; } }
 
         i[data-lucide] { display: inline-block; width: 20px; height: 20px; }
 

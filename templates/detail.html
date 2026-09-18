@@ -143,6 +143,8 @@
     .episode-title { font-size: 18px; font-weight: 800; color: var(--text-main); margin: 0 0 12px 0; transition: color 0.3s;}
     .episode-item:hover .episode-title { color: var(--primary-color); }
     .episode-overview { font-size: 15px; color: var(--text-muted); line-height: 1.6; }
+    /* 完成时间前的对勾图标（替代原来的 emoji） */
+    .episode-check { display: inline-block; width: 14px; height: 14px; vertical-align: -2px; color: #10b981; }
 
     /* ==========================================
        ✨ 响应式防挤压深度适配 (Mobile & Tablet)
@@ -248,7 +250,8 @@
 
     <div class="episodes-container">
         {% for ep in episodes %}
-        <div class="episode-item">
+        {% set ep_no = ep.episode_num if ep.episode_num else loop.index %}
+        <div class="episode-item" id="ep-s{{ '%02d'|format(season_num|int) }}e{{ '%02d'|format(ep_no|int) }}">
             <div class="episode-still-wrapper">
                 <img src="{{ url_for('static', filename=ep.still_path|default('images/logo.png')) }}" class="episode-still" loading="lazy" decoding="async">
                 <span class="episode-number-badge">S{{ "%02d"|format(season_num|int) }} {% if ep.episode_num %}E{{ "%02d"|format(ep.episode_num|int) }}{% else %}E{{ "%02d"|format(loop.index) }}{% endif %}</span>            </div>
@@ -256,7 +259,7 @@
                 <h3 class="episode-title">{{ ep.title }}</h3>
                 <p class="episode-overview">
                     {% if ep.overview %}{{ ep.overview }}<br>{% endif %}
-                    ✅ 完成时间：{{ ep.date_played.strftime('%Y-%m-%d %H:%M:%S') }}
+                    <i data-lucide="check-circle" class="episode-check"></i> 完成时间：{{ ep.date_played.strftime('%Y-%m-%d %H:%M:%S') }}
                 </p>
             </div>
         </div>
@@ -294,5 +297,31 @@
             container.style.display = 'none';
         }
     }
+
+    // 从"最近同步"跳转过来时：自动展开目标单集所在的季，并滚动定位到该集
+    (function () {
+        const hash = window.location.hash || '';
+        if (hash.indexOf('#ep-s') !== 0) return;
+
+        let target = null;
+        try { target = document.querySelector(hash); } catch (e) { target = null; }
+        if (!target) return;
+
+        const card = target.closest('.season-card');
+        const container = card ? card.querySelector('.episodes-container') : null;
+        if (card && container && !card.classList.contains('open')) {
+            card.classList.add('open');
+            container.style.display = 'block';
+            // 跳过级联入场动画，直接显示，保证定位准确
+            container.querySelectorAll('.episode-item').forEach(function (ep) { ep.style.opacity = '1'; });
+        }
+
+        const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        function center(smooth) {
+            target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'center' });
+        }
+        setTimeout(function () { center(!reduce); }, 80);
+        setTimeout(function () { center(false); }, 800); // 图片加载完成后纠正位置
+    })();
 </script>
 {% endblock %}

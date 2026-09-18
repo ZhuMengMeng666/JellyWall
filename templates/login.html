@@ -79,10 +79,18 @@
             z-index: 100;
         }
         .theme-switch { background: var(--sidebar-bg); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 14px; transition: 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05);}
-        .theme-switch:hover { border-color: var(--primary-color); }
+    .theme-switch:hover { border-color: var(--primary-color); }
+    .theme-switch svg { width: 16px; height: 16px; vertical-align: -3px; }
         .color-picker-container { display: flex; gap: 10px; align-items: center; background: var(--sidebar-bg); padding: 8px 15px; border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.05);}
         .color-dot { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.2s; }
         .color-dot:hover { transform: scale(1.2); }
+        /* 与主面板一致：主题色较多时横向滚动，隐藏文字标签 */
+        @media (max-width: 768px) {
+            .color-picker-container { overflow-x: auto; max-width: 65vw; padding: 8px; }
+            .color-picker-container > span { display: none; }
+            .color-picker-container::-webkit-scrollbar { display: none; }
+            .color-dot { flex-shrink: 0; }
+        }
 
         .login-card {
             background: rgba(255, 255, 255, 0.08);
@@ -360,13 +368,17 @@
 <body style="{% if bg_url %}background-image:url('{{ bg_url }}');{% endif %}">
 
     <div class="top-navbar">
-        <button class="theme-switch" onclick="toggleDarkMode(event)" id="mode-btn">🌙 深色模式</button>
+        <button class="theme-switch" onclick="toggleDarkMode(event)" id="mode-btn"><i data-lucide="moon"></i> 深色模式</button>
         <div class="color-picker-container">
-            <span style="font-size: 12px; color: var(--text-muted);">主题色:</span>
-            <div class="color-dot" style="background-color: #00a4dc;" onclick="setPrimaryColor(event, '#00a4dc')"></div>
-            <div class="color-dot" style="background-color: #8b5cf6;" onclick="setPrimaryColor(event, '#8b5cf6')"></div>
-            <div class="color-dot" style="background-color: #10b981;" onclick="setPrimaryColor(event, '#10b981')"></div>
-            <div class="color-dot" style="background-color: #f43f5e;" onclick="setPrimaryColor(event, '#f43f5e')"></div>
+            <span style="font-size: 12px; color: var(--text-muted); font-weight: bold; margin-right: 2px;">主题色:</span>
+            <div class="color-dot" style="background-color: #00a4dc;" onclick="setPrimaryColor(event, '#00a4dc')" title="天际蓝"></div>
+            <div class="color-dot" style="background-color: #8b5cf6;" onclick="setPrimaryColor(event, '#8b5cf6')" title="魅影紫"></div>
+            <div class="color-dot" style="background-color: #ec4899;" onclick="setPrimaryColor(event, '#ec4899')" title="猛男粉"></div>
+            <div class="color-dot" style="background-color: #f43f5e;" onclick="setPrimaryColor(event, '#f43f5e')" title="玫瑰红"></div>
+            <div class="color-dot" style="background-color: #f59e0b;" onclick="setPrimaryColor(event, '#f59e0b')" title="芒果黄"></div>
+            <div class="color-dot" style="background-color: #10b981;" onclick="setPrimaryColor(event, '#10b981')" title="翡翠绿"></div>
+            <div class="color-dot" style="background-color: #14b8a6;" onclick="setPrimaryColor(event, '#14b8a6')" title="薄荷青"></div>
+            <div class="color-dot" style="background-color: #64748b;" onclick="setPrimaryColor(event, '#64748b')" title="石板灰"></div>
         </div>
     </div>
 
@@ -411,6 +423,7 @@
         <div class="login-footer">JellyWall v{{ app_version }}</div>
     </div>
 
+    <script src="{{ url_for('static', filename='js/lucide.subset.min.js') }}"></script>
     <script>
         function triggerRippleAnimation(event, actionCallback) {
             const x = event ? event.clientX : window.innerWidth / 2;
@@ -429,17 +442,24 @@
             setTimeout(() => { document.body.style.transition = 'background-color 0.3s, color 0.3s'; }, speedMs);
         }
 
+        // 主题按钮的图标与文案（图标取自项目图标集）
+        function setModeButton(theme) {
+            const modeBtn = document.getElementById('mode-btn');
+            const isDark = theme === 'dark';
+            modeBtn.innerHTML = `<i data-lucide="${isDark ? 'moon' : 'sun'}"></i> ${isDark ? '深色模式' : '浅色模式'}`;
+            if (typeof lucide !== 'undefined') lucide.createIcons({}, [modeBtn]);
+        }
+
         function toggleDarkMode(event) {
             triggerRippleAnimation(event, () => {
                 const htmlTag = document.documentElement;
-                const modeBtn = document.getElementById('mode-btn');
                 if (htmlTag.getAttribute('data-theme') === 'dark') {
                     htmlTag.setAttribute('data-theme', 'light');
-                    modeBtn.innerHTML = '☀️ 浅色模式';
+                    setModeButton('light');
                     localStorage.setItem('jellywall_theme', 'light');
                 } else {
                     htmlTag.setAttribute('data-theme', 'dark');
-                    modeBtn.innerHTML = '🌙 深色模式';
+                    setModeButton('dark');
                     localStorage.setItem('jellywall_theme', 'dark');
                 }
             });
@@ -454,11 +474,10 @@
 
         document.addEventListener('DOMContentLoaded', function() {
             const savedTheme = localStorage.getItem('jellywall_theme');
-            const modeBtn = document.getElementById('mode-btn');
             if (savedTheme) {
                 document.documentElement.setAttribute('data-theme', savedTheme);
-                modeBtn.innerHTML = savedTheme === 'dark' ? '🌙 深色模式' : '☀️ 浅色模式';
             }
+            setModeButton(document.documentElement.getAttribute('data-theme') || 'dark');
             const savedColor = localStorage.getItem('jellywall_primary_color');
             if (savedColor) {
                 document.documentElement.style.setProperty('--primary-color', savedColor);

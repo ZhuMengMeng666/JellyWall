@@ -87,6 +87,7 @@
     /* 状态占位提示 */
     .empty-state { text-align: center; padding: 80px 20px; color: var(--text-muted); }
     .empty-state span { font-size: 40px; display: block; margin-bottom: 15px; }
+    .empty-state span svg { width: 40px; height: 40px; }
 </style>
 
 <div class="search-header">
@@ -99,12 +100,17 @@
 
 <div id="results-container" class="results-grid">
     <div class="empty-state" style="grid-column: 1 / -1;">
-        <span>🛸</span>
+        <span><i data-lucide="compass"></i></span>
         这里连接着浩瀚的 TMDB 影视数据库。<br>输入关键词，寻找你想添加的佳作吧。
     </div>
 </div>
 
 <script>
+    // 动态插入的内容需要重新渲染图标（局部扫描）
+    function renderIcons(scope) {
+        if (typeof lucide !== 'undefined') lucide.createIcons({}, [scope]);
+    }
+
     // 支持键盘回车触发搜索
     function handleKeyPress(event) {
         if (event.key === 'Enter') { executeSearch(); }
@@ -135,7 +141,10 @@
 
     async function executeSearch(isInitialLoad = false) {
         const query = document.getElementById('search-input').value.trim();
-        if (!query) { window.showToast("❌ 请先输入想搜索的影视名称"); return; }
+        if (!query) {
+            window.showToast('<i data-lucide="x-circle" class="toast-inline-icon toast-inline-error"></i> 请先输入想搜索的影视名称');
+            return;
+        }
 
         // ====== ✨ 核心升级 2：每次搜索，都把词刻进“短期记忆” ======
         sessionStorage.setItem('jellywall_last_explore', query);
@@ -151,10 +160,11 @@
         // 进入 Loading 状态
         container.innerHTML = `
             <div class="empty-state" style="grid-column: 1 / -1;">
-                <span style="animation: pulse 1.5s infinite;">⏳</span>
+                <span><i data-lucide="loader-2" class="spin-icon"></i></span>
                 正在通过跨洋代理检索 TMDB 数据...
             </div>
         `;
+        renderIcons(container);
 
         try {
             const response = await fetch(`/api/search_tmdb?q=${encodeURIComponent(query)}`);
@@ -162,12 +172,14 @@
 
             if (!data.success) {
                 window.showToast(data.message);
-                container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><span>❌</span>搜索失败，请检查配置。</div>`;
+                container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><span><i data-lucide="x-circle"></i></span>搜索失败，请检查配置。</div>`;
+                renderIcons(container);
                 return;
             }
 
             if (data.results.length === 0) {
-                container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><span>👻</span>没有找到相关影视，换个词试试？</div>`;
+                container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><span><i data-lucide="ghost"></i></span>没有找到相关影视，换个词试试？</div>`;
+                renderIcons(container);
                 return;
             }
 
@@ -232,8 +244,9 @@
             });
             
         } catch (error) {
-            window.showToast("❌ 网络请求异常");
-            container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><span>❌</span>网络异常，请检查代理是否稳定运行。</div>`;
+            window.showToast('<i data-lucide="x-circle" class="toast-inline-icon toast-inline-error"></i> 网络请求异常');
+            container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><span><i data-lucide="x-circle"></i></span>网络异常，请检查代理是否稳定运行。</div>`;
+            renderIcons(container);
         }
     }
 </script>

@@ -3139,6 +3139,159 @@ def import_data():
 
 
 
+# ==========================================
+# 危险操作：一键重置（清空当前账号的观影数据与配置，仅保留用户名与密码）
+# ==========================================
+RESET_CONFIRM_PHRASE = "确认重置"
+
+# 缓存图片所在的六个业务目录（相对 static 的路径）；仓库自带的 logo 与截图在 images 根目录，不在扫描范围内
+IMAGE_REL_DIRS = (
+    "posters", "stills", "backdrops",
+    "images/posters", "images/stills", "images/backdrops",
+)
+
+# 仓库自带资源文件名，任何情况下都不当作孤儿图片删除
+KEEP_IMAGE_FILENAMES = {
+    "logo.png", "logo.svg", "dashboard.png", "watched.png", "watched_list.png", "detail.png", ".gitkeep",
+}
+
+
+def _iter_image_file_paths():
+    """生成六个业务图片目录下现存文件的相对路径（形如 posters/xxx.jpg）。"""
+    base = os.path.join(app.root_path, 'static')
+    for rel_dir in IMAGE_REL_DIRS:
+        abs_dir = os.path.join(base, *rel_dir.split('/'))
+        try:
+            names = os.listdir(abs_dir)
+        except OSError:
+            continue
+        for name in names:
+            if name in KEEP_IMAGE_FILENAMES:
+                continue
+            if os.path.isfile(os.path.join(abs_dir, name)):
+                yield f"{rel_dir}/{name}"
+
+
+def _collect_referenced_images():
+    """收集数据库里仍被引用的全部图片相对路径（跨用户），用于判断哪些缓存成了孤儿。"""
+    referenced = set()
+
+    def _add(path):
+        if path:
+            referenced.add(str(path).replace('\\', '/').strip('/'))
+
+    for poster in WatchPoster.query.all():
+        _add(poster.local_image_path)
+        _add(poster.series_image_path)
+        _add(poster.backdrop_image_path)
+        _add(poster.background_image_path)
+    for detail in EpisodeDetail.query.all():
+        _add(detail.still_image_path)
+    return referenced
+
+
+def _purge_orphan_images(referenced, username=''):
+    """删除不再被任何记录引用的缓存图片（与写入方存在轻微竞态，属可接受范围）。"""
+    base = os.path.join(app.root_path, 'static')
+    removed = 0
+    freed = 0
+    for rel_path in _iter_image_file_paths():
+        if rel_path in referenced:
+            continue
+        full_path = os.path.join(base, *rel_path.split('/'))
+        try:
+            size = os.path.getsize(full_path)
+            os.remove(full_path)
+            removed += 1
+            freed += size
+        except OSError as e:
+            logger.debug(f"[重置] 跳过无法删除的图片 {rel_path}: {e}")
+    logger.info(f"[重置] 用户 {username} 的孤儿图片清理完成：删除 {removed} 个文件，释放 {freed / 1048576:.1f} MB")
+    return removed, freed
+
+
+@app.route('/api/reset_all', methods=['POST'])
+@login_required
+def api_reset_all():
+    """一键重置：清空当前账号的观影数据与全部配置，仅保留用户名与密码。"""
+    # 项目没有 CSRF 框架，用「必须是 XHR 请求」做最低限度的跨站防护
+    if request.headers.get('X-Requested-With') != 'XMLHttpRequest':
+        logger.warning(f"[重置] 拒绝非 XHR 请求，ip={request.remote_addr}")
+        return jsonify({"success": False, "message": "非法请求"}), 400
+
+    data = request.get_json(silent=True) or {}
+    if data.get('confirm') != RESET_CONFIRM_PHRASE:
+        logger.warning(f"[重置] 用户 {current_user.username} 提交的确认短语不正确，已拒绝")
+        return jsonify({"success": False, "message": f"请输入「{RESET_CONFIRM_PHRASE}」以确认操作"}), 400
+
+    # 是否连连接配置一起重置（Jellyfin / TMDB / 代理 / 端口），默认与界面勾选框一致
+    reset_connection = bool(data.get('reset_connection', True))
+
+    if db_lock.locked():
+        logger.warning(f"[重置] 用户 {current_user.username} 的重置请求因正在同步被拒绝")
+        return jsonify({"success": False, "message": "正在执行同步，请等同步结束后再重置"}), 409
+
+    uid = current_user.id
+    username = current_user.username
+
+    try:
+        with db_lock:
+            episode_item_ids = [r.item_id for r in
+                                WatchRecord.query.filter_by(user_id=uid, item_type='Episode').all()]
+
+            records_deleted = WatchRecord.query.filter_by(user_id=uid).delete(synchronize_session=False)
+            posters_deleted = WatchPoster.query.filter_by(user_id=uid).delete(synchronize_session=False)
+            db.session.commit()
+
+            # 单集详情表没有 user_id，只能清理「再也没有任何用户观看」的孤儿记录
+            details_deleted = 0
+            if episode_item_ids:
+                still_referenced = {row[0] for row in db.session.query(WatchRecord.item_id)
+                                    .filter(WatchRecord.item_type == 'Episode').all()}
+                orphan_ids = [i for i in episode_item_ids if i not in still_referenced]
+                if orphan_ids:
+                    details_deleted = EpisodeDetail.query.filter(EpisodeDetail.item_id.in_(orphan_ids)) \
+                        .delete(synchronize_session=False)
+                    db.session.commit()
+
+        # 清空配置，只保留账号三要素；同步开关一并关闭，避免刚重置就被定时任务把数据拉回来
+        users = load_users()
+        entry = users.get(uid)
+        if entry:
+            new_entry = {
+                "id": entry.get("id", uid),
+                "username": entry.get("username"),
+                "password": entry.get("password"),
+                "sync_enabled": False,
+                "sync_cron": "0 * * * *",
+            }
+            if not reset_connection:
+                # 保留连接配置：把原有绑定与密钥原样带回
+                for key in ("jellyfin_url", "jellyfin_api_key", "jellyfin_user_id",
+                            "tmdb_api_key", "proxy_url", "proxy_port", "web_port"):
+                    new_entry[key] = entry.get(key)
+            users[uid] = new_entry
+            save_users(users)
+
+        refresh_scheduler_jobs()
+
+        referenced = _collect_referenced_images()
+        threading.Thread(target=_purge_orphan_images, args=(referenced, username), daemon=True).start()
+
+        logger.warning(f"[重置] 用户 {username} 执行一键重置({'含连接配置' if reset_connection else '保留连接配置'})："
+                       f"删除 {records_deleted} 条观影记录 / {posters_deleted} 张海报缓存 / {details_deleted} 集单集详情")
+
+        return jsonify({
+            "success": True,
+            "message": "重置完成，正在跳转…",
+            "deleted": {"records": records_deleted, "posters": posters_deleted, "episodes": details_deleted},
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[重置] 用户 {username} 重置失败：{str(e)}")
+        return jsonify({"success": False, "message": f"重置失败：{str(e)}"}), 500
+
+
 @app.route('/api/parse_watcharr', methods=['POST'])
 @login_required
 def parse_watcharr():

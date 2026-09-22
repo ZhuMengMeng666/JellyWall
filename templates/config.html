@@ -13,7 +13,13 @@
         box-shadow: 0 10px 30px rgba(0,0,0,0.1); margin-bottom: 30px;
         display: flex; align-items: center; gap: 15px; overflow-x: auto;
     }
-    .sticky-nav::-webkit-scrollbar { display: none; }
+    /* 内容溢出时默认隐藏滚动条，鼠标悬停才显示，配合滚轮横向滚动 */
+    .sticky-nav { scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+    .sticky-nav:hover { scrollbar-color: color-mix(in srgb, var(--text-muted) 60%, transparent) transparent; }
+    .sticky-nav::-webkit-scrollbar { height: 6px; }
+    .sticky-nav::-webkit-scrollbar-track { background: transparent; }
+    .sticky-nav::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+    .sticky-nav:hover::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text-muted) 60%, transparent); }
 
     .nav-label { font-weight: 800; color: var(--text-main); font-size: 15px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; margin-right: 5px; }
 
@@ -88,6 +94,7 @@
     <button class="nav-pill" onclick="scrollToCard('card-data', this)">数据管理</button>
     <button class="nav-pill" onclick="scrollToCard('card-system', this)">系统安全</button>
     <button class="nav-pill" onclick="scrollToCard('card-port', this)">访问端口</button>
+    <button class="nav-pill" onclick="scrollToCard('card-danger', this)">数据重置</button>
 </div>
 
 <div class="config-card" id="card-status">
@@ -361,6 +368,18 @@
     </form>
 </div>
 
+<div class="config-card" id="card-danger" style="border-color: color-mix(in srgb, #ef4444 40%, var(--border-color));">
+    <div class="config-title" style="color: #ef4444;"><i data-lucide="alert-triangle"></i> 数据重置</div>
+
+    <div style="background: color-mix(in srgb, #ef4444 8%, var(--bg-color)); border: 1px solid color-mix(in srgb, #ef4444 30%, var(--border-color)); padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; font-size: 14px; color: var(--text-muted); line-height: 1.6;">
+        一键重置会清空本账号的观影数据与配置（可选择保留连接配置），只保留用户名和密码，且<b style="color: var(--text-main);">无法恢复</b>。
+    </div>
+
+    <button type="button" class="btn-danger" onclick="openResetModal()">
+        <i data-lucide="trash-2"></i> 一键重置
+    </button>
+</div>
+
 <style>
 /* 1. 二次确认嵌套表格弹窗 */
 .wa-modal-overlay {
@@ -417,7 +436,70 @@
 .wa-spin-anim {
     animation: custom-spin 1.2s linear infinite;
 }
+
+/* 3. 一键重置：数据重置卡片与确认弹窗 */
+.btn-danger {
+    background: #ef4444; color: #fff; border: none; padding: 9px 18px; border-radius: 6px;
+    cursor: pointer; font-weight: 600; font-size: 14px;
+    transition: transform 0.2s, filter 0.2s, background 0.2s;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.btn-danger i { width: 16px; height: 16px; stroke-width: 2.5; }
+.btn-danger:hover:not(:disabled) { background: #dc2626; transform: translateY(-2px); filter: brightness(1.1); }
+.btn-danger:disabled { background: #9ca3af; cursor: not-allowed; transform: none; filter: none; }
+.reset-modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6);
+    display: none; justify-content: center; align-items: center; z-index: 10001;
+    backdrop-filter: blur(4px);
+}
+.reset-modal {
+    width: 90%; max-width: 440px; box-sizing: border-box; padding: 26px;
+    background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 14px;
+    box-shadow: 0 18px 40px rgba(0,0,0,0.35);
+}
+.reset-modal-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 18px; font-weight: 800; color: #ef4444; margin-bottom: 14px;
+}
+.reset-modal-title i { width: 20px; height: 20px; }
+.reset-modal-text { font-size: 14px; line-height: 1.7; color: var(--text-muted); margin-bottom: 16px; }
+.reset-modal-text b { color: var(--text-main); }
+.reset-modal-input {
+    width: 100%; box-sizing: border-box; padding: 11px 14px; font-size: 14px; outline: none;
+    border: 1px solid var(--border-color); border-radius: 8px;
+    background: var(--bg-color); color: var(--text-main);
+}
+.reset-modal-input:focus { border-color: #ef4444; }
+.reset-modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+.reset-modal-check {
+    display: flex; align-items: flex-start; gap: 8px;
+    font-size: 14px; color: var(--text-main); cursor: pointer; margin-bottom: 6px;
+}
+.reset-modal-check input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: #ef4444; cursor: pointer; flex-shrink: 0; }
+.reset-modal-hint { font-size: 12.5px; line-height: 1.6; color: var(--text-muted); margin-bottom: 14px; }
 </style>
+
+<div id="reset-modal" class="reset-modal-overlay">
+    <div class="reset-modal">
+        <div class="reset-modal-title"><i data-lucide="alert-triangle"></i> 重置确认</div>
+        <div class="reset-modal-text">
+            观影数据将被清空且<b>无法恢复</b>。请输入 <b>确认重置</b> 以继续。
+        </div>
+        <label class="reset-modal-check">
+            <input type="checkbox" id="reset-connection-check" checked>
+            <span>重置连接配置（Jellyfin、TMDB、代理、端口）</span>
+        </label>
+        <div class="reset-modal-hint">取消勾选则保留以上配置，只清除观影数据；自动同步都会关闭。</div>
+        <input type="text" id="reset-confirm-input" class="reset-modal-input" placeholder="请输入：确认重置"
+               autocomplete="off" oninput="onResetInput()">
+        <div class="reset-modal-actions">
+            <button type="button" class="submit-btn test-btn" onclick="closeResetModal()">取消</button>
+            <button type="button" class="btn-danger" id="reset-confirm-btn" onclick="confirmReset()" disabled>
+                <i data-lucide="trash-2"></i> <span>确认重置</span>
+            </button>
+        </div>
+    </div>
+</div>
 
 <div id="wa-modal" class="wa-modal-overlay">
     <div class="wa-modal-content">
@@ -835,5 +917,79 @@
             importAbortController = null; // 清理控制器
         }
     };
+    // ---------------- 一键重置 ----------------
+    const RESET_PHRASE = '确认重置';
+
+    window.openResetModal = function() {
+        document.getElementById('reset-confirm-input').value = '';
+        document.getElementById('reset-confirm-btn').disabled = true;
+        document.getElementById('reset-modal').style.display = 'flex';
+        setTimeout(() => document.getElementById('reset-confirm-input').focus(), 50);
+    };
+
+    window.closeResetModal = function() {
+        document.getElementById('reset-modal').style.display = 'none';
+    };
+
+    window.onResetInput = function() {
+        const typed = document.getElementById('reset-confirm-input').value.trim();
+        document.getElementById('reset-confirm-btn').disabled = (typed !== RESET_PHRASE);
+    };
+
+    window.confirmReset = async function() {
+        const btn = document.getElementById('reset-confirm-btn');
+        if (btn.disabled) return;
+        btn.disabled = true;
+        btn.querySelector('span').innerText = '正在重置…';
+        try {
+            const resp = await fetch('/api/reset_all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({
+                    confirm: RESET_PHRASE,
+                    reset_connection: document.getElementById('reset-connection-check').checked
+                })
+            });
+            const data = await resp.json();
+            window.showToast(data.message);
+            if (data.success) {
+                setTimeout(() => { window.location.href = '/'; }, 1500);
+            } else {
+                btn.querySelector('span').innerText = '确认重置';
+                window.onResetInput();
+            }
+        } catch (e) {
+            window.showToast('网络异常，重置未执行。');
+            btn.querySelector('span').innerText = '确认重置';
+            window.onResetInput();
+        }
+    };
+
+    (function() {
+        const overlay = document.getElementById('reset-modal');
+        if (overlay) {
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) window.closeResetModal();
+            });
+        }
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && overlay && overlay.style.display === 'flex') {
+                window.closeResetModal();
+            }
+        });
+
+        // 顶部导航：溢出时支持鼠标滚轮横向滚动（到头后交还给页面滚动）
+        const nav = document.getElementById('top-nav');
+        if (nav) {
+            nav.addEventListener('wheel', function(e) {
+                if (e.deltaY === 0 || nav.scrollWidth <= nav.clientWidth) return;
+                const atStart = nav.scrollLeft <= 1;
+                const atEnd = nav.scrollLeft + nav.clientWidth >= nav.scrollWidth - 1;
+                if ((e.deltaY < 0 && atStart) || (e.deltaY > 0 && atEnd)) return;
+                e.preventDefault();
+                nav.scrollLeft += e.deltaY;
+            }, { passive: false });
+        }
+    })();
 </script>
 {% endblock %}

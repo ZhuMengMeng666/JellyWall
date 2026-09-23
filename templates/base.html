@@ -46,6 +46,17 @@
         body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; height: 100vh; background-color: var(--bg-color); color: var(--text-main); transition: background-color 0.3s, color 0.3s; }
 
         /* ==========================================
+           2.5 懒加载图片渐显
+           只在 html 带 img-fade 时生效（由内联脚本添加），
+           保证 JS 不可用时图片照常显示；真实浏览器不支持时也不会残留透明
+           ========================================== */
+        html.img-fade img[loading="lazy"] { opacity: 0; transition: opacity 0.35s ease; }
+        html.img-fade img[loading="lazy"].img-loaded { opacity: 1; }
+        @media (prefers-reduced-motion: reduce) {
+            html.img-fade img[loading="lazy"] { transition: none; }
+        }
+
+        /* ==========================================
            3. 全新侧边栏布局
            ========================================== */
         .sidebar {
@@ -239,6 +250,8 @@
 
     <script>
         (function() {
+            // 懒加载图片渐显：先打标记，只有 JS 可用时才让图片从透明淡入，避免 JS 失效时图片永久隐藏
+            document.documentElement.classList.add('img-fade');
             const savedTheme = localStorage.getItem('jellywall_theme');
             if (savedTheme) {
                 document.documentElement.setAttribute('data-theme', savedTheme);
@@ -422,6 +435,26 @@
         };
 
         lucide.createIcons();
+
+        // 懒加载图片渐显：load/error 不冒泡，所以在捕获阶段统一打标记；
+        // 已经在缓存里的图片由 sweep 兜底（否则它们不会再触发 load）
+        (function () {
+            function mark(el) {
+                if (el && el.tagName === 'IMG') el.classList.add('img-loaded');
+            }
+            function sweep() {
+                document.querySelectorAll('img[loading="lazy"]').forEach(function (img) {
+                    if (img.complete) mark(img);
+                });
+            }
+            document.addEventListener('load', function (e) { mark(e.target); }, true);
+            document.addEventListener('error', function (e) { mark(e.target); }, true);
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', sweep);
+            } else {
+                sweep();
+            }
+        })();
 
         const currentPath = window.location.pathname;
         document.querySelectorAll('.nav-links li a').forEach(link => {

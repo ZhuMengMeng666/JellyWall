@@ -137,9 +137,9 @@
                 <i data-lucide="chevron-down" class="dropdown-icon" style="width:16px; height:16px;"></i>
             </div>
             <div class="dropdown-options" id="type-dropdown-options">
-                <div class="dropdown-option{% if type_filter == 'all' %} active{% endif %}" onclick="selectFilter('type', 'all', event)">全部类型</div>
-                <div class="dropdown-option{% if type_filter == 'movie' %} active{% endif %}" onclick="selectFilter('type', 'movie', event)">电影</div>
-                <div class="dropdown-option{% if type_filter == 'series' %} active{% endif %}" onclick="selectFilter('type', 'series', event)">剧集</div>
+                <div class="dropdown-option{% if type_filter == 'all' %} active{% endif %}" data-value="all" onclick="selectFilter('type', 'all', event)">全部类型</div>
+                <div class="dropdown-option{% if type_filter == 'movie' %} active{% endif %}" data-value="movie" onclick="selectFilter('type', 'movie', event)">电影</div>
+                <div class="dropdown-option{% if type_filter == 'series' %} active{% endif %}" data-value="series" onclick="selectFilter('type', 'series', event)">剧集</div>
             </div>
         </div>
         <div class="custom-dropdown" id="sort-dropdown">
@@ -148,16 +148,15 @@
                 <i data-lucide="chevron-down" class="dropdown-icon" style="width:16px; height:16px;"></i>
             </div>
             <div class="dropdown-options" id="sort-dropdown-options">
-                <div class="dropdown-option{% if sort_order == 'asc' %} active{% endif %}" onclick="selectFilter('sort', 'asc', event)">首次观看 · 由远及近</div>
-                <div class="dropdown-option{% if sort_order == 'desc' %} active{% endif %}" onclick="selectFilter('sort', 'desc', event)">首次观看 · 由近及远</div>
+                <div class="dropdown-option{% if sort_order == 'asc' %} active{% endif %}" data-value="asc" onclick="selectFilter('sort', 'asc', event)">首次观看 · 由远及近</div>
+                <div class="dropdown-option{% if sort_order == 'desc' %} active{% endif %}" data-value="desc" onclick="selectFilter('sort', 'desc', event)">首次观看 · 由近及远</div>
             </div>
         </div>
-        <span class="result-count">共 {{ filtered_count }} 部{% if filtered_count != total_count %} · 全部 {{ total_count }} 部{% endif %}</span>
-        {% if type_filter != 'all' or sort_order != 'asc' %}
-        <a class="clear-filter" href="{{ url_for('watched') }}">清除</a>
-        {% endif %}
+        <span class="result-count" id="result-count">共 {{ filtered_count }} 部{% if filtered_count != total_count %} · 全部 {{ total_count }} 部{% endif %}</span>
+        <a class="clear-filter" id="clear-filter" href="{{ url_for('watched') }}"
+           style="{% if type_filter == 'all' and sort_order == 'desc' %}display: none;{% endif %}">清除</a>
     </div>
-    <button class="export-btn" onclick="exportWall()"{% if filtered_count == 0 %} disabled title="当前筛选没有可导出的内容"{% endif %}>
+    <button class="export-btn" id="export-btn" onclick="exportWall()"{% if filtered_count == 0 %} disabled title="当前筛选没有可导出的内容"{% endif %}>
         <span id="export-text">导出海报墙</span>
     </button>
 </div>
@@ -165,13 +164,13 @@
 <div id="poster-wall">
     <div class="export-header">
         <h1 class="export-title">观影海报墙</h1>
-        <div class="export-meta">共 {{ filtered_count }} 部{% if filtered_count != total_count %} · 全部 {{ total_count }} 部{% endif %} · 电影 {{ filtered_movie_count }} · 剧集 {{ filtered_series_count }}{% if range_start %} · 首次观看 {{ range_start }} → {{ range_end }}{% endif %}</div>
-        {% if type_filter != 'all' or sort_order != 'asc' %}
-        <div class="export-filter">当前视图：{% if type_filter == 'movie' %}电影{% elif type_filter == 'series' %}剧集{% else %}全部类型{% endif %} · {% if sort_order == 'desc' %}由近及远{% else %}由远及近{% endif %}</div>
-        {% endif %}
+        <div class="export-meta" id="export-meta">共 {{ filtered_count }} 部{% if filtered_count != total_count %} · 全部 {{ total_count }} 部{% endif %} · 电影 {{ filtered_movie_count }} · 剧集 {{ filtered_series_count }}{% if range_start %} · 首次观看 {{ range_start }} → {{ range_end }}{% endif %}</div>
+        <div class="export-filter" id="export-filter"
+             style="{% if type_filter == 'all' and sort_order == 'desc' %}display: none;{% endif %}">当前视图：{% if type_filter == 'movie' %}电影{% elif type_filter == 'series' %}剧集{% else %}全部类型{% endif %} · {% if sort_order == 'desc' %}由近及远{% else %}由远及近{% endif %}</div>
     </div>
     {% for movie in movies %}
-        <div class="poster-cell">
+        <div class="poster-cell" data-type="{{ 'movie' if movie.media_type == 'Movie' else 'series' }}"
+             data-date="{{ movie.date_raw }}" data-name="{{ movie.name }}">
             <div class="poster-item">
                 <img src="{{ movie.local_img_url }}" alt="{{ movie.name }}" loading="lazy" decoding="async">
                 <div class="info-overlay">
@@ -196,13 +195,138 @@
             {% endif %}
         </div>
     {% endfor %}
+    <div id="wall-empty" style="display: none; grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted);">
+        <p>当前筛选条件下没有匹配的作品。</p>
+        <p style="margin-top: 14px;"><a class="clear-filter" href="{{ url_for('watched') }}" onclick="resetView(event)">清除筛选</a></p>
+    </div>
     <div class="export-footer" data-version="{{ app_version }}"></div>
 </div>
 
 <script>
-    // ====== 筛选与排序控件：服务端参数驱动，切换后重新加载当前视图 ======
+    // ====== 筛选与排序：前端应用 + FLIP 动画，切换不再整页刷新 ======
     const FILTER_STATE = { type: {{ type_filter | tojson }}, sort: {{ sort_order | tojson }} };
     const WATCHED_URL = {{ url_for('watched') | tojson }};
+    const ALL_CELLS = Array.from(document.querySelectorAll('#poster-wall .poster-cell'));
+
+    function prefersReducedMotion() {
+        return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+
+    function isShown(cell) {
+        return cell.style.display !== 'none';
+    }
+
+    function viewLabels() {
+        const typeText = FILTER_STATE.type === 'movie' ? '电影' : (FILTER_STATE.type === 'series' ? '剧集' : '全部类型');
+        const sortText = FILTER_STATE.sort === 'desc' ? '由近及远' : '由远及近';
+        return {
+            typeText: typeText,
+            sortText: sortText,
+            full: typeText + ' · ' + sortText,
+            isDefault: FILTER_STATE.type === 'all' && FILTER_STATE.sort === 'desc'
+        };
+    }
+
+    // 同步工具栏、导出页眉、下拉选中态、空状态
+    function updateViewChrome(ordered) {
+        const label = viewLabels();
+        const total = ALL_CELLS.length;
+        const count = ordered.length;
+        const movieCount = ordered.filter(cell => cell.dataset.type === 'movie').length;
+
+        document.getElementById('result-count').textContent =
+            '共 ' + count + ' 部' + (count !== total ? ' · 全部 ' + total + ' 部' : '');
+        document.getElementById('clear-filter').style.display = label.isDefault ? 'none' : '';
+        document.getElementById('wall-empty').style.display = (count === 0 && total > 0) ? '' : 'none';
+
+        const exportBtn = document.getElementById('export-btn');
+        exportBtn.disabled = count === 0;
+        exportBtn.title = count === 0 ? '当前筛选没有可导出的内容' : '';
+
+        const dates = ordered.map(cell => cell.dataset.date).sort();
+        document.getElementById('export-meta').textContent =
+            '共 ' + count + ' 部' + (count !== total ? ' · 全部 ' + total + ' 部' : '')
+            + ' · 电影 ' + movieCount + ' · 剧集 ' + (count - movieCount)
+            + (dates.length ? ' · 首次观看 ' + dates[0].slice(0, 10) + ' → ' + dates[dates.length - 1].slice(0, 10) : '');
+
+        const filterLine = document.getElementById('export-filter');
+        filterLine.style.display = label.isDefault ? 'none' : '';
+        filterLine.textContent = '当前视图：' + label.full;
+
+        document.querySelector('#type-dropdown .dropdown-selected span').textContent = label.typeText;
+        document.querySelector('#sort-dropdown .dropdown-selected span').textContent = label.sortText;
+        document.querySelectorAll('#type-dropdown-options .dropdown-option')
+            .forEach(opt => opt.classList.toggle('active', opt.dataset.value === FILTER_STATE.type));
+        document.querySelectorAll('#sort-dropdown-options .dropdown-option')
+            .forEach(opt => opt.classList.toggle('active', opt.dataset.value === FILTER_STATE.sort));
+    }
+
+    // FLIP：先记录旧位置，再改显隐与顺序，最后从旧位置过渡回新位置
+    function applyView(animate) {
+        const reduced = prefersReducedMotion();
+        const animateIt = animate && !reduced;
+
+        const first = new Map();
+        if (animateIt) {
+            // 先清掉上一轮未播完的动画，避免被 transform 影响测量基准
+            ALL_CELLS.forEach(cell => {
+                if (cell.getAnimations) cell.getAnimations().forEach(anim => anim.cancel());
+            });
+            ALL_CELLS.forEach(cell => { if (isShown(cell)) first.set(cell, cell.getBoundingClientRect()); });
+        }
+
+        const visible = ALL_CELLS.filter(cell => FILTER_STATE.type === 'all' || cell.dataset.type === FILTER_STATE.type);
+        const visibleSet = new Set(visible);
+        const ordered = visible.slice().sort((a, b) => {
+            let cmp = a.dataset.date < b.dataset.date ? -1 : (a.dataset.date > b.dataset.date ? 1 : 0);
+            if (cmp === 0) cmp = a.dataset.name.localeCompare(b.dataset.name, 'zh-Hans-CN');
+            return FILTER_STATE.sort === 'desc' ? -cmp : cmp;
+        });
+
+        ALL_CELLS.forEach(cell => { cell.style.display = visibleSet.has(cell) ? '' : 'none'; });
+
+        // 按新顺序把卡片插到页脚之前，页眉与页脚始终保持在首尾
+        const footer = document.querySelector('#poster-wall .export-footer');
+        ordered.forEach(cell => document.getElementById('poster-wall').insertBefore(cell, footer));
+
+        updateViewChrome(ordered);
+
+        if (!animateIt) return;
+        // 先统一测量新位置，再逐张播放，避免测量与动画互相干扰
+        const last = new Map();
+        ordered.forEach(cell => last.set(cell, cell.getBoundingClientRect()));
+        ordered.forEach(cell => {
+            const before = first.get(cell);
+            const after = last.get(cell);
+            if (!before) {
+                cell.animate([{ opacity: 0, transform: 'scale(0.96)' }, { opacity: 1, transform: 'none' }],
+                    { duration: 200, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+                return;
+            }
+            const dx = before.left - after.left;
+            const dy = before.top - after.top;
+            if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+                cell.animate([{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }],
+                    { duration: 280, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+            }
+        });
+    }
+
+    function syncUrl() {
+        const params = new URLSearchParams();
+        if (FILTER_STATE.type !== 'all') params.set('type', FILTER_STATE.type);
+        if (FILTER_STATE.sort !== 'desc') params.set('sort', FILTER_STATE.sort);
+        const qs = params.toString();
+        history.replaceState(null, '', qs ? WATCHED_URL + '?' + qs : WATCHED_URL);
+    }
+
+    function resetView(e) {
+        if (e) e.preventDefault();
+        FILTER_STATE.type = 'all';
+        FILTER_STATE.sort = 'desc';
+        applyView(true);
+        syncUrl();
+    }
 
     function closeAllDropdowns() {
         document.querySelectorAll('.custom-dropdown').forEach(el => el.classList.remove('open'));
@@ -223,22 +347,27 @@
 
     function selectFilter(key, value, e) {
         e.stopPropagation();
-        if (FILTER_STATE[key] === value) { closeAllDropdowns(); return; }
+        closeAllDropdowns();
+        if (FILTER_STATE[key] === value) return;
         FILTER_STATE[key] = value;
-        const params = new URLSearchParams();
-        if (FILTER_STATE.type !== 'all') params.set('type', FILTER_STATE.type);
-        if (FILTER_STATE.sort !== 'asc') params.set('sort', FILTER_STATE.sort);
-        const qs = params.toString();
-        window.location.href = qs ? WATCHED_URL + '?' + qs : WATCHED_URL;
+        applyView(true);
+        syncUrl();
     }
 
     // 点击空白处收起下拉
     document.addEventListener('click', closeAllDropdowns);
 
+    // 首屏按 URL 参数应用视图（不做动画，避免刚打开就晃动）
+    applyView(false);
+    const clearLink = document.getElementById('clear-filter');
+    if (clearLink) clearLink.addEventListener('click', resetView);
+
     // 预加载全部海报：用离屏 Image 对象预热缓存，完全不触碰页面 DOM
     // （懒加载图片未进入视口时不会自行加载，直接等待会永久卡住导出）
     function preloadWallImages(wall) {
-        const srcs = Array.from(wall.querySelectorAll('img'))
+        // 只预热当前视图真正显示的海报，被筛选隐藏的卡片不参与导出
+        const srcs = ALL_CELLS.filter(isShown)
+            .flatMap(cell => Array.from(cell.querySelectorAll('img')))
             .map(img => img.currentSrc || img.getAttribute('src'))
             .filter(Boolean);
         return Promise.all([...new Set(srcs)].map(src => loadImageToCache(src, 15000)));
@@ -312,6 +441,10 @@
     function prepareExportClone(clonedDocument) {
         const clonedWall = clonedDocument.getElementById('poster-wall');
         if (!clonedWall) return;
+        // 导出快照强制所有图片为不透明：避免把渐显过程中的半透明海报截进图里
+        const style = clonedDocument.createElement('style');
+        style.textContent = 'img{opacity:1 !important;transition:none !important;}';
+        (clonedDocument.head || clonedDocument.documentElement).appendChild(style);
         clonedWall.classList.add('exporting');
         // 内联 !important 才能覆盖移动端媒体查询里的固定 3 列
         clonedWall.style.setProperty('grid-template-columns', 'repeat(' + EXPORT_COLUMNS + ', 1fr)', 'important');
@@ -327,7 +460,7 @@
 
     // 导出布局比页面多了页眉/页脚/标题行，1:1 基准要按导出高度估算，避免误降分辨率
     function estimateExportHeight(wall, liveHeight) {
-        const posterCount = wall.querySelectorAll('.poster-item').length;
+        const posterCount = ALL_CELLS.filter(isShown).length;
         const rows = Math.max(1, Math.ceil(posterCount / EXPORT_COLUMNS));
         return liveHeight + 170 + rows * 56; // 页眉+页脚约占 170px，每行独立标题约占 56px
     }
@@ -337,7 +470,8 @@
         const parts = [];
         if (FILTER_STATE.type === 'movie') parts.push('电影');
         else if (FILTER_STATE.type === 'series') parts.push('剧集');
-        if (FILTER_STATE.sort === 'desc') parts.push('由近及远');
+        // 默认视图（全部类型 · 由近及远）不加后缀，只有偏离默认状态才标注
+        if (FILTER_STATE.sort === 'asc') parts.push('由远及近');
         return parts.length ? '_' + parts.join('_') : '';
     }
 
@@ -347,7 +481,7 @@
         const text = document.getElementById('export-text');
 
         // 兜底：当前视图没有任何海报时不导出（按钮已置灰，这里防程序化调用）
-        if (!wall.querySelector('.poster-item')) {
+        if (!ALL_CELLS.some(isShown)) {
             if (window.showToast) window.showToast('当前筛选没有可导出的内容');
             return;
         }

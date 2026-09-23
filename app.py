@@ -1902,9 +1902,9 @@ def watched():
     if type_filter not in ('all', 'movie', 'series'):
         type_filter = 'all'
 
-    sort_order = request.args.get('sort', 'asc')
+    sort_order = request.args.get('sort', 'desc')
     if sort_order not in ('asc', 'desc'):
-        sort_order = 'asc'
+        sort_order = 'desc'
 
     if type_filter == 'movie':
         final_posters = [p for p in all_posters if p["item_type"] == "Movie"]
@@ -1925,17 +1925,21 @@ def watched():
     else:
         range_start = range_end = ""
 
+    # 前端用 FLIP 动画做筛选与排序，所以一次性渲染全部海报；服务端仍按当前视图排序，
+    # 保证 JS 未执行时（或首帧）顺序也是对的
     movies_data = []
-    for item in final_posters:
+    for item in sorted(all_posters, key=lambda x: (x["date_actual"], x["name"]), reverse=(sort_order == 'desc')):
         movies_data.append({
             "id": item["id"],
             "name": item["name"],
+            "media_type": item["item_type"],
+            "date_raw": item["date_actual"].strftime("%Y-%m-%d %H:%M:%S"),
             "local_img_url": item["local_img_url"],
             "date_formatted": item["date_actual"].strftime("%Y-%m-%d %H:%M")
         })
 
     return render_template('watched.html', title="海报墙", movies=movies_data,
-                           total_count=total_count, filtered_count=len(movies_data),
+                           total_count=total_count, filtered_count=len(final_posters),
                            filtered_movie_count=filtered_movie_count,
                            filtered_series_count=filtered_series_count,
                            range_start=range_start, range_end=range_end,
